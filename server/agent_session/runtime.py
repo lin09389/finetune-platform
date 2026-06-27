@@ -6,7 +6,6 @@ from typing import Any
 
 from skills import resolve_skill_source_specs, resolve_skill_sources, scan_skill_manifests
 
-
 EPHEMERAL_BACKEND_ROUTES = ("/context/", "/large_tool_results/", "/conversation_history/")
 WORKSPACE_BACKEND_ROUTE = "/workspace/"
 FALLBACK_STATE_BACKEND_ROUTE = "/"
@@ -78,6 +77,7 @@ def build_deepagents_backend(
     """
 
     from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
+
     from memory.memory_service import get_memory_service
 
     from .runtime_factory import deepagents_shell_env

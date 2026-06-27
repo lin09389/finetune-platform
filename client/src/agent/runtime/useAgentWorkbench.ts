@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type {
   AgentExecutionPlanNode,
   AgentHitlDecision,
+  AgentSessionPreferencesUpdate,
 } from '../../services/api';
 import {
   AgentCommandExecutor,
@@ -55,6 +56,16 @@ function errorMessage(error: unknown): string {
   return '操作失败';
 }
 
+function isMissingSessionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    message?: string;
+    response?: { status?: number; data?: { detail?: string } };
+  };
+  const detail = String(candidate.response?.data?.detail || candidate.message || '').toLowerCase();
+  return candidate.response?.status === 404 || detail.includes('session not found');
+}
+
 export interface AgentRuntimePersistence {
   read: typeof readPersistedAgentRuntime;
   write: typeof persistAgentRuntime;
@@ -85,6 +96,12 @@ export function useAgentWorkbench(
       }
       return workspace;
     } catch (error) {
+      if (isMissingSessionError(error)) {
+        if (generation === refreshGenerationRef.current) {
+          dispatch({ type: 'session_missing', sessionId });
+        }
+        return null;
+      }
       if (generation === refreshGenerationRef.current) {
         dispatch({ type: 'error', message: errorMessage(error) });
       }
@@ -273,6 +290,15 @@ export function useAgentWorkbench(
     return executeCommand({ type: 'refresh', sessionId: state.activeSessionId });
   }, [executeCommand, state.activeSessionId]);
 
+  const updateSessionPreferences = useCallback(async (
+    sessionId: string,
+    payload: AgentSessionPreferencesUpdate,
+  ) => {
+    const session = await transport.updateSessionPreferences(sessionId, payload);
+    dispatch({ type: 'session_preferences_updated', session });
+    return session;
+  }, [transport]);
+
   return {
     state,
     actions: {
@@ -285,6 +311,7 @@ export function useAgentWorkbench(
       recoverNode,
       startSubagent,
       cancelSubagent,
+      updateSessionPreferences,
       clearError: () => dispatch({ type: 'clear_error' }),
     },
   };

@@ -308,8 +308,11 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
         setOllamaAvailable(false);
         setOllamaModels([]);
       }
-    } catch (error) {
-      console.error('Failed to refresh runtime inference context:', error);
+    } catch {
+      setBackends([]);
+      setHuggingfaceModels([]);
+      setOllamaAvailable(false);
+      setOllamaModels([]);
     }
   }, [backendStatus]);
 
@@ -339,8 +342,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
       } else {
         setEmbedderStatus({ loaded: false, error: '无法连接到服务器' });
       }
-    } catch (error) {
-      console.error('Failed to refresh runtime knowledge context:', error);
+    } catch {
       setEmbedderStatus({ loaded: false, error: '无法连接到服务器' });
     }
   }, [backendStatus]);
@@ -351,12 +353,8 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     try {
       const payload = await getRuntimeBootstrap();
       applyBootstrapPayload(payload);
-    } catch (error) {
+    } catch {
       setBootstrapWarnings([]);
-      const mode = (import.meta as unknown as { env?: { MODE?: string } }).env?.MODE;
-      if (mode !== 'test') {
-        console.warn('Runtime bootstrap failed, falling back to legacy runtime refresh:', error);
-      }
       await Promise.all([refreshInference(), refreshKnowledge()]);
     }
   }, [applyBootstrapPayload, backendStatus, refreshInference, refreshKnowledge]);
@@ -572,9 +570,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     refreshInference,
     refreshBootstrap,
     refreshKnowledge,
-    selections.inference,
-    selections.knowledge,
-    selections.training,
+    selections,
     setInferenceSelection,
     setKnowledgeSelection,
     setTrainingSelection,
@@ -595,3 +591,5 @@ export const useRuntimeContext = () => {
   }
   return context;
 };
+
+export const useOptionalRuntimeContext = () => useContext(RuntimeContext);

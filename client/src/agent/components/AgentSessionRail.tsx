@@ -54,6 +54,10 @@ interface AgentSessionRailProps {
   activeSessionId: string | null;
   onNew: () => void;
   onSelect: (sessionId: string) => void;
+  onUpdatePreferences?: (
+    sessionId: string,
+    preferences: { display_title?: string | null; pinned?: boolean | null; archived?: boolean | null },
+  ) => Promise<unknown>;
   embedded?: boolean;
 }
 
@@ -62,6 +66,7 @@ export default function AgentSessionRail({
   activeSessionId,
   onNew,
   onSelect,
+  onUpdatePreferences,
   embedded = false,
 }: AgentSessionRailProps) {
   const [query, setQuery] = useState('');
@@ -79,7 +84,7 @@ export default function AgentSessionRail({
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const visibleSessions = useMemo(() => sessions
     .filter((session) => {
-      const archived = preferences.archivedIds.includes(session.id);
+      const archived = Boolean(session.preferences?.archived) || preferences.archivedIds.includes(session.id);
       if (scope === 'archived' ? !archived : archived) return false;
       if (scope === 'active' && ![
         'running',
@@ -89,13 +94,18 @@ export default function AgentSessionRail({
         'repairing',
       ].includes(session.status)) return false;
       if (scope === 'done' && !['completed', 'failed', 'interrupted'].includes(session.status)) return false;
-      const title = preferences.aliases[session.id] || session.title;
+      const title = session.preferences?.display_title
+        || preferences.aliases[session.id]
+        || session.displayTitle
+        || session.title;
       return !deferredQuery
         || title.toLowerCase().includes(deferredQuery)
         || session.projectPath?.toLowerCase().includes(deferredQuery);
     })
     .sort((left, right) => {
-      const pinDelta = Number(pinnedIds.includes(right.id)) - Number(pinnedIds.includes(left.id));
+      const leftPinned = Boolean(left.preferences?.pinned) || pinnedIds.includes(left.id);
+      const rightPinned = Boolean(right.preferences?.pinned) || pinnedIds.includes(right.id);
+      const pinDelta = Number(rightPinned) - Number(leftPinned);
       return pinDelta || right.updatedAt.localeCompare(left.updatedAt);
     }), [deferredQuery, pinnedIds, preferences.aliases, preferences.archivedIds, scope, sessions]);
 
@@ -110,6 +120,18 @@ export default function AgentSessionRail({
   };
 
   const togglePin = (sessionId: string) => {
+    const session = sessions.find((item) => item.id === sessionId);
+    const nextPinned = !(Boolean(session?.preferences?.pinned) || pinnedIds.includes(sessionId));
+    if (onUpdatePreferences) {
+      void onUpdatePreferences(sessionId, { pinned: nextPinned }).catch(() => {
+        togglePinFallback(sessionId);
+      });
+      return;
+    }
+    togglePinFallback(sessionId);
+  };
+
+  const togglePinFallback = (sessionId: string) => {
     setPinnedIds((current) => {
       const next = current.includes(sessionId)
         ? current.filter((id) => id !== sessionId)
@@ -119,6 +141,22 @@ export default function AgentSessionRail({
       }
       return next;
     });
+  };
+
+  const updateSessionPreferences = async (
+    sessionId: string,
+    serverPayload: { display_title?: string | null; pinned?: boolean | null; archived?: boolean | null },
+    localFallback: () => void,
+  ) => {
+    if (!onUpdatePreferences) {
+      localFallback();
+      return;
+    }
+    try {
+      await onUpdatePreferences(sessionId, serverPayload);
+    } catch {
+      localFallback();
+    }
   };
 
   return (
@@ -160,8 +198,12 @@ export default function AgentSessionRail({
           <div className={styles.sessionList}>
             {visibleSessions.map((session) => (
               (() => {
-                const title = preferences.aliases[session.id] || session.title;
-                const archived = preferences.archivedIds.includes(session.id);
+                const title = session.preferences?.display_title
+                  || preferences.aliases[session.id]
+                  || session.displayTitle
+                  || session.title;
+                const archived = Boolean(session.preferences?.archived) || preferences.archivedIds.includes(session.id);
+                const pinned = Boolean(session.preferences?.pinned) || pinnedIds.includes(session.id);
                 return (
               <div
                 key={session.id}
@@ -174,15 +216,15 @@ export default function AgentSessionRail({
                     {STATUS_LABELS[session.status] || session.status}
                   </span>
                 </button>
-                <Tooltip title={pinnedIds.includes(session.id) ? '取消置顶' : '置顶'}>
+                <Tooltip title={pinned ? '取消置顶' : '置顶'}>
                   <button
                     type="button"
                     className={styles.sessionPin}
-                    aria-label={`${pinnedIds.includes(session.id) ? '取消置顶' : '置顶'} ${session.title}`}
-                    aria-pressed={pinnedIds.includes(session.id)}
+                    aria-label={`${pinned ? '取消置顶' : '置顶'} ${session.title}`}
+                    aria-pressed={pinned}
                     onClick={() => togglePin(session.id)}
                   >
-                    {pinnedIds.includes(session.id) ? <PushpinFilled /> : <PushpinOutlined />}
+                    {pinned ? <PushpinFilled /> : <PushpinOutlined />}
                   </button>
                 </Tooltip>
                 <Dropdown
@@ -214,19 +256,27 @@ export default function AgentSessionRail({
                           onOk: () => {
                             const normalized = nextTitle.trim();
                             if (!normalized) return Promise.reject(new Error('会话名称不能为空'));
-                            updatePreferences((current) => ({
-                              ...current,
-                              aliases: { ...current.aliases, [session.id]: normalized },
-                            }));
+                            return updateSessionPreferences(
+                              session.id,
+                              { display_title: normalized },
+                              () => updatePreferences((current) => ({
+                                ...current,
+                                aliases: { ...current.aliases, [session.id]: normalized },
+                              })),
+                            );
                           },
                         });
                       } else {
-                        updatePreferences((current) => ({
-                          ...current,
-                          archivedIds: key === 'archive'
-                            ? Array.from(new Set([session.id, ...current.archivedIds])).slice(0, 100)
-                            : current.archivedIds.filter((id) => id !== session.id),
-                        }));
+                        void updateSessionPreferences(
+                          session.id,
+                          { archived: key === 'archive' },
+                          () => updatePreferences((current) => ({
+                            ...current,
+                            archivedIds: key === 'archive'
+                              ? Array.from(new Set([session.id, ...current.archivedIds])).slice(0, 100)
+                              : current.archivedIds.filter((id) => id !== session.id),
+                          })),
+                        );
                       }
                     },
                   }}

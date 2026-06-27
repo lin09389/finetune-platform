@@ -35,7 +35,7 @@ Every workflow below must remain covered before an Agent change is merged:
 | Protocol resilience | Retain unknown events for diagnostics without crashing the workbench |
 | Large histories | Remain responsive with 10,000 timeline events |
 | High-frequency navigation | Search, filter, pin, and restore sessions; filter timeline records; switch panels from the keyboard |
-| Session organization | Persist local aliases, pins, and archive visibility without mutating server-owned session records |
+| Session organization | Persist aliases, pins, and archive visibility through the backend session preference contract with browser fallback for old cached state |
 | Attention handling | Resolve approvals in batches and retain a bounded local history of user interventions |
 | Edit safety | Preserve prompt drafts, manage multiple open files, warn before discarding edits, and support keyboard save |
 | Dense output | Collapse long timeline records, expose terminal text match counts, and keep plan dependencies and timings scannable |
@@ -45,9 +45,9 @@ Every workflow below must remain covered before an Agent change is merged:
 
 `/agent` is the only Agent product surface and the default application entry. There is no rollout flag or legacy fallback. `/chat` is intentionally limited to ordinary conversational inference and must not import Agent Session orchestration.
 
-Session-level diagnostic details remain in bounded, versioned browser storage. The backend receives only hashed-session aggregate counters in SQLite. Platform-wide summaries require administrator access.
+Session-level diagnostic details remain in bounded, versioned browser storage and are visible in Attention Center for the active session. The backend receives only hashed-session aggregate counters in SQLite. Platform-wide summaries require administrator access.
 
-Session aliases, pins, archives, drafts, active panels, and Attention Center history are versioned browser preferences. Execution plan nodes remain read-only except for the backend-supported recovery command; dependencies, ownership, duration, and recovery attempts are rendered from the authoritative workspace snapshot.
+Session aliases, pins, and archive visibility are backend-owned preferences stored with the Agent Session metadata in SQLite and exposed on `AgentSessionResponse.preferences`; browser storage is only a compatibility fallback. Drafts, active panels, and Attention Center history remain versioned browser preferences. Execution plan nodes remain read-only except for the backend-supported recovery command; dependencies, ownership, duration, and recovery attempts are rendered from the authoritative workspace snapshot.
 
 ## Verification
 

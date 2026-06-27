@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .session_state_machine import AgentSessionStateMachine
 from .execution_plan_events import apply_execution_event_to_session
+from .session_state_machine import AgentSessionStateMachine
 from .state import ensure_session_state
 
 

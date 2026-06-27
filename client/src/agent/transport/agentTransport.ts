@@ -12,10 +12,12 @@ import {
   recoverAgentExecutionPlanNode,
   rejectAgentPermission,
   startAgentAsyncTask,
+  updateAgentSessionPreferences,
   type AgentHitlDecision,
   type AgentPromptRequest,
   type AgentSession,
   type AgentSessionCreate,
+  type AgentSessionPreferencesUpdate,
   type AgentWorkspace,
   reportAgentDiagnostics,
 } from '../../services/api';
@@ -109,6 +111,10 @@ export const agentTransport = {
   listSessions: listAgentSessions,
   createSession: (payload: AgentSessionCreate): Promise<AgentSession> => createAgentSession(payload),
   getSession: (sessionId: string): Promise<AgentSession> => getAgentSession(sessionId),
+  updateSessionPreferences: (
+    sessionId: string,
+    payload: AgentSessionPreferencesUpdate,
+  ): Promise<AgentSession> => updateAgentSessionPreferences(sessionId, payload),
   getWorkspace: (sessionId: string): Promise<AgentWorkspace> => getAgentWorkspace(sessionId),
   prompt: (sessionId: string, payload: AgentPromptRequest): Promise<AgentSession> => promptAgentSession(sessionId, payload),
   interrupt: (sessionId: string): Promise<AgentSession> => interruptAgentSession(sessionId),

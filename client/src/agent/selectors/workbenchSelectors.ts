@@ -6,9 +6,16 @@ import type {
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
 
+const asOptionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
 function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
   const payload = part.payload || {};
   const action = Array.isArray(payload.action_requests) ? payload.action_requests[0] : undefined;
+  const actionName =
+    action && typeof action === 'object' && 'name' in action
+      ? asOptionalString((action as { name?: unknown }).name)
+      : undefined;
   return {
     id: part.id,
     part_id: part.id,
@@ -17,12 +24,12 @@ function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
     status: part.status,
     title: part.title,
     content: part.content,
-    tool: payload.tool || payload.name || action?.name,
-    agent_name: payload.agent_name,
-    agent_role: payload.agent_role,
-    task_id: payload.task_id,
-    child_session_id: payload.child_session_id,
-    async_status: payload.async_status,
+    tool: asOptionalString(payload.tool) || asOptionalString(payload.name) || actionName,
+    agent_name: asOptionalString(payload.agent_name),
+    agent_role: asOptionalString(payload.agent_role),
+    task_id: asOptionalString(payload.task_id),
+    child_session_id: asOptionalString(payload.child_session_id),
+    async_status: asOptionalString(payload.async_status),
     created_at: part.created_at,
     updated_at: part.updated_at,
     payload,

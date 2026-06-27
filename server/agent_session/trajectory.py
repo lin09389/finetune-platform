@@ -6,9 +6,10 @@ import json
 import re
 import shutil
 import subprocess
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import yaml
 from langchain.agents.middleware.types import AgentMiddleware

@@ -46,6 +46,12 @@ const session: AgentSession = {
   project_path: 'C:/workspace/test',
   metadata: {},
   parts: [],
+  preferences: {
+    display_title: null,
+    pinned: false,
+    archived: false,
+    updated_at: null,
+  },
   created_at: '2026-06-19T08:00:00Z',
   updated_at: '2026-06-19T08:00:00Z',
 };
@@ -103,6 +109,7 @@ function fakeTransport(overrides: Partial<AgentTransport> = {}): AgentTransport 
     listSessions: vi.fn().mockResolvedValue([]),
     createSession: vi.fn().mockResolvedValue(session),
     getSession: vi.fn().mockResolvedValue(session),
+    updateSessionPreferences: vi.fn().mockResolvedValue(session),
     getWorkspace: vi.fn().mockResolvedValue(workspace),
     prompt: vi.fn().mockResolvedValue(session),
     interrupt: vi.fn().mockResolvedValue({ ...session, status: 'interrupted' }),
@@ -156,6 +163,63 @@ describe('Agent protocol and runtime', () => {
     const duplicate = agentRuntimeReducer(first, { type: 'stream_event', event });
     expect(first.session?.parts).toHaveLength(1);
     expect(duplicate).toBe(first);
+  });
+
+  it('treats streamed model content as an authoritative snapshot when present', () => {
+    const textPart: AgentSession['parts'][number] = {
+      id: 'agp_text',
+      session_id: session.id,
+      type: 'text',
+      status: 'running',
+      title: '生成中',
+      content: 'Hello',
+      payload: { streaming: true },
+      created_at: '2026-06-19T08:00:01Z',
+    };
+    const streamingSession = { ...session, parts: [textPart] };
+    const deltaEvent: AgentSessionEvent = {
+      ...event,
+      id: 'agevt_delta_full',
+      event_type: 'part_delta',
+      chunk_type: 'part_delta',
+      message: ' world',
+      payload: { part_id: textPart.id, content: 'Hello world', delta: ' world', streaming: true },
+      content: 'Hello world',
+      delta: ' world',
+      part: null,
+    };
+
+    const first = applyEventToSession(streamingSession, deltaEvent);
+    const replayedWithNewId = applyEventToSession(first, { ...deltaEvent, id: 'agevt_delta_full_replay' });
+
+    expect(first?.parts[0]?.content).toBe('Hello world');
+    expect(replayedWithNewId?.parts[0]?.content).toBe('Hello world');
+  });
+
+  it('keeps legacy delta-only model output appendable', () => {
+    const textPart: AgentSession['parts'][number] = {
+      id: 'agp_text_legacy',
+      session_id: session.id,
+      type: 'text',
+      status: 'running',
+      title: '生成中',
+      content: 'Hello',
+      payload: { streaming: true },
+      created_at: '2026-06-19T08:00:01Z',
+    };
+    const next = applyEventToSession({ ...session, parts: [textPart] }, {
+      ...event,
+      id: 'agevt_delta_legacy',
+      event_type: 'part_delta',
+      chunk_type: 'part_delta',
+      message: ' world',
+      payload: { part_id: textPart.id, streaming: true },
+      delta: ' world',
+      content: undefined,
+      part: null,
+    });
+
+    expect(next?.parts[0]?.content).toBe('Hello world');
   });
 
   it('uses session snapshots as authoritative state', () => {
@@ -212,12 +276,19 @@ describe('Agent protocol and runtime', () => {
     };
     persistAgentRuntime({
       activeSessionId: session.id,
-      sessions: [{
+    sessions: [{
         id: session.id,
         title: session.title,
+        displayTitle: session.title,
         status: session.status,
         agentId: session.agent_id,
         updatedAt: session.updated_at,
+        preferences: {
+          display_title: null,
+          pinned: false,
+          archived: false,
+          updated_at: null,
+        },
       }],
     }, storage);
     expect(readPersistedAgentRuntime(storage)).toMatchObject({
@@ -435,9 +506,16 @@ describe('Agent Workbench orchestration', () => {
       sessions: [{
         id: session.id,
         title: session.title,
+        displayTitle: session.title,
         status: session.status,
         agentId: session.agent_id,
         updatedAt: session.updated_at,
+        preferences: {
+          display_title: null,
+          pinned: false,
+          archived: false,
+          updated_at: null,
+        },
       }],
     };
     const persistence = {
@@ -481,9 +559,16 @@ describe('Agent Workbench orchestration', () => {
         sessions: [{
           id: session.id,
           title: session.title,
+          displayTitle: session.title,
           status: session.status,
           agentId: session.agent_id,
           updatedAt: session.updated_at,
+          preferences: {
+            display_title: null,
+            pinned: false,
+            archived: false,
+            updated_at: null,
+          },
         }],
       })),
       write: vi.fn(),
@@ -534,9 +619,16 @@ describe('Agent Workbench orchestration', () => {
         sessions: [{
           id: session.id,
           title: session.title,
+          displayTitle: session.title,
           status: completedSession.status,
           agentId: session.agent_id,
           updatedAt: session.updated_at,
+          preferences: {
+            display_title: null,
+            pinned: false,
+            archived: false,
+            updated_at: null,
+          },
         }],
       })),
       write: vi.fn(),
@@ -554,6 +646,43 @@ describe('Agent Workbench orchestration', () => {
     });
 
     await waitFor(() => expect(transport.connectStream).toHaveBeenCalledTimes(2));
+  });
+
+  it('drops a persisted active session when the server reports it is missing', async () => {
+    const missingSessionId = 'ags_missing';
+    const persistence = {
+      read: vi.fn(() => ({
+        version: 1 as const,
+        activeSessionId: missingSessionId,
+        sessions: [{
+          id: missingSessionId,
+          title: 'Deleted session',
+          displayTitle: 'Deleted session',
+          status: 'running' as const,
+          agentId: 'build',
+          updatedAt: session.updated_at,
+          preferences: {
+            display_title: null,
+            pinned: false,
+            archived: false,
+            updated_at: null,
+          },
+        }],
+      })),
+      write: vi.fn(),
+    };
+    const missingError = Object.assign(new Error('Agent session not found'), {
+      response: { status: 404, data: { detail: 'Agent session not found' } },
+    });
+    const transport = fakeTransport({
+      getWorkspace: vi.fn().mockRejectedValue(missingError),
+    });
+
+    const { result } = renderHook(() => useAgentWorkbench(transport, persistence));
+
+    await waitFor(() => expect(result.current.state.activeSessionId).toBeNull());
+    expect(result.current.state.recentSessions.some((item) => item.id === missingSessionId)).toBe(false);
+    expect(result.current.state.error).toBeNull();
   });
 
   it('virtualizes a 10,000 item timeline and keeps the latest content reachable', async () => {
@@ -597,7 +726,7 @@ describe('Agent Workbench orchestration', () => {
         attentionCount={2}
         desktopSessionRail={<div>desktop sessions</div>}
         mobileSessionRail={<div>mobile sessions</div>}
-        desktopAttentionRail={<div>desktop attention</div>}
+        desktopEnvironmentRail={<div>desktop environment</div>}
         mobileAttentionRail={<div>mobile attention</div>}
         toolbar={null}
       >

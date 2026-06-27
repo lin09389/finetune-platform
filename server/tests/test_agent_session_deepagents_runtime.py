@@ -137,6 +137,28 @@ def test_agent_session_state_machine_clears_latches(tmp_path: Path):
     assert completed["metadata"]["pending_deepagents_interrupt"] is None
 
 
+def test_agent_session_uses_saved_deepseek_cloud_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    def fake_secure_get(key: str):
+        if key == "cloud_deepseek_key":
+            return {
+                "api_key": "secret",
+                "default_model": "deepseek-chat",
+                "base_url": "https://api.deepseek.com",
+            }
+        if key == "cloud_custom_provider_index":
+            return {"providers": ["deepseek"]}
+        return None
+
+    monkeypatch.setattr("agent_session.service.secure_storage.get", fake_secure_get)
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+
+    session = service.create_session(AgentSessionCreate(title="saved cloud model"))
+
+    assert session.provider == "deepseek"
+    assert session.model == "deepseek-chat"
+    assert session.metadata["model_configured"] is True
+
+
 def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-runtime-{uuid.uuid4().hex[:8]}"
     workspace.mkdir()

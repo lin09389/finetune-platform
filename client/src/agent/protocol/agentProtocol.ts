@@ -153,6 +153,45 @@ export function mergeAgentPart(parts: AgentPart[], incoming: AgentPart): AgentPa
   return next;
 }
 
+function payloadAgentPart(event: AgentSessionEvent): AgentPart | null {
+  const payloadPart = event.payload?.part;
+  return isAgentPart(payloadPart) ? payloadPart : null;
+}
+
+function mergedDeltaContent(current: string, event: AgentSessionEvent): string {
+  const snapshotContent = event.part?.content ?? payloadAgentPart(event)?.content;
+  if (typeof snapshotContent === 'string') return snapshotContent;
+
+  if (typeof event.content === 'string') {
+    if (event.payload?.streaming === true) return event.content;
+    if (!current || event.content.startsWith(current)) return event.content;
+    if (event.delta && event.content !== event.delta) return event.content;
+  }
+
+  const delta = event.delta ?? event.content ?? '';
+  return delta ? `${current}${delta}` : current;
+}
+
+function partFromDeltaEvent(event: AgentSessionEvent, partId: string): AgentPart {
+  const payloadPart = payloadAgentPart(event);
+  const content = mergedDeltaContent('', event);
+  return {
+    id: partId,
+    session_id: event.session_id,
+    type: payloadPart?.type || 'text',
+    status: payloadPart?.status || 'running',
+    title: payloadPart?.title || '生成中',
+    content,
+    payload: {
+      ...(payloadPart?.payload || {}),
+      ...(event.payload || {}),
+      streaming: true,
+    },
+    created_at: payloadPart?.created_at || event.created_at,
+    updated_at: event.created_at,
+  };
+}
+
 export function applyEventToSession(session: AgentSession | null, event: AgentSessionEvent): AgentSession | null {
   if (isAgentSession(event.session_snapshot)) return event.session_snapshot;
   if (!session || event.session_id !== session.id) return session;
@@ -160,15 +199,22 @@ export function applyEventToSession(session: AgentSession | null, event: AgentSe
   let parts = session.parts;
   if (event.part) {
     parts = mergeAgentPart(parts, event.part);
-  } else if (event.chunk_type === 'part_delta' && event.payload?.part_id) {
+  } else if ((event.chunk_type === 'part_delta' || event.event_type === 'part_delta') && event.payload?.part_id) {
     const partId = String(event.payload.part_id);
-    parts = parts.map((part) => part.id === partId
-      ? {
-          ...part,
-          content: `${part.content || ''}${event.delta || event.content || ''}`,
-          updated_at: event.created_at,
-        }
-      : part);
+    let matched = false;
+    parts = parts.map((part) => {
+      if (part.id !== partId) return part;
+      matched = true;
+      const payloadPart = payloadAgentPart(event);
+      return {
+        ...part,
+        ...payloadPart,
+        content: mergedDeltaContent(part.content || '', event),
+        payload: { ...(part.payload || {}), ...(payloadPart?.payload || {}) },
+        updated_at: event.created_at,
+      };
+    });
+    if (!matched) parts = mergeAgentPart(parts, partFromDeltaEvent(event, partId));
   }
 
   return {

@@ -50,6 +50,19 @@ class AgentExecutionPlanRecoverRequest(BaseModel):
     instruction: str | None = None
 
 
+class AgentSessionPreferences(BaseModel):
+    display_title: str | None = None
+    pinned: bool = False
+    archived: bool = False
+    updated_at: str | None = None
+
+
+class AgentSessionPreferencesUpdate(BaseModel):
+    display_title: str | None = Field(default=None, max_length=80)
+    pinned: bool | None = None
+    archived: bool | None = None
+
+
 class AgentAsyncTaskResponse(BaseModel):
     task_id: str
     parent_session_id: str
@@ -149,10 +162,11 @@ class AgentSessionResponse(BaseModel):
     project_path: str | None = None
     provider: str | None = None
     model: str | None = None
+    preferences: AgentSessionPreferences = Field(default_factory=AgentSessionPreferences)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
-    parts: list["AgentPartResponse"] = Field(default_factory=list)
+    parts: list[AgentPartResponse] = Field(default_factory=list)
 
 
 class AgentPartResponse(BaseModel):

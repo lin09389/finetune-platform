@@ -25,6 +25,7 @@ export default function AgentTaskComposer({
 }: AgentTaskComposerProps) {
   const [draft, setDraft] = useState('');
   const [agentId, setAgentId] = useState('build');
+  const [submissionFailed, setSubmissionFailed] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing'].includes(session.status));
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
@@ -59,11 +60,13 @@ export default function AgentTaskComposer({
   const submit = async () => {
     if (!draft.trim() || busy) return;
     const content = draft;
+    setSubmissionFailed(false);
     setDraft('');
     sessionStorage.removeItem(draftKey);
     try {
       await onSubmit(content, agentId);
     } catch {
+      setSubmissionFailed(true);
       setDraft(content);
     }
   };
@@ -73,7 +76,10 @@ export default function AgentTaskComposer({
       <TextArea
         ref={inputRef}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          setSubmissionFailed(false);
+          setDraft(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
@@ -98,7 +104,13 @@ export default function AgentTaskComposer({
               label: agent.name,
             }))}
           />
-          <span>{busy ? busyLabel : 'Enter 发送 · Shift+Enter 换行'}</span>
+          <span>
+            {busy
+              ? busyLabel
+              : submissionFailed
+                ? '提交失败，内容已恢复，可再次发送'
+                : 'Enter 发送 · Shift+Enter 换行'}
+          </span>
         </div>
         {isRunning ? (
           <Tooltip title="停止当前运行">

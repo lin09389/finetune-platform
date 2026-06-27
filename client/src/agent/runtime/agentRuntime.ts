@@ -1,4 +1,10 @@
-import type { AgentInfo, AgentSession, AgentSessionEvent, AgentWorkspace } from '../../services/api';
+import type {
+  AgentInfo,
+  AgentSession,
+  AgentSessionEvent,
+  AgentSessionPreferences,
+  AgentWorkspace,
+} from '../../services/api';
 import {
   applyEventToSession,
   isKnownAgentEvent,
@@ -15,10 +21,12 @@ import {
 export interface RecentAgentSession {
   id: string;
   title: string;
+  displayTitle: string;
   status: AgentSession['status'];
   agentId: string;
   projectPath?: string;
   updatedAt: string;
+  preferences: AgentSessionPreferences;
 }
 
 export interface AgentOperation {
@@ -54,6 +62,8 @@ export type AgentRuntimeAction =
   | { type: 'session_selected'; sessionId: string | null }
   | { type: 'workspace_loaded'; workspace: AgentWorkspace }
   | { type: 'session_loaded'; session: AgentSession }
+  | { type: 'session_preferences_updated'; session: AgentSession }
+  | { type: 'session_missing'; sessionId: string }
   | { type: 'stream_event'; event: AgentSessionEvent }
   | { type: 'connection_changed'; connection: AgentConnectionState; attempt: number }
   | { type: 'malformed_event'; raw: string }
@@ -88,13 +98,21 @@ const MAX_SEEN_EVENTS = 2000;
 const MAX_DIAGNOSTIC_EVENTS = 50;
 
 function toRecentSession(session: AgentSession): RecentAgentSession {
+  const preferences = session.preferences || {
+    display_title: null,
+    pinned: false,
+    archived: false,
+    updated_at: null,
+  };
   return {
     id: session.id,
     title: session.title || '未命名任务',
+    displayTitle: preferences.display_title || session.title || '未命名任务',
     status: session.status,
     agentId: session.agent_id,
     projectPath: session.project_path,
     updatedAt: session.updated_at,
+    preferences,
   };
 }
 
@@ -120,6 +138,29 @@ export function agentRuntimeReducer(
         state.recentSessions,
       );
       return { ...state, recentSessions };
+    }
+    case 'session_missing': {
+      const recentSessions = state.recentSessions.filter((session) => session.id !== action.sessionId);
+      if (state.activeSessionId !== action.sessionId) return { ...state, recentSessions };
+      return {
+        ...state,
+        recentSessions,
+        activeSessionId: null,
+        session: null,
+        workspace: null,
+        connection: 'idle',
+        lastEventId: '',
+        seenEventIds: [],
+        unknownEvents: [],
+        malformedEvents: [],
+        error: null,
+        streamRevision: state.streamRevision + 1,
+        diagnostics: {
+          ...EMPTY_AGENT_DIAGNOSTICS,
+          sessionId: null,
+          updatedAt: new Date().toISOString(),
+        },
+      };
     }
     case 'session_selected':
       return {
@@ -164,6 +205,16 @@ export function agentRuntimeReducer(
           sessionId: action.session.id,
           updatedAt: action.session.updated_at,
         },
+      };
+    case 'session_preferences_updated':
+      return {
+        ...state,
+        session: state.session?.id === action.session.id ? action.session : state.session,
+        workspace: state.workspace?.session.id === action.session.id
+          ? { ...state.workspace, session: action.session }
+          : state.workspace,
+        recentSessions: mergeRecent(state.recentSessions, action.session),
+        error: null,
       };
     case 'stream_event': {
       if (state.seenEventIds.includes(action.event.id)) return state;

@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-
 ModelPartType = Literal["text", "tool_call", "summary"]
 
 

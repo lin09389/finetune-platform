@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 from .execution_context import AgentDefinition
 
-
 FilesystemPermissionProfile = Literal["build", "readonly", "deny_all"]
 DEFAULT_DEEPAGENTS_INTERRUPT_ON = {"write_file": True, "edit_file": True, "execute": True}
 

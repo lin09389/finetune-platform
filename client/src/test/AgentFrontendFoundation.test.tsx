@@ -27,6 +27,7 @@ function isolatedTransport(): AgentTransport {
     listSessions: vi.fn().mockResolvedValue([]),
     createSession: vi.fn(),
     getSession: vi.fn(),
+    updateSessionPreferences: vi.fn(),
     getWorkspace: vi.fn(),
     prompt: vi.fn(),
     interrupt: vi.fn(),
@@ -71,7 +72,7 @@ describe('Agent frontend Phase 1 foundation', () => {
     expect(screen.getByText('Agent 工作台')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '新建任务' })).toBeInTheDocument();
     expect(screen.getByLabelText('任务目标')).toBeInTheDocument();
-    expect(screen.getByText('Attention Center')).toBeInTheDocument();
+    expect(screen.getByText('环境信息')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '工作区面板' })).toBeInTheDocument();
   });
 

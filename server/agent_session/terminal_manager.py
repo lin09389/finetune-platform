@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
 import shutil
+import signal
 import subprocess
 import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
-
+from typing import Any
 
 MAX_CAPTURE_BYTES = 1024 * 1024
 TerminalExitCallback = Callable[["TerminalSession"], None]
@@ -91,10 +92,8 @@ class TerminalSession:
             queues = list(self._queues)
         for queue, loop in queues:
             def put(target: asyncio.Queue[dict[str, Any]] = queue, item: dict[str, Any] = message) -> None:
-                try:
+                with suppress(asyncio.QueueFull):
                     target.put_nowait(item)
-                except asyncio.QueueFull:
-                    pass
             try:
                 loop.call_soon_threadsafe(put)
             except RuntimeError:
@@ -277,11 +276,10 @@ class AgentTerminalManager:
             try:
                 while True:
                     if timeout_seconds > 0 and time.monotonic() > deadline:
-                        try:
+                        with suppress(Exception):
                             pty.terminate()
-                        finally:
-                            exit_code = -9
-                            break
+                        exit_code = -9
+                        break
                     try:
                         data = pty.read(4096)
                     except EOFError:
@@ -337,10 +335,8 @@ class AgentTerminalManager:
             def kill_timeout() -> None:
                 nonlocal timed_out
                 timed_out = True
-                try:
+                with suppress(Exception):
                     process.kill()
-                except Exception:
-                    pass
 
             if timeout_seconds > 0:
                 timer = threading.Timer(timeout_seconds, kill_timeout)

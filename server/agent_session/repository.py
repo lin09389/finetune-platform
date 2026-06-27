@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from core.db_manager import get_db_pool, validate_column_names, dynamic_update
+from core.db_manager import dynamic_update, get_db_pool, validate_column_names
 from core.storage import APP_DB_PATH
 
 logger = logging.getLogger(__name__)

@@ -10,6 +10,7 @@ from agent_session.service import AgentSessionService
 from agent_session.models import AgentSessionCreate
 from api.agent_sessions import (
     get_agent_frontend_diagnostics_repository,
+    get_agent_session_service,
     get_agent_session_user,
 )
 from main import app
@@ -59,6 +60,53 @@ def test_agent_session_history_is_authoritative_and_owner_scoped(tmp_path: Path)
     listed = service.list_sessions("alice")
     assert [session.id for session in listed] == [first.id]
     assert listed[0].parts == []
+    assert listed[0].preferences.display_title is None
+    assert listed[0].preferences.pinned is False
+    assert listed[0].preferences.archived is False
+
+
+def test_agent_session_preferences_are_authoritative_and_owner_scoped(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "sessions-prefs.db")))
+    app.dependency_overrides[get_agent_session_service] = lambda: service
+    app.dependency_overrides[get_agent_session_user] = lambda: TokenPayload(
+        user_id="alice",
+        username="alice",
+        role=Role.USER,
+        permissions=["agent_sessions:test"],
+    )
+    client = TestClient(app)
+    try:
+        created = client.post("/agent-sessions", json={"title": "Original task"}).json()
+        response = client.patch(
+            f"/agent-sessions/{created['id']}/preferences",
+            json={"display_title": "Polished name", "pinned": True, "archived": True},
+        )
+        assert response.status_code == 200
+        preferences = response.json()["preferences"]
+        assert preferences["display_title"] == "Polished name"
+        assert preferences["pinned"] is True
+        assert preferences["archived"] is True
+        assert preferences["updated_at"]
+
+        fetched = client.get(f"/agent-sessions/{created['id']}").json()
+        listed = client.get("/agent-sessions").json()
+        assert fetched["preferences"] == preferences
+        assert listed[0]["preferences"] == preferences
+        assert fetched["title"] == "Original task"
+
+        app.dependency_overrides[get_agent_session_user] = lambda: TokenPayload(
+            user_id="bob",
+            username="bob",
+            role=Role.USER,
+            permissions=["agent_sessions:test"],
+        )
+        denied = client.patch(
+            f"/agent-sessions/{created['id']}/preferences",
+            json={"display_title": "Bob rename"},
+        )
+        assert denied.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_agent_frontend_diagnostics_http_contract_and_admin_summary(tmp_path: Path):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.db_manager import get_db_pool
@@ -10,7 +10,7 @@ from core.storage import APP_DB_PATH, init_storage
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class AgentFrontendDiagnosticsRepository:
@@ -20,7 +20,7 @@ class AgentFrontendDiagnosticsRepository:
 
     @staticmethod
     def session_hash(session_id: str, user_id: str) -> str:
-        return hashlib.sha256(f"{user_id}:{session_id}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(f"{user_id}:{session_id}".encode()).hexdigest()
 
     def upsert(self, report: dict[str, Any], user_id: str) -> None:
         session_id = str(report.get("sessionId") or "").strip()

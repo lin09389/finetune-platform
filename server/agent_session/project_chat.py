@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from .deepagents_runtime import CallableToolCallingChatModel
 from .execution_context import RuntimeExecutionContext
 from .model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
-from .runtime_contract import AgentRuntimeContract, PROJECT_CHAT_PROMPT
+from .runtime_contract import PROJECT_CHAT_PROMPT, AgentRuntimeContract
 from .runtime_factory import DeepAgentsRuntimeFactory
 
 

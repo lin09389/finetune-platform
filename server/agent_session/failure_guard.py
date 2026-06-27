@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .state import ensure_session_state
-
 
 DEFAULT_LOOP_GUARD_THRESHOLD = 3
 MAX_RECENT_FAILURES = 8
@@ -116,7 +115,7 @@ class AgentFailureGuard:
             )
             if guard.get(key) not in (None, "")
         }
-        blocked_snapshot["recovered_at"] = datetime.now(timezone.utc).isoformat()
+        blocked_snapshot["recovered_at"] = datetime.now(UTC).isoformat()
         history = [dict(item) for item in guard.get("history") or [] if isinstance(item, dict)]
         history.append(blocked_snapshot)
         metadata["loop_guard"] = {

@@ -10,7 +10,6 @@ from .execution_context import AgentDefinition
 from .permission import AgentRuntimePermissionPolicy, permission_policy_for_agent
 from .runtime_policy import AgentRuntimePolicy, build_agent_runtime_policy, enabled_skill_paths
 
-
 RuntimeKind = Literal["agent_session", "project_chat"]
 BackendMode = Literal["workspace", "project_chat_readonly"]
 
@@ -95,7 +94,8 @@ class AgentRuntimeContract:
         middleware: list[Any],
         subagents: list[dict[str, Any]],
         checkpointer: Any,
-    ) -> "AgentRuntimeContract":
+    ) -> AgentRuntimeContract:
+        _ = goal
         session_id = str(session.get("id"))
         project_path = str(session.get("project_path") or Path.cwd())
         metadata = dict(session.get("metadata") or {})
@@ -153,7 +153,7 @@ class AgentRuntimeContract:
         model: Any,
         metadata: dict[str, Any] | None = None,
         session_id: str = "project_chat",
-    ) -> "AgentRuntimeContract":
+    ) -> AgentRuntimeContract:
         root = str(Path(project_path).resolve())
         permission_policy = permission_policy_for_agent(None, "project_chat", dict(metadata or {}))
         runtime_policy = build_agent_runtime_policy(

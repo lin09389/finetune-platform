@@ -6,7 +6,9 @@ import {
 import { Button, Drawer, Form, Input, Modal, Select, Tooltip } from 'antd';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { AgentHitlDecision } from '../../services/api';
+import { useOptionalRuntimeContext } from '../../runtime/RuntimeContext';
 import AgentAttentionRail from '../components/AgentAttentionRail';
+import AgentEnvironmentRail from '../components/AgentEnvironmentRail';
 import AgentRunTimeline from '../components/AgentRunTimeline';
 import AgentSessionRail from '../components/AgentSessionRail';
 import AgentTaskComposer from '../components/AgentTaskComposer';
@@ -46,6 +48,7 @@ export default function AgentWorkbenchPage({
   persistence,
 }: AgentWorkbenchPageProps = {}) {
   const { state, actions } = useAgentWorkbench(transport, persistence);
+  const runtime = useOptionalRuntimeContext();
   const [activeTab, setActiveTab] = useState<AgentWorkspaceTab>(() => {
     const stored = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(ACTIVE_TAB_KEY);
     return workspaceTabs.some((tab) => tab.key === stored) ? stored as AgentWorkspaceTab : 'activity';
@@ -71,6 +74,18 @@ export default function AgentWorkbenchPage({
   const subagentTargets = state.workspace?.runtime_policy?.async_subagent_targets
     || state.workspace?.runtime?.policy?.async_subagent_targets
     || ['explore', 'review'];
+  const agentRuntimeProvider =
+    runtime?.derived.activeBackend === 'ollama' && runtime.derived.activeModelId
+      ? 'ollama'
+      : undefined;
+  const agentRuntimeModel = agentRuntimeProvider ? runtime?.derived.activeModelId : undefined;
+  const sessionRuntimeProvider = state.session?.provider || undefined;
+  const sessionRuntimeModel = state.session?.model || undefined;
+  const effectiveAgentProvider = agentRuntimeProvider || sessionRuntimeProvider;
+  const effectiveAgentModel = agentRuntimeModel || sessionRuntimeModel;
+  const agentRuntimeLabel = effectiveAgentProvider && effectiveAgentModel
+    ? `Agent 模型 ${effectiveAgentProvider}:${effectiveAgentModel}`
+    : 'Agent 模型自动选择';
 
   useEffect(() => {
     persistAgentWorkbenchSettings(settings);
@@ -110,6 +125,7 @@ export default function AgentWorkbenchPage({
         actions.selectSession(sessionId);
         setActiveTab('activity');
       }}
+      onUpdatePreferences={actions.updateSessionPreferences}
     />
   );
   const attentionRail = (embedded = false) => (
@@ -122,6 +138,14 @@ export default function AgentWorkbenchPage({
       onDecidePermission={decidePermission}
       onRecoverNode={(node) => void actions.recoverNode(node)}
       onRestartSubagent={(agentName, description) => void actions.startSubagent(agentName, description)}
+    />
+  );
+  const environmentRail = (
+    <AgentEnvironmentRail
+      state={state}
+      connection={state.connection}
+      connectionLabel={connectionLabel}
+      onOpenSettings={() => setSettingsOpen(true)}
     />
   );
   const toolbar = (
@@ -160,21 +184,25 @@ export default function AgentWorkbenchPage({
   return (
     <AgentWorkbenchShell
       title={state.session?.title || '新任务'}
-      subtitle={`${projectLabel} · ${statusLabel}`}
+      subtitle={`${projectLabel} · ${statusLabel} · ${agentRuntimeLabel}`}
       connection={state.connection}
       connectionLabel={connectionLabel}
       attentionCount={attentionCount}
       attentionOpenRequest={attentionOpenRequest}
       desktopSessionRail={sessionRail()}
       mobileSessionRail={sessionRail(true)}
-      desktopAttentionRail={attentionRail()}
+      desktopEnvironmentRail={environmentRail}
       mobileAttentionRail={attentionRail(true)}
       toolbar={toolbar}
     >
       <main className={styles.mainSurface}>
         <div className={styles.contentSurface}>
           {activeTab === 'activity' ? (
-            <AgentRunTimeline timeline={timeline} />
+            <AgentRunTimeline
+              timeline={timeline}
+              pendingLabel={composerOperation?.key.startsWith('submit:') ? composerOperation.label : undefined}
+              errorMessage={state.error}
+            />
           ) : activeTab === 'terminal' ? (
             <Suspense fallback={<div className={styles.panelLoading}>正在加载终端...</div>}>
               <AgentTerminalPanel timeline={timeline} />
@@ -212,6 +240,8 @@ export default function AgentWorkbenchPage({
                     void actions.submitTask({
                       content: intent.content,
                       agentId: state.session?.agent_id || 'build',
+                      provider: effectiveAgentProvider,
+                      model: effectiveAgentModel,
                     });
                     setActiveTab('activity');
                     break;
@@ -229,6 +259,8 @@ export default function AgentWorkbenchPage({
             content,
             agentId,
             projectPath: settings.projectPath,
+            provider: effectiveAgentProvider,
+            model: effectiveAgentModel,
             autonomyMode: settings.autonomyMode,
           })}
           onInterrupt={actions.interrupt}

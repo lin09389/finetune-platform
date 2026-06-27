@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from contextlib import suppress
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -25,10 +26,8 @@ class AgentSessionEventBus:
             queues = self._queues.get(session_id)
             if not queues:
                 return
-            try:
+            with suppress(ValueError):
                 queues.remove(queue)
-            except ValueError:
-                pass
             if not queues:
                 self._queues.pop(session_id, None)
 
@@ -50,9 +49,7 @@ class AgentSessionEventBus:
                 active = self._queues.get(session_id)
                 if active:
                     for queue in dead:
-                        try:
+                        with suppress(ValueError):
                             active.remove(queue)
-                        except ValueError:
-                            pass
                     if not active:
                         self._queues.pop(session_id, None)

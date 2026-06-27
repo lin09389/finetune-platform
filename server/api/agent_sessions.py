@@ -6,10 +6,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-
+from agent_session.diagnostics import AgentFrontendDiagnosticsRepository
 from agent_session.models import (
+    AgentApprovalResponse,
     AgentAsyncTaskCancelRequest,
     AgentAsyncTaskEventResponse,
     AgentAsyncTaskListResponse,
@@ -17,21 +16,23 @@ from agent_session.models import (
     AgentAsyncTaskResponse,
     AgentAsyncTaskStartRequest,
     AgentAsyncTaskUpdateRequest,
-    AgentApprovalResponse,
+    AgentEventResponse,
     AgentExecutionPlanRecoverRequest,
     AgentExecutionPlanRecoveryResponse,
-    AgentEventResponse,
+    AgentFrontendDiagnosticsBatch,
     AgentHitlDecisionRequest,
     AgentMemoryFileResponse,
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
+    AgentSessionPreferencesUpdate,
     AgentSessionResponse,
     AgentWorkspaceResponse,
-    AgentFrontendDiagnosticsBatch,
 )
-from agent_session.diagnostics import AgentFrontendDiagnosticsRepository
 from agent_session.service import AgentSessionService
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
 from core.config import settings
 from core.db_manager import run_sync
 from security.auth_middleware import get_current_user_optional
@@ -71,6 +72,11 @@ def _user_can_access_session(session: Any, current_user: TokenPayload) -> bool:
 def _enforce_session_access(session: Any, current_user: TokenPayload) -> None:
     if not _user_can_access_session(session, current_user):
         raise HTTPException(status_code=403, detail="Agent session access denied")
+
+
+def _sse_event(event_name: str, data: dict[str, Any], event_id: str | None = None) -> str:
+    event_id_line = f"id: {event_id}\n" if event_id else ""
+    return f"{event_id_line}event: {event_name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 async def _require_accessible_session(
@@ -203,6 +209,20 @@ async def get_agent_session(
     return await _require_accessible_session(service, session_id, current_user)
 
 
+@router.patch("/{session_id}/preferences", response_model=AgentSessionResponse)
+async def update_agent_session_preferences(
+    session_id: str,
+    request: AgentSessionPreferencesUpdate,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    await _require_accessible_session(service, session_id, current_user)
+    try:
+        return await run_sync(service.update_session_preferences, session_id, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/{session_id}/overview", response_model=AgentSessionOverviewResponse)
 async def get_agent_session_overview(
     session_id: str,
@@ -266,7 +286,7 @@ async def prompt_agent_session(
 ):
     await _require_accessible_session(service, session_id, current_user)
     try:
-        return await run_sync(service.start_prompt_background, session_id, request, background_tasks)
+        return await service.start_prompt_detached(session_id, request)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -438,14 +458,16 @@ async def list_agent_session_events(
 async def stream_agent_session_events(
     session_id: str,
     since_event_id: str | None = None,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     await _require_accessible_session(service, session_id, current_user)
 
     async def event_stream():
-        seen = {since_event_id: True} if since_event_id else {}
-        since_id = since_event_id
+        initial_since_id = since_event_id or last_event_id
+        seen = {initial_since_id: True} if initial_since_id else {}
+        since_id = initial_since_id
         last_heartbeat = time.monotonic()
         heartbeat_interval = 15.0
         yield "retry: 3000\n\n"
@@ -453,7 +475,7 @@ async def stream_agent_session_events(
         queue = service.subscribe_events(session_id)
         try:
             snapshot = await run_sync(service.build_session_snapshot_chunk, session_id)
-            yield f"event: agent_session_event\ndata: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            yield _sse_event("agent_session_event", snapshot, str(snapshot.get("id") or ""))
             last_heartbeat = time.monotonic()
 
             for event in await run_sync(service.list_events, session_id, since_id):
@@ -464,19 +486,19 @@ async def stream_agent_session_events(
                 seen[event["id"]] = True
                 since_id = event["id"]
                 chunk = await run_sync(service.build_stream_chunk, event)
-                yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                yield _sse_event("agent_session_event", chunk, str(chunk.get("id") or ""))
                 last_heartbeat = time.monotonic()
 
             session = await run_sync(service.get_session, session_id)
             status = _session_status(session)
-            if status in AgentSessionService.TERMINAL_STATUSES and len(seen) > (1 if since_event_id else 0):
-                yield f"event: agent_session_done\ndata: {json.dumps({'status': status}, ensure_ascii=False)}\n\n"
+            if status in AgentSessionService.TERMINAL_STATUSES:
+                yield _sse_event("agent_session_done", {"status": status})
                 return
 
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     now = time.monotonic()
                     if now - last_heartbeat >= heartbeat_interval:
                         yield ": heartbeat\n\n"
@@ -484,7 +506,7 @@ async def stream_agent_session_events(
                     session = await run_sync(service.get_session, session_id)
                     status = _session_status(session)
                     if status in AgentSessionService.TERMINAL_STATUSES:
-                        yield f"event: agent_session_done\ndata: {json.dumps({'status': status}, ensure_ascii=False)}\n\n"
+                        yield _sse_event("agent_session_done", {"status": status})
                         break
                     continue
 
@@ -496,12 +518,12 @@ async def stream_agent_session_events(
                 seen[event_id] = True
                 since_id = event_id
                 chunk = await run_sync(service.build_stream_chunk, event)
-                yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                yield _sse_event("agent_session_event", chunk, str(chunk.get("id") or ""))
                 last_heartbeat = time.monotonic()
 
                 session_status = chunk.get("session_status")
                 if session_status in AgentSessionService.TERMINAL_STATUSES:
-                    yield f"event: agent_session_done\ndata: {json.dumps({'status': session_status}, ensure_ascii=False)}\n\n"
+                    yield _sse_event("agent_session_done", {"status": session_status})
                     break
         finally:
             service.unsubscribe_events(session_id, queue)
@@ -535,10 +557,10 @@ async def get_artifact_original(
 
         project_root = Path(project_path).resolve()
         resolved_target = _resolve_artifact_project_path(project_root, artifact.path)
-            
+
         if not resolved_target.exists() or not resolved_target.is_file():
             raise HTTPException(status_code=404, detail="File not found")
-            
+
         try:
             return resolved_target.read_text(encoding="utf-8", errors="ignore")
         except Exception as read_exc:

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .runtime_policy import AgentRuntimePolicy
-
 
 PLAN_SCHEMA_VERSION = "agent.execution.plan.v1"
 PLAN_STATUS_BY_SESSION_STATUS = {
@@ -391,7 +390,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 __all__ = [

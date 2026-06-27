@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from copy import deepcopy
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from .agent_registry import AgentRegistry
 from .async_subagent_policy import resolve_async_subagent_target

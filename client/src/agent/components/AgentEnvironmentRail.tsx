@@ -1,0 +1,153 @@
+import {
+  BranchesOutlined,
+  CheckCircleOutlined,
+  CloudSyncOutlined,
+  CodeOutlined,
+  ExclamationCircleOutlined,
+  FolderOpenOutlined,
+  GithubOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+import { Button, Tag, Tooltip } from 'antd';
+import type { AgentConnectionState } from '../protocol/agentProtocol';
+import type { AgentRuntimeState } from '../runtime/agentRuntime';
+import styles from '../workbench/AgentWorkbench.module.css';
+
+interface AgentEnvironmentRailProps {
+  state: AgentRuntimeState;
+  connection: AgentConnectionState;
+  connectionLabel: string;
+  onOpenSettings: () => void;
+}
+
+const statusLabels: Record<string, string> = {
+  idle: '待命',
+  running: '运行中',
+  waiting_permission: '等待审批',
+  waiting_approval: '等待审批',
+  verifying: '验证中',
+  repairing: '修复中',
+  completed: '已完成',
+  failed: '失败',
+  interrupted: '已停止',
+  needs_manual_review: '需复核',
+};
+
+function basename(path?: string | null): string {
+  if (!path) return '默认工作区';
+  const segments = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  return segments[segments.length - 1] || path;
+}
+
+function formatDelta(count: number, kind: 'positive' | 'negative'): string {
+  if (count <= 0) return '0';
+  return `${kind === 'positive' ? '+' : '-'}${count.toLocaleString()}`;
+}
+
+export default function AgentEnvironmentRail({
+  state,
+  connection,
+  connectionLabel,
+  onOpenSettings,
+}: AgentEnvironmentRailProps) {
+  const workspace = state.workspace;
+  const session = state.session;
+  const runtimePolicy = workspace?.runtime_policy || workspace?.runtime?.policy;
+  const changedFiles = workspace?.changed_files || [];
+  const additions = changedFiles.filter((file) => ['added', 'created', 'new'].includes(file.status)).length;
+  const removals = changedFiles.filter((file) => ['deleted', 'removed'].includes(file.status)).length;
+  const modified = changedFiles.length - additions - removals;
+  const branch =
+    session?.metadata?.git?.branch
+    || workspace?.diagnostics?.git?.branch
+    || runtimePolicy?.resource_profile?.agent?.branch
+    || 'master';
+  const provider = session?.provider || runtimePolicy?.provider || '本地';
+  const model = session?.model || runtimePolicy?.model || '自动';
+  const status = statusLabels[session?.status || 'idle'] || session?.status || '待命';
+  const mounts = workspace?.vfs_mounts || workspace?.runtime?.vfs_mounts || runtimePolicy?.vfs_mounts || [];
+  const enabledTools = runtimePolicy?.tools?.allow_all_builtin
+    ? '内置工具'
+    : `${runtimePolicy?.tools?.allowed?.length || 0} 个工具`;
+
+  return (
+    <aside className={styles.environmentRail} aria-label="环境信息">
+      <section className={styles.environmentCard}>
+        <header className={styles.environmentHeader}>
+          <span>环境信息</span>
+          <Tooltip title="工作台设置">
+            <Button
+              type="text"
+              size="small"
+              icon={<PlusOutlined />}
+              aria-label="打开工作台设置"
+              onClick={onOpenSettings}
+            />
+          </Tooltip>
+        </header>
+        <div className={styles.environmentList}>
+          <div className={styles.environmentRow}>
+            <CodeOutlined />
+            <span>变更</span>
+            <strong>
+              <span className={styles.changePositive}>{formatDelta(additions + modified, 'positive')}</span>
+              <span className={styles.changeNegative}>{formatDelta(removals, 'negative')}</span>
+            </strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <FolderOpenOutlined />
+            <span>本地</span>
+            <strong>{basename(session?.project_path || workspace?.runtime?.workspace_root)}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <BranchesOutlined />
+            <span>分支</span>
+            <strong>{String(branch)}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <CloudSyncOutlined />
+            <span>提交或推送</span>
+            <strong>{changedFiles.length > 0 ? `${changedFiles.length} 个文件` : '暂无变更'}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <GithubOutlined />
+            <span>GitHub</span>
+            <strong>{workspace?.diagnostics?.github_available === false ? 'CLI 不可用' : '未连接'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.environmentCard}>
+        <header className={styles.environmentHeader}>
+          <span>运行状态</span>
+          <Tag color={connection === 'open' ? 'green' : connection === 'error' ? 'red' : undefined}>
+            {connectionLabel}
+          </Tag>
+        </header>
+        <div className={styles.environmentList}>
+          <div className={styles.environmentRow}>
+            {session?.status === 'failed' ? <ExclamationCircleOutlined /> : <CheckCircleOutlined />}
+            <span>会话</span>
+            <strong>{status}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <InfoCircleOutlined />
+            <span>模型</span>
+            <strong>{provider}:{model}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <InfoCircleOutlined />
+            <span>工具</span>
+            <strong>{enabledTools}</strong>
+          </div>
+          <div className={styles.environmentRow}>
+            <InfoCircleOutlined />
+            <span>挂载</span>
+            <strong>{mounts.length || 0}</strong>
+          </div>
+        </div>
+      </section>
+    </aside>
+  );
+}

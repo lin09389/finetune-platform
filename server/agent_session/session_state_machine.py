@@ -7,7 +7,6 @@ from .execution_plan import sync_execution_plan_status
 from .state import clear_runtime_latches, ensure_session_state, set_phase
 from .status import TERMINAL_SESSION_STATUSES
 
-
 TERMINAL_STATUSES = TERMINAL_SESSION_STATUSES
 
 

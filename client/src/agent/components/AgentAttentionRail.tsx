@@ -62,6 +62,11 @@ function actionIcon(action: AgentAttentionAction) {
   return <ReloadOutlined />;
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null) return '暂无';
+  return `${Math.round(value * 100)}%`;
+}
+
 export default function AgentAttentionRail({
   state,
   workspace,
@@ -75,6 +80,13 @@ export default function AgentAttentionRail({
   const items = selectAttentionItems(state);
   const [batchApproving, setBatchApproving] = useState(false);
   const [history, setHistory] = useState<AttentionHistoryEntry[]>(readAttentionHistory);
+  const recoveryRate = state.diagnostics.recoveryRequested
+    ? state.diagnostics.recoverySucceeded / state.diagnostics.recoveryRequested
+    : null;
+  const protocolIssueCount = state.diagnostics.unknownEvents
+    + state.diagnostics.parseFailures
+    + state.diagnostics.recoveryFailed;
+  const recentDiagnosticEvents = state.diagnostics.events.slice(-3).reverse();
   const approvable = useMemo(() => items.flatMap((item) => {
     const action = item.actions.find((candidate) => candidate.id === 'approve');
     return action ? [action] : [];
@@ -174,6 +186,47 @@ export default function AgentAttentionRail({
         ) : null}
       </div>
       <div className={styles.attentionBody}>
+        <section
+          className={`${styles.diagnosticsCard} ${protocolIssueCount > 0 ? styles.diagnosticsCardWarning : ''}`}
+          aria-label="Agent 运行诊断"
+        >
+          <header>
+            <span>运行诊断</span>
+            <Tag color={protocolIssueCount > 0 ? 'orange' : 'green'}>
+              {protocolIssueCount > 0 ? '需关注' : '健康'}
+            </Tag>
+          </header>
+          <div className={styles.diagnosticsGrid}>
+            <div>
+              <strong>{state.diagnostics.unknownEvents}</strong>
+              <span>未知事件</span>
+            </div>
+            <div>
+              <strong>{state.diagnostics.parseFailures}</strong>
+              <span>解析失败</span>
+            </div>
+            <div>
+              <strong>{state.diagnostics.reconnects}</strong>
+              <span>重连</span>
+            </div>
+            <div>
+              <strong>{formatPercent(recoveryRate)}</strong>
+              <span>恢复成功率</span>
+            </div>
+          </div>
+          {recentDiagnosticEvents.length > 0 ? (
+            <div className={styles.diagnosticsEvents}>
+              {recentDiagnosticEvents.map((event) => (
+                <div key={event.id}>
+                  <span>{event.type}</span>
+                  <small>{event.detail || new Date(event.occurredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>当前会话暂无协议异常、解析失败或恢复事件。</p>
+          )}
+        </section>
         {items.map((item) => (
           <section
             key={item.id}

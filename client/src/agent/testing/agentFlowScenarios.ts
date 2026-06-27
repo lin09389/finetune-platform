@@ -83,6 +83,12 @@ export function createFlowScenario(name: AgentFlowName): AgentFlowScenario {
     project_path: 'C:/workspace/project',
     metadata: name === 'loop_guard' ? { loop_guard: { blocked: true, blocked_reason: 'Repeated failure' } } : {},
     parts,
+    preferences: {
+      display_title: null,
+      pinned: false,
+      archived: false,
+      updated_at: null,
+    },
     created_at: createdAt,
     updated_at: createdAt,
   };

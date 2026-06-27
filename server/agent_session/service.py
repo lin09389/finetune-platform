@@ -5,9 +5,9 @@ import json
 import logging
 import threading
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import BackgroundTasks
@@ -15,6 +15,7 @@ from fastapi import BackgroundTasks
 from context.deepagents import build_deepagents_context_pack
 from core.config import settings
 from core.db_manager import run_sync
+from security.encryption import secure_storage
 from workspace.local_paths import get_allowed_workspace_roots
 
 from .agent_registry import AgentRegistry
@@ -33,6 +34,8 @@ from .models import (
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
+    AgentSessionPreferences,
+    AgentSessionPreferencesUpdate,
     AgentSessionResponse,
     AgentWorkspaceResponse,
 )
@@ -47,6 +50,7 @@ from .workspace_view import AgentWorkspaceViewService
 logger = logging.getLogger(__name__)
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
 PromptTaskRecord = tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]]
+SAVED_CLOUD_PROVIDER_PRIORITY = ("deepseek", "openrouter", "openai")
 
 
 class AgentSessionService:
@@ -293,6 +297,8 @@ class AgentSessionService:
             "autonomy_mode": request.autonomy_mode or "safe_auto",
             **default_deepagents_permission_metadata(),
             "enabled_skill_sources": enabled_skill_sources,
+            "model_configured": bool(request.provider and request.model)
+            or self._has_saved_cloud_model(provider, model),
         }
         if user_id:
             metadata["user_id"] = user_id
@@ -321,8 +327,51 @@ class AgentSessionService:
     def _resolve_session_model_defaults(self, agent_id: str, provider: str | None, model: str | None) -> tuple[str | None, str | None]:
         if provider and model:
             return provider, model
+        if provider:
+            saved_provider, saved_model = self._saved_cloud_provider_model(provider)
+            if saved_provider and saved_model:
+                return provider, model or saved_model
+        if not provider and not model:
+            saved_provider, saved_model = self._saved_cloud_provider_model()
+            if saved_provider and saved_model:
+                return saved_provider, saved_model
         agent = self.agent_registry.get(agent_id)
         return provider or (agent.default_provider if agent else None), model or (agent.default_model if agent else None)
+
+    def _saved_cloud_provider_model(self, provider: str | None = None) -> tuple[str | None, str | None]:
+        providers = [provider] if provider else list(SAVED_CLOUD_PROVIDER_PRIORITY)
+        if not provider:
+            index = secure_storage.get("cloud_custom_provider_index") or {}
+            if isinstance(index, dict):
+                for candidate in index.get("providers") or []:
+                    provider_id = str(candidate or "").strip()
+                    if provider_id and provider_id not in providers:
+                        providers.append(provider_id)
+
+        for provider_id in providers:
+            if not provider_id:
+                continue
+            key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
+            if not isinstance(key_data, dict) or not key_data.get("api_key"):
+                continue
+            model = str(key_data.get("default_model") or "").strip()
+            if not model:
+                models = key_data.get("models") or []
+                if models:
+                    model = str(models[0] or "").strip()
+            if model:
+                return str(provider_id), model
+        return None, None
+
+    def _has_saved_cloud_model(self, provider: str | None, model: str | None) -> bool:
+        if not provider or not model:
+            return False
+        key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+        if not isinstance(key_data, dict) or not key_data.get("api_key"):
+            return False
+        saved_model = str(key_data.get("default_model") or "").strip()
+        models = [str(item or "").strip() for item in key_data.get("models") or []]
+        return not saved_model or saved_model == model or model in models
 
     def get_session(self, session_id: str) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
@@ -330,6 +379,32 @@ class AgentSessionService:
             raise ValueError("Agent session not found")
         session["parts"] = self.repository.list_parts(session_id)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    def update_session_preferences(
+        self,
+        session_id: str,
+        request: AgentSessionPreferencesUpdate,
+    ) -> AgentSessionResponse:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        preferences = self._session_preferences(metadata).model_dump()
+        if request.display_title is not None:
+            display_title = request.display_title.strip()
+            if not display_title:
+                preferences["display_title"] = None
+            else:
+                preferences["display_title"] = display_title[:80]
+        if request.pinned is not None:
+            preferences["pinned"] = bool(request.pinned)
+        if request.archived is not None:
+            preferences["archived"] = bool(request.archived)
+        preferences["updated_at"] = datetime.now().isoformat()
+        metadata["ui_preferences"] = preferences
+        updated = self.repository.update_session(session_id, metadata=metadata)
+        updated["parts"] = self.repository.list_parts(session_id)
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(updated))
 
     def list_sessions(self, user_id: str, include_all: bool = False, limit: int = 100) -> list[AgentSessionResponse]:
         sessions = self.repository.list_sessions(limit)
@@ -442,15 +517,31 @@ class AgentSessionService:
             return self.get_session(session_id)
 
         if request.provider or request.model:
+            resolved_provider, resolved_model = self._resolve_session_model_defaults(
+                str(session.get("agent_id") or "build"),
+                request.provider or session.get("provider"),
+                request.model or session.get("model"),
+            )
+            metadata["model_configured"] = bool(request.provider and request.model) or self._has_saved_cloud_model(
+                resolved_provider,
+                resolved_model,
+            )
             self.repository.update_session(
                 session_id,
-                provider=request.provider or session.get("provider"),
-                model=request.model or session.get("model"),
+                provider=resolved_provider,
+                model=resolved_model,
                 metadata=metadata,
             )
             session = self.repository.get_session(session_id) or session
 
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        if self.model_call is None and not (session.get("provider") and session.get("model")):
+            result = self.record_prompt_failure(
+                session_id,
+                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
+            )
+            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+
         context_pack = await build_deepagents_context_pack(
             goal=request.content,
             active_context=request.active_context,
@@ -505,7 +596,7 @@ class AgentSessionService:
         self,
         session_id: str,
         request: AgentPromptRequest,
-        background_tasks: BackgroundTasks,
+        background_tasks: BackgroundTasks | None,
     ) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
         if not session:
@@ -527,8 +618,54 @@ class AgentSessionService:
         metadata["background_run"] = True
         metadata["last_prompt_started_at"] = now
         metadata["current_goal"] = request.content
-        effective_provider = request.provider or session.get("provider")
-        effective_model = request.model or session.get("model")
+        effective_provider, effective_model = self._resolve_session_model_defaults(
+            str(session.get("agent_id") or "build"),
+            request.provider or session.get("provider"),
+            request.model or session.get("model"),
+        )
+        model_configured = bool(
+            metadata.get("model_configured")
+            or (request.provider and request.model)
+            or self._has_saved_cloud_model(effective_provider, effective_model)
+        )
+        metadata["model_configured"] = model_configured
+        if effective_provider != session.get("provider") or effective_model != session.get("model"):
+            session = self.repository.update_session(
+                session_id,
+                provider=effective_provider,
+                model=effective_model,
+                metadata=metadata,
+            )
+        if self.model_call is None and (not model_configured or not (effective_provider and effective_model)):
+            agent_id = str(session.get("agent_id") or "build")
+            policy = build_agent_runtime_policy(
+                agent=self.agent_registry.get(agent_id),
+                agent_id=agent_id,
+                project_path=session.get("project_path"),
+                metadata=metadata,
+                provider=effective_provider,
+                model=effective_model,
+                runtime_kind="agent_session",
+                thread_id=f"agent_session:{session_id}:deepagents",
+                checkpointer=True,
+                agent_registry=self.agent_registry,
+            )
+            metadata["execution_plan"] = build_initial_execution_plan(
+                session={**session, "provider": effective_provider, "model": effective_model},
+                policy=policy,
+                goal=request.content,
+                status="running",
+            )
+            metadata["active_prompt_id"] = None
+            metadata["background_run"] = False
+            metadata["last_prompt_started_at"] = now
+            metadata["current_goal"] = request.content
+            session = self.repository.update_session(session_id, metadata=metadata)
+            result = self.record_prompt_failure(
+                session_id,
+                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
+            )
+            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
         agent_id = str(session.get("agent_id") or "build")
         policy = build_agent_runtime_policy(
             agent=self.agent_registry.get(agent_id),
@@ -565,9 +702,46 @@ class AgentSessionService:
             "Agent 已进入后台执行。",
             {"session_id": session_id, "active_prompt_id": prompt_id, "status": "running", "summary": "Agent 已进入后台执行。"},
         )
-        background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
+        if background_tasks is not None:
+            background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
         session["parts"] = self.repository.list_parts(session_id)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    async def start_prompt_detached(
+        self,
+        session_id: str,
+        request: AgentPromptRequest,
+    ) -> AgentSessionResponse:
+        response = await run_sync(self.start_prompt_background, session_id, request, None)
+        prompt_id = response.metadata.get("active_prompt_id") if isinstance(response.metadata, dict) else None
+        if response.status == "running" and prompt_id:
+            thread = threading.Thread(
+                target=self._run_prompt_thread_entry,
+                args=(session_id, request, str(prompt_id)),
+                name=f"agent-prompt-{session_id}",
+                daemon=True,
+            )
+            thread.start()
+        return response
+
+    def _run_prompt_thread_entry(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            task = loop.create_task(self._run_prompt_background(session_id, request, prompt_id))
+            loop.run_until_complete(task)
+        except Exception:
+            logger.exception("Agent prompt background thread failed for session %s", session_id)
+        finally:
+            try:
+                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
 
     async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
         loop = asyncio.get_running_loop()
@@ -1201,6 +1375,7 @@ class AgentSessionService:
         parts = list(hydrated.get("parts") or self.repository.list_parts(session_id))
         events = self.repository.list_events(session_id) if session_id else []
         metadata = ensure_session_state(dict(hydrated.get("metadata") or {}))
+        preferences = self._session_preferences(metadata)
         diagnostics = self._build_diagnostics(hydrated, parts, events, metadata)
         ui_state = self._build_ui_state(hydrated, parts, diagnostics, metadata)
         metadata["diagnostics"] = diagnostics
@@ -1216,8 +1391,22 @@ class AgentSessionService:
         metadata["stop_reason"] = diagnostics.get("stop_reason")
         metadata["next_action"] = diagnostics.get("next_action")
         hydrated["metadata"] = metadata
+        hydrated["preferences"] = preferences.model_dump()
         hydrated["parts"] = parts
         return hydrated
+
+    @staticmethod
+    def _session_preferences(metadata: dict[str, Any]) -> AgentSessionPreferences:
+        raw = metadata.get("ui_preferences")
+        raw = raw if isinstance(raw, dict) else {}
+        display_title = raw.get("display_title")
+        display_title = display_title.strip()[:80] if isinstance(display_title, str) and display_title.strip() else None
+        return AgentSessionPreferences(
+            display_title=display_title,
+            pinned=bool(raw.get("pinned")),
+            archived=bool(raw.get("archived")),
+            updated_at=str(raw.get("updated_at") or "") or None,
+        )
 
     def _stream_part_snapshot(self, event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
         session_id = str(event.get("session_id") or payload.get("session_id") or "")

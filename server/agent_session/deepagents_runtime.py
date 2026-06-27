@@ -5,20 +5,24 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from pydantic import BaseModel, Field
 from langgraph.types import Command
+from pydantic import BaseModel, Field
 
 from .agent_registry import AgentRegistry
 from .async_subagent_policy import async_subagent_manifest_for_agent
 from .async_subagents import AsyncSubagentService
+from .deepagents_checkpoint import get_checkpoint_db_path
 from .deepagents_events import DeepAgentsEventMapper
 from .execution_context import AgentDefinition, RuntimeExecutionContext
-from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
 from .permission import permission_policy_for_agent
+from .runtime import (
+    build_deep_agent_runtime,
+)
 from .runtime_contract import (
     AgentRuntimeContract,
     agent_system_prompt,
@@ -29,9 +33,6 @@ from .runtime_contract import (
     validate_agent_launch,
 )
 from .runtime_factory import ensure_deepagents_available
-from .runtime import (
-    build_deep_agent_runtime,
-)
 from .session_state_machine import AgentSessionStateMachine
 from .trajectory import (
     TrajectoryStateStore,
@@ -125,7 +126,12 @@ class CallableToolCallingChatModel:
                 return self.model_copy(update={"bound_tools": [convert_to_openai_tool(tool) for tool in tools]})
 
             async def _agenerate(self, messages: list[Any], stop: list[str] | None = None, run_manager: Any = None, **kwargs: Any) -> Any:
-                from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+                from langchain_core.messages import (
+                    AIMessage,
+                    HumanMessage,
+                    SystemMessage,
+                    ToolMessage,
+                )
                 from langchain_core.outputs import ChatGeneration, ChatResult
 
                 _ = stop, run_manager, kwargs

@@ -124,7 +124,8 @@
 }
 
 .sessionRail,
-.attentionRail {
+.attentionRail,
+.environmentRail {
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -277,6 +278,9 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--border-color) 34%, transparent) 1px, transparent 1px) center / 100% 100% no-repeat,
+    var(--bg-primary);
 }
 
 .timeline,
@@ -287,13 +291,13 @@
 
 .timeline {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .timelineToolbar {
   z-index: 2;
   min-height: 42px;
-  display: grid;
+  display: none;
   grid-template-columns: minmax(150px, 240px) auto auto auto;
   align-items: center;
   justify-content: center;
@@ -337,15 +341,19 @@
 
 .timelineItem {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
-  width: min(840px, calc(100% - 36px));
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  width: min(820px, calc(100% - 44px));
   margin: 0 auto;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border-color);
+  padding: 13px 0;
+  border-bottom: 0;
 }
 
 .timelineIcon {
+  display: none;
+}
+
+.timelineIconOld {
   display: grid;
   place-items: center;
   width: 26px;
@@ -374,14 +382,16 @@
 .timelineHeading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 26px;
+  justify-content: flex-start;
+  gap: 9px;
+  min-height: 24px;
 }
 
 .timelineHeading strong {
   overflow: hidden;
-  font-size: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -389,14 +399,32 @@
 .timelineHeading span {
   color: var(--text-tertiary);
   font-size: 10px;
-  text-transform: lowercase;
+}
+
+.timelineMetaRow {
+  min-height: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.timelineMetaRow span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .timelineContent {
   position: relative;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.65;
+  max-width: 78ch;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.75;
   overflow-wrap: anywhere;
 }
 
@@ -430,14 +458,202 @@
   white-space: pre-wrap;
 }
 
+.commandCard {
+  margin-top: 2px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.executionHeader {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 14px 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 12px/1.4 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.executionHeader:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.executionHeader:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.executionChevron {
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.executionLabel {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.executionHeader code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 11px/1.5 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executionStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.executionStatusSuccess {
+  color: var(--success);
+}
+
+.executionDetails {
+  border-top: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 58%, var(--bg-secondary));
+}
+
+.commandCard pre {
+  max-height: 280px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--text-primary);
+  font: 11px/1.65 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.executionEmpty {
+  padding: 12px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.executionFooter {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.commandSuccess,
+.commandFailure {
+  color: var(--text-tertiary);
+}
+
+.commandSuccess {
+  color: var(--success);
+}
+
+.commandFailure {
+  color: var(--error);
+}
+
+.diffSummaryCard {
+  margin-top: 2px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.diffSummaryCard .executionHeader {
+  grid-template-columns: 14px 16px minmax(0, 1fr) auto;
+}
+
+.diffStats {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 10px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.diffAdditions {
+  color: var(--success);
+}
+
+.diffDeletions {
+  color: var(--error);
+}
+
+.diffSummaryCard ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 9px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  list-style: none;
+}
+
+.diffSummaryCard li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diffSummaryCard li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diffSummaryCard .moreFiles {
+  padding-left: 22px;
+  color: var(--text-tertiary);
+}
+
+.diffSummaryCard pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 11px/1.55 var(--font-mono);
+  white-space: pre-wrap;
+}
+
 .composer {
-  width: min(840px, calc(100% - 36px));
-  margin: 10px auto 12px;
+  width: min(780px, calc(100% - 44px));
+  margin: 12px auto 14px;
   overflow: hidden;
   border: 1px solid var(--border-hover);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg-secondary);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 12px 34px color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .composer :global(.ant-input) {
@@ -449,7 +665,7 @@
 }
 
 .composerFooter {
-  min-height: 42px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -878,6 +1094,71 @@
   border-left: 1px solid var(--border-color);
 }
 
+.environmentRail {
+  padding: 14px 12px;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.environmentCard {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.environmentHeader {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.environmentList {
+  display: grid;
+  gap: 2px;
+}
+
+.environmentRow {
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.environmentRow strong {
+  min-width: 0;
+  max-width: 128px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.changePositive {
+  color: var(--success);
+}
+
+.changeNegative {
+  margin-left: 6px;
+  color: var(--error);
+}
+
 .attentionHeader {
   position: sticky;
   top: 0;
@@ -911,6 +1192,93 @@
   border: 1px solid var(--border-color);
   border-radius: 7px;
   background: var(--bg-primary);
+}
+
+.diagnosticsCard {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-primary);
+}
+
+.diagnosticsCardWarning {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border-color));
+}
+
+.diagnosticsCard header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.diagnosticsCard :global(.ant-tag) {
+  margin: 0;
+  font-size: 9px;
+  line-height: 17px;
+}
+
+.diagnosticsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.diagnosticsGrid > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.diagnosticsGrid strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.diagnosticsGrid span,
+.diagnosticsCard p,
+.diagnosticsEvents small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.diagnosticsCard p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.diagnosticsEvents {
+  display: grid;
+  gap: 6px;
+}
+
+.diagnosticsEvents > div {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diagnosticsEvents span,
+.diagnosticsEvents small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnosticsEvents span {
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 
 .attention_critical {
@@ -1017,7 +1385,8 @@
     grid-template-columns: 210px minmax(0, 1fr) auto;
   }
 
-  .attentionRail {
+  .attentionRail,
+  .environmentRail {
     display: none;
   }
 
@@ -1041,9 +1410,14 @@
     border-right: 0;
   }
 
+  .brand > span:last-child {
+    display: none;
+  }
+
   .projectName,
   .sessionRail,
   .attentionRail,
+  .environmentRail,
   .connection {
     display: none;
   }
@@ -1090,13 +1464,20 @@
   }
 
   .timelineItem {
-    grid-template-columns: 24px minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
   }
 
   .timelineIcon {
-    width: 24px;
-    height: 24px;
+    display: none;
+  }
+
+  .executionStatus {
+    display: none;
+  }
+
+  .executionHeader {
+    grid-template-columns: 14px 16px auto minmax(0, 1fr);
   }
 
   .composer {

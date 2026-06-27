@@ -14,7 +14,7 @@ interface AgentWorkbenchShellProps {
   attentionOpenRequest?: number;
   desktopSessionRail: ReactNode;
   mobileSessionRail: ReactNode;
-  desktopAttentionRail: ReactNode;
+  desktopEnvironmentRail: ReactNode;
   mobileAttentionRail: ReactNode;
   toolbar: ReactNode;
   children: ReactNode;
@@ -29,7 +29,7 @@ export default function AgentWorkbenchShell({
   attentionOpenRequest = 0,
   desktopSessionRail,
   mobileSessionRail,
-  desktopAttentionRail,
+  desktopEnvironmentRail,
   mobileAttentionRail,
   toolbar,
   children,
@@ -79,7 +79,7 @@ export default function AgentWorkbenchShell({
 
       {desktopSessionRail}
       {children}
-      {desktopAttentionRail}
+      {desktopEnvironmentRail}
 
       <Drawer
         title="Agent 会话"

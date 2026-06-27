@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import datetime, timezone
 import logging
+from copy import deepcopy
+from datetime import UTC, datetime
 from typing import Any
 
 from .execution_plan import PLAN_SCHEMA_VERSION, repair_execution_plan
@@ -650,7 +650,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 __all__ = ["apply_execution_event", "apply_execution_event_to_session"]
