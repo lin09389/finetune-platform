@@ -240,6 +240,36 @@ class HuggingFaceEngine(BaseInferenceEngine):
 
         return await self.generate(inference_request)
 
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[StreamChunk, None]:
+        """流式聊天"""
+        model, tokenizer = self._get_model_and_tokenizer(request.model_id)
+
+        if hasattr(tokenizer, 'apply_chat_template'):
+            messages = [{"role": m.role, "content": m.content} for m in request.messages]
+            if request.system_prompt:
+                messages.insert(0, {"role": "system", "content": request.system_prompt})
+
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt = "\n".join([f"{m.role}: {m.content}" for m in request.messages])
+            prompt += "\nassistant:"
+
+        inference_request = InferenceRequest(
+            model_id=request.model_id,
+            prompt=prompt,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            metadata=request.metadata,
+        )
+
+        async for chunk in self.stream(inference_request):
+            yield chunk
+
     async def stream(self, request: InferenceRequest) -> AsyncGenerator[StreamChunk, None]:
         """流式生成"""
         import threading

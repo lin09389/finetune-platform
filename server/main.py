@@ -52,6 +52,7 @@ from api.file_parser import router as file_parser
 from api.gateway_api.routes import router as gateway
 from api.heartbeat import router as heartbeat
 from api.inference import router as inference
+from api.inference.openai_routes import router as openai_routes
 from api.inference_engine import router as inference_engine
 from api.knowledge import router as knowledge
 from api.mcp import router as mcp
@@ -621,6 +622,7 @@ app.include_router(training, prefix="/training", tags=["Training"])
 app.include_router(evaluation, prefix="/evaluation", tags=["Evaluation"])
 app.include_router(deployment, prefix="/deployment", tags=["Deployment"])
 app.include_router(inference, prefix="/inference", tags=["Inference"])
+app.include_router(openai_routes)
 app.include_router(chat, tags=["Chat"])
 app.include_router(agents)
 app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
