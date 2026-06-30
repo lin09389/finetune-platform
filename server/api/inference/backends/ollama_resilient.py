@@ -413,7 +413,7 @@ class OllamaResilientBackend(InferenceBackend):
             )
         else:
             messages = request if isinstance(request, list) else []
-            config = GenerationConfig()
+            config = context if isinstance(context, GenerationConfig) else GenerationConfig()
 
         if not self._is_loaded:
             await self.load_model(self.model_name)

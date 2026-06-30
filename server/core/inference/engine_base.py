@@ -174,21 +174,6 @@ class BaseInferenceEngine(ABC):
             finish_reason=response.finish_reason,
         )
 
-    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[StreamChunk, None]:
-        """
-        流式聊天对话（可选实现）
-
-        默认实现：生成完整响应后一次性返回
-        子类可重写以实现真正的流式输出
-        """
-        response = await self.chat(request)
-        yield StreamChunk(
-            content=response.text,
-            done=True,
-            tokens_so_far=response.tokens_generated,
-            finish_reason=response.finish_reason,
-        )
-
     def get_model_info(self, model_id: str) -> dict[str, Any] | None:
         """获取模型信息"""
         return self._loaded_models.get(model_id)

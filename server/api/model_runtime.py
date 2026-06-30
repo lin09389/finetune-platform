@@ -40,6 +40,11 @@ _active_selection: dict[str, str | None] = {
 }
 
 
+def get_active_model_runtime_selection() -> dict[str, str | None]:
+    """Return a copy of the active product-level inference selection."""
+    return dict(_active_selection)
+
+
 async def _resolve(value_or_awaitable: Any) -> Any:
     if inspect.isawaitable(value_or_awaitable):
         return await value_or_awaitable

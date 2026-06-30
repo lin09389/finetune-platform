@@ -263,60 +263,6 @@ class OllamaEngine(BaseInferenceEngine):
                         )
                         break
 
-    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[StreamChunk, None]:
-        """流式聊天"""
-        messages = []
-        if request.system_prompt:
-            messages.append({"role": "system", "content": request.system_prompt})
-        for msg in request.messages:
-            messages.append({"role": msg.role, "content": msg.content})
-
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "model": request.model_id,
-                "messages": messages,
-                "stream": True,
-                "options": {
-                    "num_predict": request.max_tokens,
-                    "temperature": request.temperature,
-                    "top_p": request.top_p,
-                },
-            }
-
-            async with session.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-            ) as response:
-                tokens_so_far = 0
-
-                async for line in response.content:
-                    if not line:
-                        continue
-
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    message = data.get("message", {})
-                    if "content" in message:
-                        tokens_so_far += 1
-                        yield StreamChunk(
-                            content=message["content"],
-                            done=False,
-                            tokens_so_far=tokens_so_far,
-                        )
-
-                    if data.get("done"):
-                        yield StreamChunk(
-                            content="",
-                            done=True,
-                            tokens_so_far=tokens_so_far,
-                            finish_reason="stop",
-                        )
-                        break
-
     def get_model_info(self, model_id: str) -> dict[str, Any] | None:
         """获取模型信息"""
         import requests
