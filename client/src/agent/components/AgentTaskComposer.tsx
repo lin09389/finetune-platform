@@ -29,6 +29,8 @@ export default function AgentTaskComposer({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing'].includes(session.status));
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
 
   useEffect(() => {
     if (session?.agent_id) setAgentId(session.agent_id);
@@ -60,14 +62,18 @@ export default function AgentTaskComposer({
   const submit = async () => {
     if (!draft.trim() || busy) return;
     const content = draft;
+    const submittedDraftKey = draftKey;
     setSubmissionFailed(false);
     setDraft('');
     sessionStorage.removeItem(draftKey);
     try {
       await onSubmit(content, agentId);
     } catch {
-      setSubmissionFailed(true);
-      setDraft(content);
+      sessionStorage.setItem(submittedDraftKey, content);
+      if (draftKeyRef.current === submittedDraftKey) {
+        setSubmissionFailed(true);
+        setDraft(content);
+      }
     }
   };
 
@@ -81,7 +87,7 @@ export default function AgentTaskComposer({
           setDraft(event.target.value);
         }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             void submit();
           }
@@ -104,7 +110,7 @@ export default function AgentTaskComposer({
               label: agent.name,
             }))}
           />
-          <span>
+          <span aria-live="polite">
             {busy
               ? busyLabel
               : submissionFailed

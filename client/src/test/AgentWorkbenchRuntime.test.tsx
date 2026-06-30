@@ -1,42 +1,31 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import AgentRunTimeline from '../agent/components/AgentRunTimeline';
-import {
-  AgentCommandExecutor,
-  AgentCommandFailure,
-} from '../agent/commands/agentCommands';
-import AgentWorkbenchShell from '../agent/workbench/AgentWorkbenchShell';
 import { selectAttentionItems } from '../agent/attention/selectAttentionItems';
+import { AgentCommandExecutor, AgentCommandFailure } from '../agent/commands/agentCommands';
+import { routeAgentNextAction } from '../agent/commands/nextActionRouting';
+import AgentRunTimeline from '../agent/components/AgentRunTimeline';
 import {
   applyEventToSession,
   decodeAgentSessionEvent,
   isKnownAgentEvent,
 } from '../agent/protocol/agentProtocol';
-import {
-  agentRuntimeReducer,
-  initialAgentRuntimeState,
-} from '../agent/runtime/agentRuntime';
+import { agentRuntimeReducer, initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import {
   persistAgentRuntime,
   readPersistedAgentRuntime,
 } from '../agent/runtime/sessionPersistence';
 import { useAgentWorkbench } from '../agent/runtime/useAgentWorkbench';
+import { selectTimeline } from '../agent/selectors/workbenchSelectors';
+import { FLOW_NAMES, createFlowScenario } from '../agent/testing/agentFlowScenarios';
+import { projectLegacyFixture, projectNewRuntime } from '../agent/testing/canonicalProjection';
 import type { AgentTransport } from '../agent/transport/agentTransport';
+import AgentWorkbenchShell from '../agent/workbench/AgentWorkbenchShell';
 import type {
   AgentSession,
   AgentSessionEvent,
   AgentSessionUiTimelineItem,
   AgentWorkspace,
 } from '../services/api';
-import {
-  FLOW_NAMES,
-  createFlowScenario,
-} from '../agent/testing/agentFlowScenarios';
-import {
-  projectLegacyFixture,
-  projectNewRuntime,
-} from '../agent/testing/canonicalProjection';
-import { routeAgentNextAction } from '../agent/commands/nextActionRouting';
 
 const session: AgentSession = {
   id: 'ags_test',
@@ -126,6 +115,98 @@ function fakeTransport(overrides: Partial<AgentTransport> = {}): AgentTransport 
 }
 
 describe('Agent protocol and runtime', () => {
+  it('projects the most recent legacy prompt when older sessions have no user part', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        metadata: { current_goal: '旧会话中最近发送的任务' },
+        parts: [],
+      },
+    });
+
+    expect(selectTimeline(loaded)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: '我的消息',
+          content: '旧会话中最近发送的任务',
+          payload: expect.objectContaining({ role: 'user', source: 'legacy_current_goal' }),
+        }),
+      ]),
+    );
+  });
+
+  it('uses the session title for legacy sessions created before current_goal existed', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: { ...session, title: '最早版本保存的任务标题', metadata: {}, parts: [] },
+    });
+
+    expect(selectTimeline(loaded)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: '我的消息', content: '最早版本保存的任务标题' }),
+      ]),
+    );
+  });
+
+  it('prefers the final summary when the streamed model text is identical', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        parts: [
+          {
+            id: 'part_streamed_answer',
+            session_id: session.id,
+            type: 'text',
+            status: 'completed',
+            title: 'AI 正在思考...',
+            content: '实现已完成',
+            payload: { role: 'assistant' },
+            created_at: session.created_at,
+          },
+          {
+            id: 'part_final_summary',
+            session_id: session.id,
+            type: 'summary',
+            status: 'completed',
+            title: '最终结果',
+            content: '实现已完成',
+            payload: { summary: '实现已完成' },
+            created_at: session.updated_at,
+          },
+        ],
+      },
+    });
+
+    expect(selectTimeline(loaded).filter((item) => item.content === '实现已完成')).toEqual([
+      expect.objectContaining({ id: 'part_final_summary', type: 'summary' }),
+    ]);
+  });
+
+  it('omits empty model stream placeholders from the visible transcript', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        parts: [
+          {
+            id: 'part_empty_stream',
+            session_id: session.id,
+            type: 'text',
+            status: 'running',
+            title: 'AI 正在思考...',
+            content: '',
+            payload: { runtime: 'deepagents', agent_role: 'parent' },
+            created_at: session.created_at,
+          },
+        ],
+      },
+    });
+
+    expect(selectTimeline(loaded).some((item) => item.id === 'part_empty_stream')).toBe(false);
+  });
+
   it('rejects malformed envelopes and retains unknown valid events', () => {
     expect(decodeAgentSessionEvent({ id: 'broken' })).toBeNull();
     const decoded = decodeAgentSessionEvent({
@@ -148,7 +229,10 @@ describe('Agent protocol and runtime', () => {
     'agent_chain_failed',
   ])('recognizes the compatible %s event without raising protocol attention', (eventType) => {
     expect(isKnownAgentEvent(eventType)).toBe(true);
-    const loaded = agentRuntimeReducer(initialAgentRuntimeState, { type: 'session_loaded', session });
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session,
+    });
     const next = agentRuntimeReducer(loaded, {
       type: 'stream_event',
       event: { ...event, id: `compat:${eventType}`, event_type: eventType, part: null },
@@ -158,7 +242,10 @@ describe('Agent protocol and runtime', () => {
   });
 
   it('merges event parts and ignores duplicate event ids', () => {
-    const loaded = agentRuntimeReducer(initialAgentRuntimeState, { type: 'session_loaded', session });
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session,
+    });
     const first = agentRuntimeReducer(loaded, { type: 'stream_event', event });
     const duplicate = agentRuntimeReducer(first, { type: 'stream_event', event });
     expect(first.session?.parts).toHaveLength(1);
@@ -190,7 +277,10 @@ describe('Agent protocol and runtime', () => {
     };
 
     const first = applyEventToSession(streamingSession, deltaEvent);
-    const replayedWithNewId = applyEventToSession(first, { ...deltaEvent, id: 'agevt_delta_full_replay' });
+    const replayedWithNewId = applyEventToSession(first, {
+      ...deltaEvent,
+      id: 'agevt_delta_full_replay',
+    });
 
     expect(first?.parts[0]?.content).toBe('Hello world');
     expect(replayedWithNewId?.parts[0]?.content).toBe('Hello world');
@@ -207,17 +297,20 @@ describe('Agent protocol and runtime', () => {
       payload: { streaming: true },
       created_at: '2026-06-19T08:00:01Z',
     };
-    const next = applyEventToSession({ ...session, parts: [textPart] }, {
-      ...event,
-      id: 'agevt_delta_legacy',
-      event_type: 'part_delta',
-      chunk_type: 'part_delta',
-      message: ' world',
-      payload: { part_id: textPart.id, streaming: true },
-      delta: ' world',
-      content: undefined,
-      part: null,
-    });
+    const next = applyEventToSession(
+      { ...session, parts: [textPart] },
+      {
+        ...event,
+        id: 'agevt_delta_legacy',
+        event_type: 'part_delta',
+        chunk_type: 'part_delta',
+        message: ' world',
+        payload: { part_id: textPart.id, streaming: true },
+        delta: ' world',
+        content: undefined,
+        part: null,
+      },
+    );
 
     expect(next?.parts[0]?.content).toBe('Hello world');
   });
@@ -234,7 +327,10 @@ describe('Agent protocol and runtime', () => {
   });
 
   it('records unknown events without corrupting session state', () => {
-    const loaded = agentRuntimeReducer(initialAgentRuntimeState, { type: 'session_loaded', session });
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session,
+    });
     const next = agentRuntimeReducer(loaded, {
       type: 'stream_event',
       event: { ...event, id: 'future_1', event_type: 'future_event', part: null },
@@ -272,25 +368,32 @@ describe('Agent protocol and runtime', () => {
     let storedValue = '';
     const storage: Pick<Storage, 'getItem' | 'setItem'> = {
       getItem: vi.fn((): string => storedValue),
-      setItem: vi.fn((_key: string, value: string): void => { storedValue = value; }),
+      setItem: vi.fn((_key: string, value: string): void => {
+        storedValue = value;
+      }),
     };
-    persistAgentRuntime({
-      activeSessionId: session.id,
-    sessions: [{
-        id: session.id,
-        title: session.title,
-        displayTitle: session.title,
-        status: session.status,
-        agentId: session.agent_id,
-        updatedAt: session.updated_at,
-        preferences: {
-          display_title: null,
-          pinned: false,
-          archived: false,
-          updated_at: null,
-        },
-      }],
-    }, storage);
+    persistAgentRuntime(
+      {
+        activeSessionId: session.id,
+        sessions: [
+          {
+            id: session.id,
+            title: session.title,
+            displayTitle: session.title,
+            status: session.status,
+            agentId: session.agent_id,
+            updatedAt: session.updated_at,
+            preferences: {
+              display_title: null,
+              pinned: false,
+              archived: false,
+              updated_at: null,
+            },
+          },
+        ],
+      },
+      storage,
+    );
     expect(readPersistedAgentRuntime(storage)).toMatchObject({
       version: 1,
       activeSessionId: session.id,
@@ -300,27 +403,31 @@ describe('Agent protocol and runtime', () => {
 });
 
 describe('Agent Phase 7 feature contract gates', () => {
-  it.each(FLOW_NAMES)('%s produces the same canonical projection for legacy and new stores', (flowName) => {
-    const {
-      session: flowSession,
-      workspace: flowWorkspace,
-      initialWorkspace,
-      events,
-    } = createFlowScenario(flowName);
-    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
-      type: 'workspace_loaded',
-      workspace: initialWorkspace,
-    });
-    const state = events.reduce(
-      (current, streamEvent) => agentRuntimeReducer(current, {
-        type: 'stream_event',
-        event: streamEvent,
-      }),
-      loaded,
-    );
+  it.each(FLOW_NAMES)(
+    '%s produces the same canonical projection for legacy and new stores',
+    (flowName) => {
+      const {
+        session: flowSession,
+        workspace: flowWorkspace,
+        initialWorkspace,
+        events,
+      } = createFlowScenario(flowName);
+      const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+        type: 'workspace_loaded',
+        workspace: initialWorkspace,
+      });
+      const state = events.reduce(
+        (current, streamEvent) =>
+          agentRuntimeReducer(current, {
+            type: 'stream_event',
+            event: streamEvent,
+          }),
+        loaded,
+      );
 
-    expect(projectNewRuntime(state)).toEqual(projectLegacyFixture(flowSession, flowWorkspace));
-  });
+      expect(projectNewRuntime(state)).toEqual(projectLegacyFixture(flowSession, flowWorkspace));
+    },
+  );
 
   it('creates actionable attention items with cause, impact, recommendation and actions', () => {
     const { workspace: permissionWorkspace } = createFlowScenario('permission');
@@ -416,19 +523,23 @@ describe('Agent Phase 7 feature contract gates', () => {
     ['restart_failed_task', 'start_subagent'],
   ] as const)('routes %s to an executable %s intent', (actionType, intentType) => {
     const task = createFlowScenario('subagent').workspace.async_tasks.tasks[0]!;
-    const intent = routeAgentNextAction({
-      id: `action:${actionType}`,
-      action_type: actionType,
-      title: actionType,
-      summary: `${actionType} summary`,
-      priority: 'medium',
-      source_task_id: actionType === 'restart_failed_task' ? task.task_id : undefined,
-      payload: actionType === 'inspect_file'
-        ? { path: 'src/app.ts' }
-        : actionType.startsWith('start_')
-          ? { subagent_type: actionType === 'start_review' ? 'review' : 'explore' }
-          : {},
-    }, [task]);
+    const intent = routeAgentNextAction(
+      {
+        id: `action:${actionType}`,
+        action_type: actionType,
+        title: actionType,
+        summary: `${actionType} summary`,
+        priority: 'medium',
+        source_task_id: actionType === 'restart_failed_task' ? task.task_id : undefined,
+        payload:
+          actionType === 'inspect_file'
+            ? { path: 'src/app.ts' }
+            : actionType.startsWith('start_')
+              ? { subagent_type: actionType === 'start_review' ? 'review' : 'explore' }
+              : {},
+      },
+      [task],
+    );
     expect(intent.type).toBe(intentType);
   });
 });
@@ -460,11 +571,13 @@ describe('Agent command executor', () => {
     });
     const executor = new AgentCommandExecutor(transport);
 
-    await expect(executor.execute({
-      type: 'submit',
-      currentSession: null,
-      options: { content: 'Inspect the repository' },
-    })).rejects.toMatchObject({
+    await expect(
+      executor.execute({
+        type: 'submit',
+        currentSession: null,
+        options: { content: 'Inspect the repository' },
+      }),
+    ).rejects.toMatchObject({
       name: 'AgentCommandFailure',
       partialSession: session,
     });
@@ -474,11 +587,13 @@ describe('Agent command executor', () => {
     const transport = fakeTransport();
     const executor = new AgentCommandExecutor(transport);
 
-    await expect(executor.execute({
-      type: 'decide_permission',
-      partId: 'perm_empty',
-      decisions: [],
-    })).rejects.toBeInstanceOf(AgentCommandFailure);
+    await expect(
+      executor.execute({
+        type: 'decide_permission',
+        partId: 'perm_empty',
+        decisions: [],
+      }),
+    ).rejects.toBeInstanceOf(AgentCommandFailure);
     expect(transport.decidePermission).not.toHaveBeenCalled();
   });
 });
@@ -491,7 +606,10 @@ describe('Agent Workbench orchestration', () => {
 
     await waitFor(() => expect(result.current.state.hydrated).toBe(true));
     await act(async () => {
-      await result.current.actions.submitTask({ content: 'Inspect the repository', agentId: 'build' });
+      await result.current.actions.submitTask({
+        content: 'Inspect the repository',
+        agentId: 'build',
+      });
     });
 
     expect(transport.createSession).toHaveBeenCalledTimes(1);
@@ -503,20 +621,22 @@ describe('Agent Workbench orchestration', () => {
   it('restores the active session and reconnects its event stream after refresh', async () => {
     const persisted = {
       activeSessionId: session.id,
-      sessions: [{
-        id: session.id,
-        title: session.title,
-        displayTitle: session.title,
-        status: session.status,
-        agentId: session.agent_id,
-        updatedAt: session.updated_at,
-        preferences: {
-          display_title: null,
-          pinned: false,
-          archived: false,
-          updated_at: null,
+      sessions: [
+        {
+          id: session.id,
+          title: session.title,
+          displayTitle: session.title,
+          status: session.status,
+          agentId: session.agent_id,
+          updatedAt: session.updated_at,
+          preferences: {
+            display_title: null,
+            pinned: false,
+            archived: false,
+            updated_at: null,
+          },
         },
-      }],
+      ],
     };
     const persistence = {
       read: vi.fn(() => ({ version: 1 as const, ...persisted })),
@@ -527,16 +647,19 @@ describe('Agent Workbench orchestration', () => {
 
     await waitFor(() => expect(result.current.state.activeSessionId).toBe(session.id));
     await waitFor(() => expect(transport.getWorkspace).toHaveBeenCalledWith(session.id));
-    await waitFor(() => expect(transport.connectStream).toHaveBeenCalledWith(
-      session.id,
-      '',
-      expect.any(Object),
-    ));
+    await waitFor(() =>
+      expect(transport.connectStream).toHaveBeenCalledWith(session.id, '', expect.any(Object)),
+    );
   });
 
   it('deduplicates concurrent decisions for the same permission', async () => {
-    let resolveDecision: ((value: { session: AgentSession; part: AgentSession['parts'][number] }) => void) | undefined;
-    const decisionPromise = new Promise<{ session: AgentSession; part: AgentSession['parts'][number] }>((resolve) => {
+    let resolveDecision:
+      | ((value: { session: AgentSession; part: AgentSession['parts'][number] }) => void)
+      | undefined;
+    const decisionPromise = new Promise<{
+      session: AgentSession;
+      part: AgentSession['parts'][number];
+    }>((resolve) => {
       resolveDecision = resolve;
     });
     const permissionPart: AgentSession['parts'][number] = {
@@ -556,20 +679,22 @@ describe('Agent Workbench orchestration', () => {
       read: vi.fn(() => ({
         version: 1 as const,
         activeSessionId: session.id,
-        sessions: [{
-          id: session.id,
-          title: session.title,
-          displayTitle: session.title,
-          status: session.status,
-          agentId: session.agent_id,
-          updatedAt: session.updated_at,
-          preferences: {
-            display_title: null,
-            pinned: false,
-            archived: false,
-            updated_at: null,
+        sessions: [
+          {
+            id: session.id,
+            title: session.title,
+            displayTitle: session.title,
+            status: session.status,
+            agentId: session.agent_id,
+            updatedAt: session.updated_at,
+            preferences: {
+              display_title: null,
+              pinned: false,
+              archived: false,
+              updated_at: null,
+            },
           },
-        }],
+        ],
       })),
       write: vi.fn(),
     };
@@ -598,10 +723,12 @@ describe('Agent Workbench orchestration', () => {
     await waitFor(() => expect(result.current.state.hydrated).toBe(true));
 
     await act(async () => {
-      await expect(result.current.actions.submitTask({
-        content: 'Keep the session',
-        agentId: 'build',
-      })).rejects.toThrow('会话已保留');
+      await expect(
+        result.current.actions.submitTask({
+          content: 'Keep the session',
+          agentId: 'build',
+        }),
+      ).rejects.toThrow('会话已保留');
     });
 
     expect(result.current.state.session?.id).toBe(session.id);
@@ -616,20 +743,22 @@ describe('Agent Workbench orchestration', () => {
       read: vi.fn(() => ({
         version: 1 as const,
         activeSessionId: session.id,
-        sessions: [{
-          id: session.id,
-          title: session.title,
-          displayTitle: session.title,
-          status: completedSession.status,
-          agentId: session.agent_id,
-          updatedAt: session.updated_at,
-          preferences: {
-            display_title: null,
-            pinned: false,
-            archived: false,
-            updated_at: null,
+        sessions: [
+          {
+            id: session.id,
+            title: session.title,
+            displayTitle: session.title,
+            status: completedSession.status,
+            agentId: session.agent_id,
+            updatedAt: session.updated_at,
+            preferences: {
+              display_title: null,
+              pinned: false,
+              archived: false,
+              updated_at: null,
+            },
           },
-        }],
+        ],
       })),
       write: vi.fn(),
     };
@@ -654,20 +783,22 @@ describe('Agent Workbench orchestration', () => {
       read: vi.fn(() => ({
         version: 1 as const,
         activeSessionId: missingSessionId,
-        sessions: [{
-          id: missingSessionId,
-          title: 'Deleted session',
-          displayTitle: 'Deleted session',
-          status: 'running' as const,
-          agentId: 'build',
-          updatedAt: session.updated_at,
-          preferences: {
-            display_title: null,
-            pinned: false,
-            archived: false,
-            updated_at: null,
+        sessions: [
+          {
+            id: missingSessionId,
+            title: 'Deleted session',
+            displayTitle: 'Deleted session',
+            status: 'running' as const,
+            agentId: 'build',
+            updatedAt: session.updated_at,
+            preferences: {
+              display_title: null,
+              pinned: false,
+              archived: false,
+              updated_at: null,
+            },
           },
-        }],
+        ],
       })),
       write: vi.fn(),
     };
@@ -681,8 +812,40 @@ describe('Agent Workbench orchestration', () => {
     const { result } = renderHook(() => useAgentWorkbench(transport, persistence));
 
     await waitFor(() => expect(result.current.state.activeSessionId).toBeNull());
-    expect(result.current.state.recentSessions.some((item) => item.id === missingSessionId)).toBe(false);
+    expect(result.current.state.recentSessions.some((item) => item.id === missingSessionId)).toBe(
+      false,
+    );
     expect(result.current.state.error).toBeNull();
+  });
+
+  it('ignores a stale workspace response after the user starts a new task', async () => {
+    let resolveWorkspace: ((value: AgentWorkspace) => void) | undefined;
+    const workspacePromise = new Promise<AgentWorkspace>((resolve) => {
+      resolveWorkspace = resolve;
+    });
+    const persistence = {
+      read: vi.fn(() => ({
+        version: 1 as const,
+        activeSessionId: session.id,
+        sessions: [],
+      })),
+      write: vi.fn(),
+    };
+    const transport = fakeTransport({
+      getWorkspace: vi.fn(() => workspacePromise),
+    });
+    const { result } = renderHook(() => useAgentWorkbench(transport, persistence));
+
+    await waitFor(() => expect(transport.getWorkspace).toHaveBeenCalledWith(session.id));
+    act(() => result.current.actions.newSession());
+    await waitFor(() => expect(result.current.state.activeSessionId).toBeNull());
+    resolveWorkspace?.(workspace);
+    await act(async () => {
+      await workspacePromise;
+    });
+
+    expect(result.current.state.activeSessionId).toBeNull();
+    expect(result.current.state.workspace).toBeNull();
   });
 
   it('virtualizes a 10,000 item timeline and keeps the latest content reachable', async () => {
@@ -695,7 +858,11 @@ describe('Agent Workbench orchestration', () => {
       content: `Output ${index}`,
       created_at: new Date(index * 1000).toISOString(),
     }));
-    render(<div style={{ height: 600 }}><AgentRunTimeline timeline={timeline} /></div>);
+    render(
+      <div style={{ height: 600 }}>
+        <AgentRunTimeline timeline={timeline} />
+      </div>,
+    );
     expect(screen.queryAllByRole('article').length).toBeLessThan(200);
   });
 
@@ -716,6 +883,26 @@ describe('Agent Workbench orchestration', () => {
     await waitFor(() => expect(input).toHaveValue('Keep my draft'));
   });
 
+  it('does not submit while an input method composition is active', async () => {
+    const AgentTaskComposer = (await import('../agent/components/AgentTaskComposer')).default;
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AgentTaskComposer
+        agents={[]}
+        session={null}
+        busy={false}
+        onInterrupt={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+    const input = screen.getByLabelText('任务目标');
+    fireEvent.change(input, { target: { value: '输入法组合文本' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(input).toHaveValue('输入法组合文本');
+  });
+
   it('exposes mobile shell drawers for sessions and attention', async () => {
     render(
       <AgentWorkbenchShell
@@ -725,7 +912,15 @@ describe('Agent Workbench orchestration', () => {
         connectionLabel="实时连接"
         attentionCount={2}
         desktopSessionRail={<div>desktop sessions</div>}
-        mobileSessionRail={<div>mobile sessions</div>}
+        mobileSessionRail={
+          <div>
+            <input aria-label="mobile session search" />
+            <button type="button" data-agent-session-navigate="true">
+              select mobile session
+            </button>
+            <span>mobile sessions</span>
+          </div>
+        }
         desktopEnvironmentRail={<div>desktop environment</div>}
         mobileAttentionRail={<div>mobile attention</div>}
         toolbar={null}
@@ -736,7 +931,10 @@ describe('Agent Workbench orchestration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '打开会话' }));
     expect(await screen.findByText('mobile sessions')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByLabelText('mobile session search'));
+    expect(screen.getByText('mobile sessions')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'select mobile session' }));
+    await waitFor(() => expect(screen.getByText('mobile sessions')).not.toBeVisible());
     fireEvent.click(screen.getByRole('button', { name: '打开注意事项' }));
     expect(await screen.findByText('mobile attention')).toBeInTheDocument();
   });

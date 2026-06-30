@@ -1,10 +1,6 @@
-import type {
-  AgentPart,
-  AgentSessionUiTimelineItem,
-  AgentWorkspace,
-} from '../../services/api';
-import type { AgentRuntimeState } from '../runtime/agentRuntime';
+import type { AgentPart, AgentSessionUiTimelineItem, AgentWorkspace } from '../../services/api';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
+import type { AgentRuntimeState } from '../runtime/agentRuntime';
 
 const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
@@ -48,9 +44,48 @@ export function selectTimeline(state: AgentRuntimeState): AgentSessionUiTimeline
       ...item,
     });
   }
-  return Array.from(byId.values()).sort((left, right) => (
-    String(left.created_at || '').localeCompare(String(right.created_at || ''))
-  ));
+  const hasPersistedUserMessage = Array.from(byId.values()).some((item) => {
+    if (item.type !== 'text') return false;
+    const source = asOptionalString(item.payload?.source);
+    const title = item.title?.trim().toLowerCase();
+    return (
+      item.payload?.role === 'user' ||
+      source === 'prompt' ||
+      source === 'user_prompt' ||
+      ['用户任务', '我的消息', 'user prompt'].includes(title || '')
+    );
+  });
+  const legacyGoal =
+    asOptionalString(state.session?.metadata?.current_goal)?.trim() || state.session?.title?.trim();
+  if (state.session && legacyGoal && !hasPersistedUserMessage) {
+    byId.set(`legacy-user-prompt:${state.session.id}`, {
+      id: `legacy-user-prompt:${state.session.id}`,
+      session_id: state.session.id,
+      type: 'text',
+      status: 'completed',
+      title: '我的消息',
+      content: legacyGoal,
+      created_at: state.session.created_at,
+      payload: { role: 'user', source: 'legacy_current_goal', legacy: true },
+      legacy: true,
+    });
+  }
+  const sorted = Array.from(byId.values()).sort((left, right) =>
+    String(left.created_at || '').localeCompare(String(right.created_at || '')),
+  );
+  const finalSummaries = new Set(
+    sorted
+      .filter((item) => item.type === 'summary' && item.content?.trim())
+      .map((item) => item.content!.trim().replace(/\s+/g, ' ')),
+  );
+  return sorted.filter((item) => {
+    if (item.type === 'text' && item.payload?.role !== 'user' && !item.content?.trim()) {
+      return false;
+    }
+    if (item.type !== 'text' || item.payload?.role === 'user' || !item.content?.trim()) return true;
+    const normalized = item.content.trim().replace(/\s+/g, ' ');
+    return !finalSummaries.has(normalized);
+  });
 }
 
 export function selectWorkspaceProjectLabel(workspace: AgentWorkspace | null): string {
@@ -73,24 +108,29 @@ export function selectConnectionLabel(state: AgentRuntimeState): string {
 }
 
 export function selectWorkspaceStatus(state: AgentRuntimeState): string {
-  const status = state.workspace?.status_text.current_phase
-    || state.session?.metadata?.state?.current_phase
-    || state.session?.status
-    || '待命';
-  return ({
-    idle: '待命',
-    running: '运行中',
-    planning: '规划中',
-    executing: '执行中',
-    verifying: '验证中',
-    repairing: '修复中',
-    waiting_permission: '等待审批',
-    waiting_approval: '等待审批',
-    completed: '已完成',
-    failed: '失败',
-    interrupted: '已停止',
-    needs_manual_review: '需要复核',
-  } as Record<string, string>)[status] || status;
+  const status =
+    state.workspace?.status_text.current_phase ||
+    state.session?.metadata?.state?.current_phase ||
+    state.session?.status ||
+    '待命';
+  return (
+    (
+      {
+        idle: '待命',
+        running: '运行中',
+        planning: '规划中',
+        executing: '执行中',
+        verifying: '验证中',
+        repairing: '修复中',
+        waiting_permission: '等待审批',
+        waiting_approval: '等待审批',
+        completed: '已完成',
+        failed: '失败',
+        interrupted: '已停止',
+        needs_manual_review: '需要复核',
+      } as Record<string, string>
+    )[status] || status
+  );
 }
 
 export function selectAttentionCount(state: AgentRuntimeState): number {

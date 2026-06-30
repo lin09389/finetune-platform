@@ -17,6 +17,9 @@ import ReactMarkdown from 'react-markdown';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import ThinkingProcess from '../components/ThinkingProcess';
 
 const CodePreview = lazy(() => import('../components/CodePreview'));
@@ -47,7 +50,18 @@ const customSanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     span: [...(defaultSchema.attributes?.span || []), 'className'],
+    div: [...(defaultSchema.attributes?.div || []), 'className'],
+    code: [...(defaultSchema.attributes?.code || []), 'className'],
   },
+};
+
+const preprocessMath = (content: string) => {
+  if (!content) return content;
+  // Convert \[ ... \] to $$ ... $$
+  let processed = content.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
+  // Convert \( ... \) to $ ... $
+  processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+  return processed;
 };
 
 type MarkdownChildProps = {
@@ -83,9 +97,11 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     const isUser = role === 'user';
     const isAssistant = role === 'assistant';
 
+    const mathProcessedContent = useMemo(() => preprocessMath(content), [content]);
+
     // Typewriter effect handles progressive reveal for assistant messages
     const { processedContent, isDoneTyping, splitContent } = useTypewriter(
-      content,
+      mathProcessedContent,
       isStreaming && isAssistant && enableTypewriter,
       Math.max(typewriterSpeed, 32)
     );
@@ -420,8 +436,8 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                       {splitContent.plainText.trim() && (
                         <div className="streaming-content progressive-markdown">
                           <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema], rehypeKatex]}
                             components={markdownComponents}
                           >
                             {splitContent.plainText}
@@ -446,8 +462,8 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                   ) : (
                     <div className="streaming-content progressive-markdown">
                       <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema], rehypeKatex]}
                         components={markdownComponents}
                       >
                         {processedContent}

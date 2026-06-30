@@ -63,7 +63,9 @@ function eventForPart(item: AgentPart, index: number): AgentSessionEvent {
 }
 
 export function createFlowScenario(name: AgentFlowName): AgentFlowScenario {
-  const parts: AgentPart[] = [part('text', 'part_prompt', '用户任务')];
+  const promptPart = part('text', 'part_prompt', '用户任务');
+  promptPart.payload = { role: 'user', source: 'prompt' };
+  const parts: AgentPart[] = [promptPart];
   const status: AgentSession['status'] = name === 'interrupt'
     ? 'interrupted'
     : name === 'permission'

@@ -164,7 +164,13 @@ export default function AgentSessionRail({
       className={`${styles.sessionRail} ${embedded ? styles.embeddedRail : ''}`}
       aria-label="Agent 会话"
     >
-      <Button className={styles.newTask} icon={<PlusOutlined />} aria-label="新建任务" onClick={onNew}>
+      <Button
+        className={styles.newTask}
+        icon={<PlusOutlined />}
+        aria-label="新建任务"
+        data-agent-session-navigate="true"
+        onClick={onNew}
+      >
         新建任务
       </Button>
       <Input
@@ -209,7 +215,12 @@ export default function AgentSessionRail({
                 key={session.id}
                 className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
               >
-                <button type="button" className={styles.sessionSelect} onClick={() => onSelect(session.id)}>
+                <button
+                  type="button"
+                  className={styles.sessionSelect}
+                  data-agent-session-navigate="true"
+                  onClick={() => onSelect(session.id)}
+                >
                   <span className={styles.sessionTitle}>{title}</span>
                   <span className={styles.sessionMeta}>
                     <span className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`} />

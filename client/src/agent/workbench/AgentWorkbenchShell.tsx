@@ -1,6 +1,6 @@
 import { BellOutlined, MenuOutlined } from '@ant-design/icons';
 import { Badge, Button, Drawer } from 'antd';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import type { AgentConnectionState } from '../protocol/agentProtocol';
 import styles from './AgentWorkbench.module.css';
@@ -12,9 +12,10 @@ interface AgentWorkbenchShellProps {
   connectionLabel: string;
   attentionCount: number;
   attentionOpenRequest?: number;
+  sessionWidth?: number;
   desktopSessionRail: ReactNode;
   mobileSessionRail: ReactNode;
-  desktopEnvironmentRail: ReactNode;
+  desktopEnvironmentRail?: ReactNode;
   mobileAttentionRail: ReactNode;
   toolbar: ReactNode;
   children: ReactNode;
@@ -27,9 +28,9 @@ export default function AgentWorkbenchShell({
   connectionLabel,
   attentionCount,
   attentionOpenRequest = 0,
+  sessionWidth = 232,
   desktopSessionRail,
   mobileSessionRail,
-  desktopEnvironmentRail,
   mobileAttentionRail,
   toolbar,
   children,
@@ -42,7 +43,10 @@ export default function AgentWorkbenchShell({
   }, [attentionOpenRequest]);
 
   return (
-    <div className={styles.workbench}>
+    <div
+      className={styles.workbench}
+      style={{ '--agent-session-width': `${sessionWidth}px` } as CSSProperties}
+    >
       <header className={styles.topbar}>
         <div className={styles.brand}>
           <span className={styles.brandMark}>A</span>
@@ -79,7 +83,6 @@ export default function AgentWorkbenchShell({
 
       {desktopSessionRail}
       {children}
-      {desktopEnvironmentRail}
 
       <Drawer
         title="Agent 会话"
@@ -89,7 +92,16 @@ export default function AgentWorkbenchShell({
         onClose={() => setSessionsOpen(false)}
         styles={{ body: { padding: 0 } }}
       >
-        <div onClick={() => setSessionsOpen(false)}>{mobileSessionRail}</div>
+        <div
+          onClick={(event) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest('[data-agent-session-navigate="true"]')) {
+              setSessionsOpen(false);
+            }
+          }}
+        >
+          {mobileSessionRail}
+        </div>
       </Drawer>
       <Drawer
         title="注意事项"

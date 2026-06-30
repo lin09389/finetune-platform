@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
@@ -72,8 +72,17 @@ describe('Agent frontend Phase 1 foundation', () => {
     expect(screen.getByText('Agent 工作台')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '新建任务' })).toBeInTheDocument();
     expect(screen.getByLabelText('任务目标')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '工作台面板' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '任务中心' })).toBeInTheDocument();
+    const sessionResizeHandle = screen.getByRole('separator', { name: '调整会话栏宽度' });
+    expect(sessionResizeHandle).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: '调整工作区宽度' })).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: '调整终端高度' })).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: '调整工作区与任务中心比例' })).toBeInTheDocument();
+    fireEvent.keyDown(sessionResizeHandle, { key: 'ArrowLeft' });
+    expect(sessionResizeHandle).toHaveAttribute('aria-valuenow', '216');
+    fireEvent.click(screen.getByRole('button', { name: '环境' }));
     expect(screen.getByText('环境信息')).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '工作区面板' })).toBeInTheDocument();
   });
 
   it('keeps the sanitized baseline fixture aligned with the stream envelope', () => {

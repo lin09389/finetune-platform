@@ -2,13 +2,20 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentAttentionRail from '../agent/components/AgentAttentionRail';
 import AgentEnvironmentRail from '../agent/components/AgentEnvironmentRail';
-import AgentRunTimeline, { CommandCard, DiffCard, TimelineContent } from '../agent/components/AgentRunTimeline';
+import AgentMarkdown from '../agent/components/AgentMarkdown';
+import AgentRunTimeline, {
+  CommandCard,
+  DiffCard,
+  ExecutionGroup,
+  TimelineContent,
+  TimelineItem,
+} from '../agent/components/AgentRunTimeline';
 import AgentSessionRail from '../agent/components/AgentSessionRail';
 import AgentTaskComposer from '../agent/components/AgentTaskComposer';
-import { initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import type { RecentAgentSession } from '../agent/runtime/agentRuntime';
+import { initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import { createFlowScenario } from '../agent/testing/agentFlowScenarios';
-import type { AgentSessionUiTimelineItem } from '../services/api';
+import type { AgentSession, AgentSessionUiTimelineItem } from '../services/api';
 
 const recentSessions: RecentAgentSession[] = [
   {
@@ -70,9 +77,12 @@ describe('Agent product polish', () => {
 
     fireEvent.click(screen.getByText('全部'));
     fireEvent.click(screen.getByRole('button', { name: '置顶 Completed review' }));
-    await waitFor(() => expect(
-      screen.getByRole('button', { name: '取消置顶 Completed review' }),
-    ).toHaveAttribute('aria-pressed', 'true'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '取消置顶 Completed review' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '会话操作 Completed review' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /归档/ }));
@@ -103,16 +113,18 @@ describe('Agent product polish', () => {
     const onUpdatePreferences = vi.fn().mockResolvedValue({});
     render(
       <AgentSessionRail
-        sessions={[{
-          ...recentSessions[1]!,
-          displayTitle: 'Server alias',
-          preferences: {
-            display_title: 'Server alias',
-            pinned: true,
-            archived: false,
-            updated_at: '2026-06-20T12:00:00Z',
+        sessions={[
+          {
+            ...recentSessions[1]!,
+            displayTitle: 'Server alias',
+            preferences: {
+              display_title: 'Server alias',
+              pinned: true,
+              archived: false,
+              updated_at: '2026-06-20T12:00:00Z',
+            },
           },
-        }]}
+        ]}
         activeSessionId="ses_run"
         onSelect={vi.fn()}
         onNew={vi.fn()}
@@ -126,7 +138,9 @@ describe('Agent product polish', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '会话操作 Server alias' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /归档/ }));
-    await waitFor(() => expect(onUpdatePreferences).toHaveBeenCalledWith('ses_run', { archived: true }));
+    await waitFor(() =>
+      expect(onUpdatePreferences).toHaveBeenCalledWith('ses_run', { archived: true }),
+    );
   });
 
   it('filters a virtualized timeline without losing the total count', () => {
@@ -156,7 +170,11 @@ describe('Agent product polish', () => {
         created_at: '2026-06-20T10:00:02Z',
       },
     ];
-    render(<div style={{ height: 600 }}><AgentRunTimeline timeline={timeline} /></div>);
+    render(
+      <div style={{ height: 600 }}>
+        <AgentRunTimeline timeline={timeline} />
+      </div>,
+    );
 
     fireEvent.click(screen.getByText('异常'));
     expect(screen.getByText('1/3')).toBeInTheDocument();
@@ -166,24 +184,34 @@ describe('Agent product polish', () => {
     expect(screen.getByText('1/3')).toBeInTheDocument();
   });
 
+  it('renders submitted user prompts as visible transcript messages', async () => {
+    const timeline: AgentSessionUiTimelineItem[] = [
+      {
+        id: 'user_prompt_1',
+        type: 'text',
+        status: 'completed',
+        title: '我的消息',
+        content: '请检查训练配置',
+        payload: { role: 'user', source: 'prompt' },
+        created_at: '2026-06-20T10:00:00Z',
+      },
+    ];
+
+    render(<TimelineItem item={timeline[0]!} />);
+
+    expect(screen.getByText('我的消息')).toBeInTheDocument();
+    expect(await screen.findByText('请检查训练配置')).toBeInTheDocument();
+  });
+
   it('shows actionable empty states while a task is submitting or has failed', () => {
     const { rerender } = render(
-      <AgentRunTimeline
-        timeline={[]}
-        pendingLabel="正在提交任务"
-        errorMessage={null}
-      />,
+      <AgentRunTimeline timeline={[]} pendingLabel="正在提交任务" errorMessage={null} />,
     );
 
     expect(screen.getByText('正在提交任务')).toBeInTheDocument();
     expect(screen.getByText(/草稿会自动恢复/)).toBeInTheDocument();
 
-    rerender(
-      <AgentRunTimeline
-        timeline={[]}
-        errorMessage="Network Error"
-      />,
-    );
+    rerender(<AgentRunTimeline timeline={[]} errorMessage="Network Error" />);
 
     expect(screen.getByText('任务没有成功提交')).toBeInTheDocument();
     expect(screen.getByText(/Network Error/)).toBeInTheDocument();
@@ -191,11 +219,149 @@ describe('Agent product polish', () => {
   });
 
   it('collapses and expands long timeline output', () => {
-    render(<TimelineContent content={Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n')} />);
+    render(
+      <TimelineContent
+        content={Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n')}
+      />,
+    );
     const expand = screen.getByRole('button', { name: /展开/ });
     expect(expand).toBeInTheDocument();
     fireEvent.click(expand);
     expect(screen.getByRole('button', { name: /收起/ })).toBeInTheDocument();
+  });
+
+  it('renders model output as a semantic technical document', async () => {
+    const { container } = render(
+      <AgentMarkdown
+        content={
+          '## 实现方案\n\n> 先验证，再修改。\n\n| 项目 | 状态 |\n| --- | --- |\n| 类型检查 | 通过 |\n\n公式 $E=mc^2$。\n\n访问 [文档](https://example.com)。'
+        }
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: '实现方案' })).toBeInTheDocument();
+    expect(screen.getByText('先验证，再修改。').closest('blockquote')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '文档' })).toHaveAttribute(
+      'rel',
+      'noreferrer noopener',
+    );
+  });
+
+  it('keeps full model responses visible without a redundant heading and collapses completed tool noise', () => {
+    const longAnswer = Array.from({ length: 20 }, (_, index) => `第 ${index + 1} 行说明`).join(
+      '\n\n',
+    );
+    const { rerender } = render(
+      <TimelineItem
+        item={{
+          id: 'answer',
+          type: 'text',
+          status: 'completed',
+          content: longAnswer,
+          payload: { role: 'assistant' },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText('模型输出')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '展开' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制完整回答' })).toBeInTheDocument();
+
+    rerender(
+      <TimelineItem
+        item={{
+          id: 'tool',
+          type: 'tool_result',
+          status: 'completed',
+          tool: 'read_file',
+          content: '很长的工具返回内容',
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已运行 1 条命令' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.queryByText('很长的工具返回内容')).not.toBeInTheDocument();
+  });
+
+  it('presents consecutive tool work as one expandable command history', () => {
+    const items: AgentSessionUiTimelineItem[] = [
+      {
+        id: 'tool_ls',
+        type: 'tool_call',
+        status: 'completed',
+        tool: 'ls',
+        payload: { input: { path: '/workspace' } },
+      },
+      {
+        id: 'tool_read',
+        type: 'tool_call',
+        status: 'completed',
+        tool: 'read_file',
+        payload: { input: { file_path: '/workspace/server/main.py' } },
+      },
+      {
+        id: 'tool_test',
+        type: 'command',
+        status: 'completed',
+        payload: { command: ['uv', 'run', 'pytest', '-q'] },
+      },
+    ];
+
+    render(<ExecutionGroup items={items} />);
+
+    const toggle = screen.getByRole('button', { name: '已运行 3 条命令' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByText('/workspace/server/main.py', { exact: false }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('read_file /workspace/server/main.py')).toBeInTheDocument();
+    expect(screen.getByText('uv run pytest -q')).toBeInTheDocument();
+  });
+
+  it('does not leak internal payloads and recognizes failed tool output', () => {
+    const { rerender } = render(
+      <TimelineItem
+        item={{
+          id: 'stream_placeholder',
+          type: 'text',
+          status: 'running',
+          content: '',
+          payload: { runtime: 'deepagents', agent_role: 'parent' },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText(/deepagents/)).not.toBeInTheDocument();
+
+    rerender(
+      <ExecutionGroup
+        items={[
+          {
+            id: 'permission_error',
+            type: 'tool_call',
+            status: 'completed',
+            tool: 'ls',
+            content: 'Error: permission denied for read on /workspace',
+            payload: { input: { path: '/workspace' } },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '已运行 1 条命令 · 1 条失败' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByText('运行失败')).toBeInTheDocument();
+    expect(screen.getByText(/permission denied/)).toBeInTheDocument();
   });
 
   it('renders command and diff events as compact expandable execution blocks', () => {
@@ -279,25 +445,92 @@ describe('Agent product polish', () => {
     expect(screen.getByText('提交失败，内容已恢复，可再次发送')).toBeInTheDocument();
   });
 
+  it('restores a failed draft only to the session where it was submitted', async () => {
+    let rejectSubmit: ((error: Error) => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise((_, reject) => {
+          rejectSubmit = reject;
+        }),
+    );
+    const sessionA: AgentSession = {
+      id: 'session_a',
+      agent_id: 'build',
+      status: 'completed',
+      title: 'Session A',
+      metadata: {},
+      parts: [],
+      preferences: {
+        display_title: null,
+        pinned: false,
+        archived: false,
+        updated_at: null,
+      },
+      created_at: '2026-06-20T10:00:00Z',
+      updated_at: '2026-06-20T10:00:00Z',
+    };
+    const sessionB: AgentSession = {
+      ...sessionA,
+      id: 'session_b',
+      title: 'Session B',
+    };
+    const { rerender } = render(
+      <AgentTaskComposer
+        agents={[]}
+        session={sessionA}
+        busy={false}
+        onSubmit={onSubmit}
+        onInterrupt={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText('任务目标');
+    fireEvent.change(input, { target: { value: 'Only session A' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交任务' }));
+
+    rerender(
+      <AgentTaskComposer
+        agents={[]}
+        session={sessionB}
+        busy={false}
+        onSubmit={onSubmit}
+        onInterrupt={vi.fn()}
+      />,
+    );
+    rejectSubmit?.(new Error('offline'));
+    await waitFor(() =>
+      expect(sessionStorage.getItem(`finetune.agent.draft.v1:${sessionA.id}`)).toBe(
+        'Only session A',
+      ),
+    );
+    expect(screen.getByLabelText('任务目标')).not.toHaveValue('Only session A');
+  });
+
   it('approves multiple independent attention permissions in one confirmed action', async () => {
     const { workspace } = createFlowScenario('permission');
     const now = new Date().toISOString();
     workspace.session.updated_at = now;
     const childTask = createFlowScenario('subagent').workspace.async_tasks.tasks[0]!;
-    workspace.async_tasks.tasks = [{
-      ...childTask,
-      status: 'running',
-      input: { description: 'Review changes' },
-      error: undefined,
-      health_status: 'waiting',
-      has_pending_permission: true,
-      pending_permission_part_id: 'part_child',
-      updated_at: now,
-    }];
+    workspace.async_tasks.tasks = [
+      {
+        ...childTask,
+        status: 'running',
+        input: { description: 'Review changes' },
+        error: undefined,
+        health_status: 'waiting',
+        has_pending_permission: true,
+        pending_permission_part_id: 'part_child',
+        updated_at: now,
+      },
+    ];
     const onDecidePermission = vi.fn().mockResolvedValue(undefined);
     render(
       <AgentAttentionRail
-        state={{ ...initialAgentRuntimeState, workspace, session: workspace.session, activeSessionId: workspace.session.id }}
+        state={{
+          ...initialAgentRuntimeState,
+          workspace,
+          session: workspace.session,
+          activeSessionId: workspace.session.id,
+        }}
         workspace={workspace}
         onClearError={vi.fn()}
         onRefresh={vi.fn()}
@@ -308,7 +541,9 @@ describe('Agent product polish', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '全部批准' }));
-    fireEvent.click(await screen.findByText('全部批准', { selector: '.ant-popconfirm-buttons button span' }));
+    fireEvent.click(
+      await screen.findByText('全部批准', { selector: '.ant-popconfirm-buttons button span' }),
+    );
     await waitFor(() => expect(onDecidePermission).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('region', { name: '最近处理' })).toBeInTheDocument();
     expect(screen.getAllByText(/批准/).length).toBeGreaterThan(1);
@@ -329,13 +564,15 @@ describe('Agent product polish', () => {
             recoveryRequested: 2,
             recoverySucceeded: 1,
             recoveryFailed: 1,
-            events: [{
-              id: 'diag_1',
-              sessionId: 'ses_run',
-              type: 'parse_failure',
-              detail: 'bad payload',
-              occurredAt: '2026-06-20T12:00:00Z',
-            }],
+            events: [
+              {
+                id: 'diag_1',
+                sessionId: 'ses_run',
+                type: 'parse_failure',
+                detail: 'bad payload',
+                occurredAt: '2026-06-20T12:00:00Z',
+              },
+            ],
           },
         }}
         workspace={null}
@@ -384,7 +621,9 @@ describe('Agent product polish', () => {
       />,
     );
 
-    expect(screen.getByRole('complementary', { name: '环境信息' })).toHaveTextContent('feature/agent-ui');
+    expect(screen.getByRole('complementary', { name: '环境信息' })).toHaveTextContent(
+      'feature/agent-ui',
+    );
     expect(screen.getByText(/qwen2\.5-coder/)).toBeInTheDocument();
     expect(screen.getByText('project')).toBeInTheDocument();
   });

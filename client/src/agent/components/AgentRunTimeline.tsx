@@ -3,6 +3,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CodeOutlined,
+  DownOutlined,
   ExclamationCircleOutlined,
   FileDoneOutlined,
   FileTextOutlined,
@@ -10,17 +11,18 @@ import {
   RightOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
-  DownOutlined,
   UpOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
-import ReactMarkdown from 'react-markdown';
-import { Virtuoso } from 'react-virtuoso';
 import { useDeferredValue, useMemo, useState } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import type { AgentSessionUiTimelineItem } from '../../services/api';
 import styles from '../workbench/AgentWorkbench.module.css';
+import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
 
 function itemIcon(item: AgentSessionUiTimelineItem) {
+  if (isUserMessage(item)) return <UserOutlined />;
   if (item.status === 'running' || item.status === 'pending') return <LoadingOutlined spin />;
   if (item.status === 'failed' || item.status === 'blocked') return <ExclamationCircleOutlined />;
   if (item.type === 'permission') return <SafetyCertificateOutlined />;
@@ -31,6 +33,58 @@ function itemIcon(item: AgentSessionUiTimelineItem) {
     return <CheckCircleOutlined />;
   }
   return <ClockCircleOutlined />;
+}
+
+function isUserMessage(item: AgentSessionUiTimelineItem): boolean {
+  return item.type === 'text' && item.payload?.role === 'user';
+}
+
+function isModelResponse(item: AgentSessionUiTimelineItem): boolean {
+  return !isUserMessage(item) && ['text', 'summary'].includes(item.type);
+}
+
+const EXECUTION_ITEM_TYPES = new Set(['tool_call', 'tool_result', 'command']);
+
+interface ExecutionGroupEntry {
+  kind: 'execution_group';
+  id: string;
+  items: AgentSessionUiTimelineItem[];
+}
+
+type TimelineDisplayEntry = AgentSessionUiTimelineItem | ExecutionGroupEntry;
+
+function isExecutionItem(item: AgentSessionUiTimelineItem): boolean {
+  return EXECUTION_ITEM_TYPES.has(item.type);
+}
+
+function isExecutionGroup(entry: TimelineDisplayEntry): entry is ExecutionGroupEntry {
+  return 'kind' in entry && entry.kind === 'execution_group';
+}
+
+function groupExecutionItems(items: AgentSessionUiTimelineItem[]): TimelineDisplayEntry[] {
+  const grouped: TimelineDisplayEntry[] = [];
+  let active: AgentSessionUiTimelineItem[] = [];
+
+  const flush = () => {
+    if (active.length === 0) return;
+    grouped.push({
+      kind: 'execution_group',
+      id: `execution:${active.map((item) => item.id).join(':')}`,
+      items: active,
+    });
+    active = [];
+  };
+
+  for (const item of items) {
+    if (isExecutionItem(item)) {
+      active.push(item);
+      continue;
+    }
+    flush();
+    grouped.push(item);
+  }
+  flush();
+  return grouped;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,16 +105,20 @@ function payloadText(payload: Record<string, unknown> | undefined, key: string):
 function durationLabel(payload: Record<string, unknown> | undefined): string | null {
   const raw = payload?.duration_ms ?? payload?.elapsed_ms;
   if (typeof raw === 'number' && Number.isFinite(raw)) {
-    return raw < 1000 ? `${Math.round(raw)} 毫秒` : `${(raw / 1000).toFixed(raw < 10_000 ? 1 : 0)} 秒`;
+    return raw < 1000
+      ? `${Math.round(raw)} 毫秒`
+      : `${(raw / 1000).toFixed(raw < 10_000 ? 1 : 0)} 秒`;
   }
   const duration = payload?.duration;
   return typeof duration === 'string' && duration.trim() ? duration.trim() : null;
 }
 
 function shouldShowStatus(item: AgentSessionUiTimelineItem): boolean {
-  return ['pending', 'running', 'failed', 'blocked'].includes(String(item.status || ''))
-    || item.type === 'permission'
-    || item.type === 'error';
+  return (
+    ['pending', 'running', 'failed', 'blocked'].includes(String(item.status || '')) ||
+    item.type === 'permission' ||
+    item.type === 'error'
+  );
 }
 
 function statusLabel(item: AgentSessionUiTimelineItem): string {
@@ -77,27 +135,35 @@ function statusLabel(item: AgentSessionUiTimelineItem): string {
 }
 
 function itemTitle(item: AgentSessionUiTimelineItem) {
+  if (isUserMessage(item)) return item.title || '我的消息';
   const payload = item.payload;
   const command = stringifyCommand(payload?.command);
   if (item.type === 'command' && command) {
     return item.status === 'running' ? `正在运行 ${command}` : `已运行 ${command}`;
   }
   if (item.type === 'diff') {
-    const changedFiles = Array.isArray(payload?.changed_files) ? payload.changed_files.length : undefined;
+    const changedFiles = Array.isArray(payload?.changed_files)
+      ? payload.changed_files.length
+      : undefined;
     return changedFiles ? `已编辑 ${changedFiles} 个文件` : '文件已更新';
   }
   if (item.type === 'tool_call' && item.tool) return item.tool;
   if (item.type === 'tool_result' && item.tool) return `${item.tool} 结果`;
-  return item.title || item.tool || ({
-    text: 'Agent 输出',
-    tool_call: '工具调用',
-    tool_result: '工具结果',
-    command: '命令',
-    permission: '等待审批',
-    summary: '运行总结',
-    error: '执行错误',
-    diff: '文件变更',
-  }[item.type] || item.type);
+  return (
+    item.title ||
+    item.tool ||
+    {
+      text: 'Agent 输出',
+      tool_call: '工具调用',
+      tool_result: '工具结果',
+      command: '命令',
+      permission: '等待审批',
+      summary: '运行总结',
+      error: '执行错误',
+      diff: '文件变更',
+    }[item.type] ||
+    item.type
+  );
 }
 
 function commandOutput(item: AgentSessionUiTimelineItem): string {
@@ -119,7 +185,9 @@ function TimelineMeta({ item }: { item: AgentSessionUiTimelineItem }) {
   if (item.type === 'diff' || files.length > 0) {
     return (
       <div className={styles.timelineMetaRow}>
-        <span><FileDoneOutlined /> {files.length || 1} 个文件已更改</span>
+        <span>
+          <FileDoneOutlined /> {files.length || 1} 个文件已更改
+        </span>
         {item.payload?.additions || item.payload?.deletions ? (
           <span>
             +{String(item.payload?.additions || 0)} -{String(item.payload?.deletions || 0)}
@@ -131,8 +199,14 @@ function TimelineMeta({ item }: { item: AgentSessionUiTimelineItem }) {
   if (item.type === 'tool_call' || item.type === 'tool_result') {
     return (
       <div className={styles.timelineMetaRow}>
-        <span><ToolOutlined /> {item.tool || '工具'}</span>
-        {item.agent_name ? <span><BranchesOutlined /> {item.agent_name}</span> : null}
+        <span>
+          <ToolOutlined /> {item.tool || '工具'}
+        </span>
+        {item.agent_name ? (
+          <span>
+            <BranchesOutlined /> {item.agent_name}
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -140,7 +214,9 @@ function TimelineMeta({ item }: { item: AgentSessionUiTimelineItem }) {
 }
 
 export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
-  const [expanded, setExpanded] = useState(item.status !== 'completed' || Boolean(commandOutput(item)));
+  const [expanded, setExpanded] = useState(
+    item.status !== 'completed' || Boolean(commandOutput(item)),
+  );
   const command = stringifyCommand(item.payload?.command) || item.content || itemTitle(item);
   const output = commandOutput(item);
   const exitCode = item.payload?.exit_code;
@@ -157,24 +233,38 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
       >
-        <span className={styles.executionChevron}>{expanded ? <DownOutlined /> : <RightOutlined />}</span>
+        <span className={styles.executionChevron}>
+          {expanded ? <DownOutlined /> : <RightOutlined />}
+        </span>
         <CodeOutlined />
         <span className={styles.executionLabel}>Shell</span>
         <code title={command}>{command}</code>
-        <span className={`${styles.executionStatus} ${succeeded ? styles.executionStatusSuccess : ''}`}>
-          {item.status === 'running' ? <LoadingOutlined spin /> : succeeded ? <CheckCircleOutlined /> : null}
+        <span
+          className={`${styles.executionStatus} ${succeeded ? styles.executionStatusSuccess : ''}`}
+        >
+          {item.status === 'running' ? (
+            <LoadingOutlined spin />
+          ) : succeeded ? (
+            <CheckCircleOutlined />
+          ) : null}
           {item.status === 'running' ? '运行中' : item.status === 'failed' ? '失败' : '完成'}
         </span>
       </button>
       {expanded ? (
         <div className={styles.executionDetails} id={detailsId}>
-          {output ? <pre>{output}</pre> : <div className={styles.executionEmpty}>命令尚未产生输出</div>}
+          {output ? (
+            <pre>{output}</pre>
+          ) : (
+            <div className={styles.executionEmpty}>命令尚未产生输出</div>
+          )}
           <div className={styles.executionFooter}>
             {typeof exitCode === 'number' ? (
               <span className={succeeded ? styles.commandSuccess : styles.commandFailure}>
                 进程已退出，代码 {exitCode}
               </span>
-            ) : <span>{item.status === 'running' ? '进程正在运行' : '执行完成'}</span>}
+            ) : (
+              <span>{item.status === 'running' ? '进程正在运行' : '执行完成'}</span>
+            )}
             {duration ? <span>{duration}</span> : null}
           </div>
         </div>
@@ -200,9 +290,13 @@ export function DiffCard({ item }: { item: AgentSessionUiTimelineItem }) {
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
       >
-        <span className={styles.executionChevron}>{expanded ? <DownOutlined /> : <RightOutlined />}</span>
+        <span className={styles.executionChevron}>
+          {expanded ? <DownOutlined /> : <RightOutlined />}
+        </span>
         <FileDoneOutlined />
-        <span className={styles.executionLabel}>{files.length ? `编辑了 ${files.length} 个文件` : '文件已更新'}</span>
+        <span className={styles.executionLabel}>
+          {files.length ? `编辑了 ${files.length} 个文件` : '文件已更新'}
+        </span>
         <span className={styles.diffStats}>
           {additions > 0 ? <span className={styles.diffAdditions}>+{additions}</span> : null}
           {deletions > 0 ? <span className={styles.diffDeletions}>-{deletions}</span> : null}
@@ -212,8 +306,14 @@ export function DiffCard({ item }: { item: AgentSessionUiTimelineItem }) {
         <div className={styles.executionDetails} id={detailsId}>
           {files.length > 0 ? (
             <ul>
-              {files.slice(0, 5).map((file) => <li key={file}><FileTextOutlined /> <span>{file}</span></li>)}
-              {files.length > 5 ? <li className={styles.moreFiles}>还有 {files.length - 5} 个文件</li> : null}
+              {files.slice(0, 5).map((file) => (
+                <li key={file}>
+                  <FileTextOutlined /> <span>{file}</span>
+                </li>
+              ))}
+              {files.length > 5 ? (
+                <li className={styles.moreFiles}>还有 {files.length - 5} 个文件</li>
+              ) : null}
             </ul>
           ) : null}
           {diff ? <pre>{diff}</pre> : null}
@@ -242,15 +342,23 @@ interface AgentRunTimelineProps {
   errorMessage?: string | null;
 }
 
-export function TimelineContent({ content }: { content: string }) {
+export function TimelineContent({
+  content,
+  collapsible = true,
+}: {
+  content: string;
+  collapsible?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const collapsible = content.length > 600 || content.split('\n').length > 10;
+  const canCollapse = collapsible && (content.length > 600 || content.split('\n').length > 10);
   return (
     <>
-      <div className={`${styles.timelineContent} ${collapsible && !expanded ? styles.timelineContentCollapsed : ''}`}>
-        <ReactMarkdown>{content}</ReactMarkdown>
+      <div
+        className={`${styles.timelineContent} ${canCollapse && !expanded ? styles.timelineContentCollapsed : ''}`}
+      >
+        <AgentMarkdown content={content} />
       </div>
-      {collapsible ? (
+      {canCollapse ? (
         <Button
           className={styles.timelineExpand}
           type="link"
@@ -265,6 +373,154 @@ export function TimelineContent({ content }: { content: string }) {
   );
 }
 
+function compactValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.map((entry) => String(entry)).join(' ');
+  if (!isRecord(value)) return '';
+  for (const key of ['command', 'file_path', 'path', 'query', 'pattern']) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (Array.isArray(candidate)) return candidate.map((entry) => String(entry)).join(' ');
+  }
+  const serialized = JSON.stringify(value);
+  return serialized.length > 110 ? `${serialized.slice(0, 107)}…` : serialized;
+}
+
+function executionLabel(item: AgentSessionUiTimelineItem): string {
+  const command = stringifyCommand(item.payload?.command);
+  if (command) return command;
+  const tool = item.tool || item.title || '工具';
+  const input = compactValue(item.payload?.input || item.payload?.args);
+  return input ? `${tool} ${input}` : tool;
+}
+
+function executionFailed(item: AgentSessionUiTimelineItem): boolean {
+  if (item.status === 'failed' || item.status === 'blocked') return true;
+  const exitCode = item.payload?.exit_code;
+  if (typeof exitCode === 'number' && exitCode !== 0) return true;
+  const content = String(item.content || '')
+    .trim()
+    .toLowerCase();
+  return (
+    content.startsWith('error:') ||
+    content.startsWith('failed:') ||
+    content.includes('permission denied')
+  );
+}
+
+export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] }) {
+  const failureCount = items.filter(executionFailed).length;
+  const running = items.some((item) => item.status === 'running' || item.status === 'pending');
+  const [expanded, setExpanded] = useState(failureCount > 0);
+  const detailsId = `execution-group-${items.map((item) => item.id).join('-')}`;
+  const summary = running
+    ? `正在运行 ${items.length} 条命令`
+    : failureCount > 0
+      ? `已运行 ${items.length} 条命令 · ${failureCount} 条失败`
+      : `已运行 ${items.length} 条命令`;
+
+  return (
+    <section className={styles.executionGroup} aria-label={summary}>
+      <button
+        type="button"
+        className={styles.executionGroupToggle}
+        aria-label={summary}
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <CodeOutlined />
+        <span>{summary}</span>
+        {running ? <LoadingOutlined spin /> : expanded ? <UpOutlined /> : <DownOutlined />}
+      </button>
+      {expanded ? (
+        <div className={styles.executionGroupDetails} id={detailsId}>
+          {items.map((item) => {
+            const failed = executionFailed(item);
+            const active = item.status === 'running' || item.status === 'pending';
+            return (
+              <div
+                className={styles.executionGroupItem}
+                key={item.id}
+                data-status={failed ? 'failed' : active ? 'running' : 'completed'}
+              >
+                <span className={styles.executionGroupStatus} aria-hidden="true">
+                  {active ? (
+                    <LoadingOutlined spin />
+                  ) : failed ? (
+                    <ExclamationCircleOutlined />
+                  ) : (
+                    <CheckCircleOutlined />
+                  )}
+                </span>
+                <span className={styles.executionGroupVerb}>
+                  {active ? '正在运行' : failed ? '运行失败' : '已运行'}
+                </span>
+                <code title={executionLabel(item)}>{executionLabel(item)}</code>
+                {failed && item.content ? (
+                  <span className={styles.executionGroupError}>{item.content}</span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+export function TimelineItem({ item }: { item: AgentSessionUiTimelineItem }) {
+  const modelResponse = isModelResponse(item);
+  const classNames = [
+    styles.timelineItem,
+    styles[`timeline_${item.status || 'default'}`] || '',
+    isUserMessage(item) ? styles.timelineUserMessage : '',
+    modelResponse ? styles.timelineModelResponse : '',
+    ['tool_call', 'tool_result'].includes(item.type) ? styles.timelineToolActivity : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <article className={classNames}>
+      <div className={styles.timelineIcon}>{itemIcon(item)}</div>
+      <div className={styles.timelineBody}>
+        {item.type === 'command' ? (
+          <ExecutionGroup items={[item]} />
+        ) : item.type === 'diff' ? (
+          <DiffCard item={item} />
+        ) : item.type === 'tool_call' || item.type === 'tool_result' ? (
+          <ExecutionGroup items={[item]} />
+        ) : (
+          <>
+            {!modelResponse ? (
+              <div className={styles.timelineHeading}>
+                <strong>{itemTitle(item)}</strong>
+                {shouldShowStatus(item) ? <span>{statusLabel(item)}</span> : null}
+              </div>
+            ) : null}
+            <TimelineMeta item={item} />
+            {item.content ? (
+              <TimelineContent
+                content={item.content}
+                collapsible={!modelResponse && !isUserMessage(item)}
+              />
+            ) : null}
+            {!modelResponse && !item.content && item.payload ? (
+              <PayloadPreview item={item} />
+            ) : null}
+            {modelResponse && item.content ? (
+              <div className={styles.responseActions} aria-label="回答操作">
+                <CopyResponseButton content={item.content} />
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export default function AgentRunTimeline({
   timeline,
   pendingLabel,
@@ -274,21 +530,49 @@ export default function AgentRunTimeline({
   const [filter, setFilter] = useState<'all' | 'output' | 'tools' | 'issues'>('all');
   const [autoFollow, setAutoFollow] = useState(true);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const visibleTimeline = useMemo(() => timeline.filter((item) => {
-    if (filter === 'output' && !['text', 'summary'].includes(item.type)) return false;
-    if (filter === 'tools' && !['tool_call', 'tool_result', 'command', 'diff'].includes(item.type)) return false;
-    if (filter === 'issues' && !['failed', 'blocked'].includes(item.status || '') && item.type !== 'error' && item.type !== 'permission') {
-      return false;
+  const visibleTimeline = useMemo(
+    () =>
+      timeline.filter((item) => {
+        if (filter === 'output' && !['text', 'summary'].includes(item.type)) return false;
+        if (
+          filter === 'tools' &&
+          !['tool_call', 'tool_result', 'command', 'diff'].includes(item.type)
+        )
+          return false;
+        if (
+          filter === 'issues' &&
+          !['failed', 'blocked'].includes(item.status || '') &&
+          item.type !== 'error' &&
+          item.type !== 'permission'
+        ) {
+          return false;
+        }
+        if (!deferredQuery) return true;
+        const haystack = [
+          itemTitle(item),
+          item.content,
+          item.tool,
+          JSON.stringify(item.payload || {}),
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(deferredQuery);
+      }),
+    [deferredQuery, filter, timeline],
+  );
+  const hasLiveItems = useMemo(
+    () => visibleTimeline.some((item) => item.status === 'running' || item.status === 'pending'),
+    [visibleTimeline],
+  );
+  const displayTimeline = useMemo(() => groupExecutionItems(visibleTimeline), [visibleTimeline]);
+  const initialTimelineIndex = useMemo(() => {
+    if (hasLiveItems) return Math.max(0, displayTimeline.length - 1);
+    for (let index = displayTimeline.length - 1; index >= 0; index -= 1) {
+      const entry = displayTimeline[index]!;
+      if (!isExecutionGroup(entry) && isModelResponse(entry)) return index;
     }
-    if (!deferredQuery) return true;
-    const haystack = [
-      itemTitle(item),
-      item.content,
-      item.tool,
-      JSON.stringify(item.payload || {}),
-    ].join(' ').toLowerCase();
-    return haystack.includes(deferredQuery);
-  }), [deferredQuery, filter, timeline]);
+    return Math.max(0, displayTimeline.length - 1);
+  }, [displayTimeline, hasLiveItems]);
 
   if (timeline.length === 0) {
     return (
@@ -308,7 +592,10 @@ export default function AgentRunTimeline({
             description={`${errorMessage} 下方输入框已恢复你的内容，检查服务状态后可再次发送。`}
           />
         ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="提交任务后，执行过程会显示在这里" />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="提交任务后，执行过程会显示在这里"
+          />
         )}
       </div>
     );
@@ -340,38 +627,29 @@ export default function AgentRunTimeline({
           <Switch size="small" checked={autoFollow} onChange={setAutoFollow} />
           <span>跟随</span>
         </label>
-        <span className={styles.timelineCount}>{visibleTimeline.length}/{timeline.length}</span>
+        <span className={styles.timelineCount}>
+          {visibleTimeline.length}/{timeline.length}
+        </span>
       </div>
       {visibleTimeline.length === 0 ? (
-        <div className={styles.timelineEmpty}><Empty description="没有匹配的执行记录" /></div>
+        <div className={styles.timelineEmpty}>
+          <Empty description="没有匹配的执行记录" />
+        </div>
       ) : (
-      <Virtuoso
-        data={visibleTimeline}
-        followOutput={autoFollow ? 'smooth' : false}
-        initialTopMostItemIndex={Math.max(0, visibleTimeline.length - 1)}
-        itemContent={(_, item) => (
-          <article className={`${styles.timelineItem} ${styles[`timeline_${item.status || 'default'}`] || ''}`}>
-            <div className={styles.timelineIcon}>{itemIcon(item)}</div>
-            <div className={styles.timelineBody}>
-              {item.type === 'command' ? (
-                <CommandCard item={item} />
-              ) : item.type === 'diff' ? (
-                <DiffCard item={item} />
-              ) : (
-                <>
-                  <div className={styles.timelineHeading}>
-                    <strong>{itemTitle(item)}</strong>
-                    {shouldShowStatus(item) ? <span>{statusLabel(item)}</span> : null}
-                  </div>
-                  <TimelineMeta item={item} />
-                  {item.content ? <TimelineContent content={item.content} /> : null}
-                  {!item.content && item.payload ? <PayloadPreview item={item} /> : null}
-                </>
-              )}
-            </div>
-          </article>
-        )}
-      />
+        <Virtuoso
+          data={displayTimeline}
+          followOutput={autoFollow && hasLiveItems ? 'smooth' : false}
+          initialTopMostItemIndex={initialTimelineIndex}
+          itemContent={(_, entry) =>
+            isExecutionGroup(entry) ? (
+              <div className={styles.timelineExecutionGroup}>
+                <ExecutionGroup items={entry.items} />
+              </div>
+            ) : (
+              <TimelineItem item={entry} />
+            )
+          }
+        />
       )}
     </div>
   );

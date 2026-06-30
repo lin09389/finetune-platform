@@ -83,26 +83,38 @@ export function useAgentWorkbench(
   const [state, dispatch] = useReducer(agentRuntimeReducer, initialAgentRuntimeState);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshGenerationRef = useRef(0);
+  const navigationGenerationRef = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
   const lastEventIdRef = useRef('');
   const executor = useMemo(() => new AgentCommandExecutor(transport), [transport]);
   lastEventIdRef.current = state.lastEventId;
+  activeSessionIdRef.current = state.activeSessionId;
 
   const refreshWorkspace = useCallback(async (sessionId: string) => {
     const generation = ++refreshGenerationRef.current;
     try {
       const workspace = await transport.getWorkspace(sessionId);
-      if (generation === refreshGenerationRef.current) {
+      if (
+        generation === refreshGenerationRef.current
+        && activeSessionIdRef.current === sessionId
+      ) {
         dispatch({ type: 'workspace_loaded', workspace });
       }
       return workspace;
     } catch (error) {
       if (isMissingSessionError(error)) {
-        if (generation === refreshGenerationRef.current) {
+        if (
+          generation === refreshGenerationRef.current
+          && activeSessionIdRef.current === sessionId
+        ) {
           dispatch({ type: 'session_missing', sessionId });
         }
         return null;
       }
-      if (generation === refreshGenerationRef.current) {
+      if (
+        generation === refreshGenerationRef.current
+        && activeSessionIdRef.current === sessionId
+      ) {
         dispatch({ type: 'error', message: errorMessage(error) });
       }
       throw error;
@@ -188,10 +200,16 @@ export function useAgentWorkbench(
   }, []);
 
   const selectSession = useCallback((sessionId: string) => {
+    navigationGenerationRef.current += 1;
+    refreshGenerationRef.current += 1;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     dispatch({ type: 'session_selected', sessionId });
   }, []);
 
   const newSession = useCallback(() => {
+    navigationGenerationRef.current += 1;
+    refreshGenerationRef.current += 1;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     dispatch({ type: 'reset_new_session' });
   }, []);
 
@@ -215,14 +233,17 @@ export function useAgentWorkbench(
 
   const executeCommand = useCallback(async (command: AgentCommand) => {
     const key = agentCommandKey(command);
+    const navigationGeneration = navigationGenerationRef.current;
     dispatch({
       type: 'operation_started',
       operation: { key, label: commandLabel(command), startedAt: Date.now() },
     });
     try {
       const result = await executor.execute(command);
+      if (navigationGeneration !== navigationGenerationRef.current) return result;
       return await applyCommandResult(result);
     } catch (error) {
+      if (navigationGeneration !== navigationGenerationRef.current) throw error;
       if (error instanceof AgentCommandFailure && error.partialSession) {
         dispatch({ type: 'session_loaded', session: error.partialSession });
         dispatch({ type: 'stream_restart' });

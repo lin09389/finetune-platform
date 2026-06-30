@@ -18,13 +18,45 @@ const session = {
 
 const timeline = [
   {
-    id: 'part_output',
-    part_id: 'part_output',
+    id: 'part_prompt',
+    part_id: 'part_prompt',
     session_id: session.id,
     type: 'text',
     status: 'completed',
-    title: '实现完成',
-    content: 'Agent workbench ready',
+    title: '我的消息',
+    content: '请实现并验证登录接口',
+    created_at: '2026-06-21T00:00:30Z',
+    payload: { role: 'user', source: 'prompt' },
+  },
+  {
+    id: 'part_output',
+    part_id: 'part_output',
+    session_id: session.id,
+    type: 'summary',
+    status: 'completed',
+    title: '最终结果',
+    content: [
+      '# 实现方案',
+      '',
+      '登录流程已经完成，并通过类型检查。',
+      '',
+      '> Token 默认有效期为 15 分钟。',
+      '',
+      '## 验证结果',
+      '',
+      '- [x] 参数校验',
+      '- [x] 错误处理',
+      '',
+      '| 检查项 | 状态 |',
+      '| --- | --- |',
+      '| TypeScript | 通过 |',
+      '',
+      '```ts',
+      'export function login(username: string) {',
+      '  return { username, authenticated: true };',
+      '}',
+      '```',
+    ].join('\n'),
     created_at: '2026-06-21T00:01:00Z',
     payload: {},
   },
@@ -177,6 +209,17 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function dragBy(page, locator, deltaX, deltaY) {
+  const box = await locator.boundingBox();
+  assert(box, 'Resize handle is not visible');
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 6 });
+  await page.mouse.up();
+}
+
 async function waitForWorkbench(page) {
   const browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(error.message));
@@ -197,8 +240,12 @@ let viteProcess;
 let browser;
 try {
   if (!(await isServerReady())) {
-    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    viteProcess = spawn(npmCommand, ['run', 'dev', '--', '--host', '127.0.0.1'], {
+    const isWindows = process.platform === 'win32';
+    const viteCommand = isWindows ? (process.env.ComSpec || 'cmd.exe') : 'npm';
+    const viteArgs = isWindows
+      ? ['/d', '/s', '/c', 'npm run dev -- --host 127.0.0.1']
+      : ['run', 'dev', '--', '--host', '127.0.0.1'];
+    viteProcess = spawn(viteCommand, viteArgs, {
       cwd: process.cwd(),
       stdio: 'ignore',
       windowsHide: true,
@@ -223,11 +270,61 @@ try {
     'Session search did not filter the session rail',
   );
 
-  await page.getByText('异常', { exact: true }).click();
-  await page.getByText('1/4', { exact: true }).waitFor();
-  await page.getByLabel('搜索 Agent 会话').press('Alt+2');
+  await page.getByRole('heading', { name: '实现方案', level: 1 }).waitFor();
+  await page.getByRole('table').waitFor();
+  await page.getByText('TypeScript', { exact: true }).waitFor();
+  const codePreview = page.locator('.code-preview');
+  await codePreview.waitFor();
+  assert(await codePreview.count() === 1, 'Code preview did not render');
+  await page.getByRole('button', { name: '复制完整回答' }).click();
+  await page.getByRole('button', { name: '回答已复制' }).waitFor();
+  if (process.env.AGENT_E2E_SCREENSHOT) {
+    await page.screenshot({ path: process.env.AGENT_E2E_SCREENSHOT, fullPage: false });
+  }
+
+  const sessionRailBoxBefore = await sessionRail.boundingBox();
+  await dragBy(page, page.getByRole('separator', { name: '调整会话栏宽度' }), 36, 0);
+  const sessionRailBoxAfter = await sessionRail.boundingBox();
+  assert(
+    sessionRailBoxAfter.width > sessionRailBoxBefore.width + 20,
+    'Session rail did not resize after pointer drag',
+  );
+
+  const rightDock = page.getByRole('complementary', { name: '工作台侧栏' });
+  const rightDockBoxBefore = await rightDock.boundingBox();
+  await dragBy(page, page.getByRole('separator', { name: '调整工作区宽度' }), -48, 0);
+  const rightDockBoxAfter = await rightDock.boundingBox();
+  assert(
+    rightDockBoxAfter.width > rightDockBoxBefore.width + 30,
+    'Right workspace did not resize after pointer drag',
+  );
+
+  const terminalRegion = page.getByRole('region', { name: '终端面板' });
+  const terminalBoxBefore = await terminalRegion.boundingBox();
+  await dragBy(page, page.getByRole('separator', { name: '调整终端高度' }), 0, -44);
+  const terminalBoxAfter = await terminalRegion.boundingBox();
+  assert(
+    terminalBoxAfter.height > terminalBoxBefore.height + 25,
+    'Terminal did not resize after pointer drag',
+  );
+
+  const workspaceRegion = page.getByRole('region', { name: '工作区' });
+  const workspaceBoxBefore = await workspaceRegion.boundingBox();
+  await dragBy(page, page.getByRole('separator', { name: '调整工作区与任务中心比例' }), 0, 50);
+  const workspaceBoxAfter = await workspaceRegion.boundingBox();
+  assert(
+    workspaceBoxAfter.height > workspaceBoxBefore.height + 25,
+    'Workspace/task center split did not resize after pointer drag',
+  );
+
+  const panelToolbar = page.getByRole('navigation', { name: '工作台面板' });
+  await panelToolbar.getByRole('button', { name: '隐藏工作区' }).click();
+  await panelToolbar.getByRole('button', { name: '显示工作区' }).click();
   await page.getByRole('region', { name: '变更文件' }).waitFor();
-  await page.getByLabel('搜索 Agent 会话').press('Alt+5');
+  await panelToolbar.getByRole('button', { name: '隐藏任务中心' }).click();
+  await panelToolbar.getByRole('button', { name: '显示任务中心' }).click();
+  await panelToolbar.getByRole('button', { name: '隐藏终端' }).click();
+  await panelToolbar.getByRole('button', { name: '显示终端' }).click();
   await page.getByLabel('搜索终端输出').waitFor();
   await page.getByLabel('搜索终端输出').fill('alpha');
   await page.getByText('2 处', { exact: true }).waitFor();
@@ -245,6 +342,25 @@ try {
   await mockBackend(mobile);
   await mobile.goto(`${baseUrl}/agent`, { waitUntil: 'domcontentloaded' });
   await mobile.getByRole('button', { name: '打开会话' }).waitFor();
+  await mobile.getByRole('heading', { name: '实现方案', level: 1 }).waitFor();
+  await mobile.locator('.code-preview').waitFor();
+  const mobilePanelToolbar = mobile.getByRole('navigation', { name: '工作台面板' });
+  await mobilePanelToolbar.getByRole('button', { name: '显示工作区' }).click();
+  await mobile.getByRole('complementary', { name: '工作台侧栏' }).waitFor();
+  await mobile.getByRole('button', { name: '关闭工作台侧栏' }).click();
+  await mobilePanelToolbar.getByRole('button', { name: '显示终端' }).click();
+  await mobile.getByLabel('搜索终端输出').waitFor();
+  await mobile.getByRole('region', { name: '终端面板' })
+    .getByRole('button', { name: '隐藏终端' }).click();
+  const mobileContentMetrics = await mobile.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  assert(mobileContentMetrics.width === mobileContentMetrics.scrollWidth, 'Mobile output has horizontal overflow');
+  await mobile.waitForTimeout(150);
+  if (process.env.AGENT_E2E_MOBILE_SCREENSHOT) {
+    await mobile.screenshot({ path: process.env.AGENT_E2E_MOBILE_SCREENSHOT, fullPage: false });
+  }
   await mobile.getByRole('button', { name: '打开会话' }).click();
   await mobile.getByRole('dialog', { name: 'Agent 会话' }).waitFor();
   await mobile.getByRole('button', { name: '置顶 Review release' }).waitFor();

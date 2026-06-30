@@ -31,15 +31,18 @@
     "dayjs": "^1.11.10",
     "framer-motion": "^12.36.0",
     "highlight.js": "^11.11.1",
+    "katex": "^0.17.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.21.0",
     "react-virtuoso": "^4.10.0",
     "recharts": "^3.7.0",
+    "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

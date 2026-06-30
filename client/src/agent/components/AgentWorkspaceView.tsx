@@ -53,6 +53,7 @@ interface AgentWorkspaceViewProps {
   onRecover: (node: AgentExecutionPlanNode) => void;
   onCancelSubagent: (taskId: string) => void;
   onRunNextAction: (action: AgentWorkspaceNextAction) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export default function AgentWorkspaceView({
@@ -63,6 +64,7 @@ export default function AgentWorkspaceView({
   onRecover,
   onCancelSubagent,
   onRunNextAction,
+  onDirtyChange,
 }: AgentWorkspaceViewProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
@@ -72,6 +74,12 @@ export default function AgentWorkspaceView({
   const [fileSaving, setFileSaving] = useState(false);
   const projectPath = workspace?.session.project_path;
   const isDirty = Boolean(selectedFile && fileContent !== savedContent);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const saveFile = useCallback(async () => {
     if (!selectedFile || !projectPath || !isDirty || fileSaving) return;
