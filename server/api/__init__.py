@@ -1,60 +1,60 @@
+"""API package with backward-compatible lazy router exports.
+
+Importing a focused module such as ``api.agent_sessions`` must not eagerly load
+the training and inference stacks (and vice versa). Legacy ``from api import
+training`` style imports continue to resolve their router on first access.
 """
-API 模块初始化文件
-导出所有 API 路由（保持与 main.py 注册项一致）
-"""
+
+from __future__ import annotations
+
 from importlib import import_module
+from typing import Any
 
-from api.agent_sessions import permission_router as agent_session_permissions
-from api.agent_sessions import router as agent_sessions
-from api.agents import router as agents
-from api.chat.routes import router as chat
-from api.chat_agent import router as chat_agent
-from api.cloud_chat import router as cloud_chat
-from api.context import router as context
-from api.cua import router as cua
-from api.datasets import router as datasets
-from api.device import router as device
-from api.gateway_api.routes import router as gateway
-from api.heartbeat import router as heartbeat
-from api.inference import router as inference
-from api.knowledge import router as knowledge
-from api.mcp import router as mcp
-from api.memory import router as memory
-from api.model_center import router as model_center
-from api.model_runtime import router as model_runtime
-from api.models import router as models
-from api.training import router as training
-from api.workspace import router as workspace
 
-deployment = import_module("api.deployment")
-evaluation = import_module("api.evaluation")
-deployment_router = deployment.router
-evaluation_router = evaluation.router
+_ROUTER_EXPORTS: dict[str, tuple[str, str]] = {
+    "agent_session_permissions": ("api.agent_sessions", "permission_router"),
+    "agent_sessions": ("api.agent_sessions", "router"),
+    "agents": ("api.agents", "router"),
+    "chat": ("api.chat.routes", "router"),
+    "chat_agent": ("api.chat_agent", "router"),
+    "cloud_chat": ("api.cloud_chat", "router"),
+    "context": ("api.context", "router"),
+    "cua": ("api.cua", "router"),
+    "datasets": ("api.datasets", "router"),
+    "deployment_router": ("api.deployment", "router"),
+    "device": ("api.device", "router"),
+    "evaluation_router": ("api.evaluation", "router"),
+    "gateway": ("api.gateway_api.routes", "router"),
+    "heartbeat": ("api.heartbeat", "router"),
+    "inference": ("api.inference", "router"),
+    "knowledge": ("api.knowledge", "router"),
+    "mcp": ("api.mcp", "router"),
+    "memory": ("api.memory", "router"),
+    "model_center": ("api.model_center", "router"),
+    "model_runtime": ("api.model_runtime", "router"),
+    "models": ("api.models", "router"),
+    "training": ("api.training", "router"),
+    "workspace": ("api.workspace", "router"),
+}
+_MODULE_EXPORTS = {
+    "deployment": "api.deployment",
+    "evaluation": "api.evaluation",
+}
 
-__all__ = [
-    "agent_session_permissions",
-    "agent_sessions",
-    "agents",
-    "chat",
-    "chat_agent",
-    "cloud_chat",
-    "context",
-    "cua",
-    "datasets",
-    "deployment",
-    "deployment_router",
-    "device",
-    "evaluation",
-    "evaluation_router",
-    "gateway",
-    "heartbeat",
-    "inference",
-    "knowledge",
-    "mcp",
-    "memory",
-    "model_center",
-    "model_runtime",
-    "models",
-    "training",
-    "workspace",
-]
+__all__ = [*_ROUTER_EXPORTS, *_MODULE_EXPORTS]
+
+
+def __getattr__(name: str) -> Any:
+    if name in _MODULE_EXPORTS:
+        value = import_module(_MODULE_EXPORTS[name])
+    elif name in _ROUTER_EXPORTS:
+        module_name, attribute = _ROUTER_EXPORTS[name]
+        value = getattr(import_module(module_name), attribute)
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *__all__})
