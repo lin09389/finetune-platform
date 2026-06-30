@@ -618,6 +618,14 @@ class AgentSessionService:
         metadata["background_run"] = True
         metadata["last_prompt_started_at"] = now
         metadata["current_goal"] = request.content
+        user_part = self.repository.add_part(
+            session_id,
+            "text",
+            status="completed",
+            title="我的消息",
+            content=request.content,
+            payload={"role": "user", "source": "prompt", "prompt_id": prompt_id},
+        )
         effective_provider, effective_model = self._resolve_session_model_defaults(
             str(session.get("agent_id") or "build"),
             request.provider or session.get("provider"),
@@ -696,11 +704,19 @@ class AgentSessionService:
             model=effective_model,
             metadata=metadata,
         )
-        self.repository.add_event(
+        self._event(
             session_id,
             "prompt_queued",
             "Agent 已进入后台执行。",
-            {"session_id": session_id, "active_prompt_id": prompt_id, "status": "running", "summary": "Agent 已进入后台执行。"},
+            {
+                "session_id": session_id,
+                "active_prompt_id": prompt_id,
+                "status": "running",
+                "summary": "Agent 已进入后台执行。",
+                "part_id": user_part.get("id"),
+                "part_type": "text",
+                "part": user_part,
+            },
         )
         if background_tasks is not None:
             background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,51 @@ from skills import resolve_skill_source_specs, resolve_skill_sources, scan_skill
 EPHEMERAL_BACKEND_ROUTES = ("/context/", "/large_tool_results/", "/conversation_history/")
 WORKSPACE_BACKEND_ROUTE = "/workspace/"
 FALLBACK_STATE_BACKEND_ROUTE = "/"
+
+
+def normalize_deepagents_files(
+    files: Mapping[str, str | Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """Convert platform virtual-file text into DeepAgents ``FileData`` values.
+
+    DeepAgents 0.6 expects every item in the graph ``files`` channel to be a
+    mapping with a string ``content`` field. Passing the platform's historical
+    ``dict[path, str]`` shape is accepted by the graph reducer but crashes when
+    ``StateBackend.read`` later indexes the raw string as file metadata.
+    """
+
+    normalized: dict[str, dict[str, Any]] = {}
+    for raw_path, raw_file in (files or {}).items():
+        path = str(raw_path)
+        if isinstance(raw_file, str):
+            normalized[path] = {"content": raw_file, "encoding": "utf-8"}
+            continue
+        if not isinstance(raw_file, Mapping):
+            raise TypeError(f"DeepAgents virtual file {path!r} must be text or file data")
+        file_data = dict(raw_file)
+        if not isinstance(file_data.get("content"), str):
+            raise TypeError(f"DeepAgents virtual file {path!r} must contain string content")
+        file_data.setdefault("encoding", "utf-8")
+        normalized[path] = file_data
+    return normalized
+
+
+async def prepare_deepagents_files(
+    graph: Any,
+    config: dict[str, Any],
+    files: Mapping[str, str | Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """Normalize current files and repair legacy raw-string checkpoint values."""
+
+    current = normalize_deepagents_files(files)
+    if not getattr(graph, "checkpointer", None):
+        return current
+    snapshot = await graph.aget_state(config)
+    values = getattr(snapshot, "values", None)
+    persisted = values.get("files") if isinstance(values, Mapping) else None
+    if not isinstance(persisted, Mapping):
+        return current
+    return {**normalize_deepagents_files(persisted), **current}
 
 
 @dataclass(frozen=True)
@@ -377,6 +423,8 @@ __all__ = [
     "WORKSPACE_BACKEND_ROUTE",
     "build_deep_agent_runtime",
     "build_deepagents_backend",
+    "normalize_deepagents_files",
+    "prepare_deepagents_files",
     "describe_deepagents_mounts",
     "describe_skill_registry",
     "describe_skill_sources",

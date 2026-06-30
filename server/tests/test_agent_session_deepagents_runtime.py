@@ -8,20 +8,14 @@ import uuid
 from pathlib import Path
 
 import pytest
-from fastapi import BackgroundTasks
-
-from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from agent_session.agent_registry import AgentRegistry
 from agent_session.async_subagents import AsyncSubagentService
-from agent_session.repository import AgentSessionRepository
-from agent_session.service import AgentSessionService
-from agent_session.deepagents_runtime import DeepAgentsSessionRunner
 from agent_session.deepagents_events import DeepAgentsEventMapper
+from agent_session.deepagents_runtime import DeepAgentsSessionRunner
 from agent_session.execution_context import AgentDefinition
 from agent_session.failure_guard import AgentLoopGuardTriggered
-from agent_session.agent_registry import AgentRegistry
-from agent_session.runtime_contract import AgentRuntimeContract
-from agent_session.runtime_factory import DeepAgentsRuntimeFactory
-from agent_session.session_state_machine import AgentSessionStateMachine
+from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from agent_session.repository import AgentSessionRepository
 from agent_session.runtime import (
     EPHEMERAL_BACKEND_ROUTES,
     FALLBACK_STATE_BACKEND_ROUTE,
@@ -29,6 +23,11 @@ from agent_session.runtime import (
     build_deepagents_backend,
     resolve_interrupt_on,
 )
+from agent_session.runtime_contract import AgentRuntimeContract
+from agent_session.runtime_factory import DeepAgentsRuntimeFactory
+from agent_session.service import AgentSessionService
+from agent_session.session_state_machine import AgentSessionStateMachine
+from fastapi import BackgroundTasks
 
 
 def test_runtime_contract_enforces_agent_launch_modes(tmp_path: Path):
@@ -1069,6 +1068,29 @@ def test_agent_session_prompt_background_failure_fallback_marks_terminal(tmp_pat
     assert failed.status == "needs_manual_review"
     assert "prompt exploded" in failed.metadata["latest_error"]
     assert any("Failed to record Agent background failure" in record.message for record in caplog.records)
+
+
+def test_agent_session_prompt_persists_user_message_part(tmp_path: Path):
+    service = AgentSessionService(
+        AgentSessionRepository(str(tmp_path / "agents.db")),
+        model_call=lambda _messages: "done",
+    )
+    session = service.create_session(AgentSessionCreate(title="visible prompt", project_path=str(Path.cwd())))
+
+    response = service.start_prompt_background(
+        session.id,
+        AgentPromptRequest(content="请检查训练配置"),
+        BackgroundTasks(),
+    )
+
+    user_parts = [part for part in response.parts if part.payload.get("role") == "user"]
+    assert len(user_parts) == 1
+    assert user_parts[0].title == "我的消息"
+    assert user_parts[0].content == "请检查训练配置"
+    assert user_parts[0].payload["source"] == "prompt"
+    prompt_event = service.repository.list_events(session.id)[-1]
+    assert prompt_event["event_type"] == "prompt_queued"
+    assert prompt_event["payload"]["part_id"] == user_parts[0].id
 
 
 def test_agent_session_stale_background_prompt_is_ignored(tmp_path: Path):

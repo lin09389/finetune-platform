@@ -7,13 +7,42 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from agent_session.models import AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
+from agent_session.runtime import prepare_deepagents_files
 from agent_session.service import AgentSessionService
+
 from context.budget import ContextBudget
 from context.deepagents import build_deepagents_context_pack
 from context.pack import ContextPack, ContextSource
+
+
+def test_prepare_deepagents_files_repairs_legacy_checkpoint_values():
+    class Snapshot:
+        values = {
+            "files": {
+                "/context/legacy.md": "LEGACY_TEXT",
+                "/context/typed.md": {"content": "TYPED_TEXT", "encoding": "utf-8"},
+            }
+        }
+
+    class Graph:
+        checkpointer = object()
+
+        async def aget_state(self, _config):
+            return Snapshot()
+
+    files = asyncio.run(
+        prepare_deepagents_files(
+            Graph(),
+            {"configurable": {"thread_id": "legacy"}},
+            {"/context/task.md": "CURRENT_TEXT"},
+        )
+    )
+
+    assert files["/context/legacy.md"] == {"content": "LEGACY_TEXT", "encoding": "utf-8"}
+    assert files["/context/typed.md"] == {"content": "TYPED_TEXT", "encoding": "utf-8"}
+    assert files["/context/task.md"] == {"content": "CURRENT_TEXT", "encoding": "utf-8"}
 
 
 @pytest.mark.asyncio
@@ -159,7 +188,7 @@ def test_agent_session_deepagents_reads_offloaded_context_file(tmp_path: Path):
         )
         responses = iter(
             [
-                json.dumps({"tool": "read_file", "arguments": {"file_path": "/editor/active-file.md"}}, ensure_ascii=False),
+                json.dumps({"tool": "read_file", "arguments": {"file_path": "/context/editor/active-file.md"}}, ensure_ascii=False),
                 json.dumps({"type": "final", "content": "已读取 active context。"}, ensure_ascii=False),
             ]
         )
@@ -172,7 +201,9 @@ def test_agent_session_deepagents_reads_offloaded_context_file(tmp_path: Path):
         result = asyncio.run(service.deepagents_runner.run_prompt(session.id, pack.prompt, context_files=pack.files))
 
         assert result["status"] == "completed"
-        assert any(part["type"] == "tool_call" and part["status"] == "completed" for part in result["parts"])
+        tool_parts = [part for part in result["parts"] if part["type"] == "tool_call"]
+        assert any(part["status"] == "completed" for part in tool_parts)
+        assert any("SENTINEL_ACTIVE_CONTEXT" in (part.get("content") or "") for part in tool_parts)
         assert any(part["type"] == "summary" and "active context" in (part.get("content") or "") for part in result["parts"])
     finally:
         shutil.rmtree(workspace, ignore_errors=True)

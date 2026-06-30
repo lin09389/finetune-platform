@@ -32,6 +32,34 @@ def test_project_chat_can_read_workspace_files(tmp_path: Path):
     assert "read_file" in result.metadata["project_chat_tools"]
 
 
+def test_project_chat_can_list_workspace_root(tmp_path: Path):
+    (tmp_path / "visible.py").write_text("VALUE = 1\n", encoding="utf-8")
+    calls: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            json.dumps({"tool": "ls", "arguments": {"path": "/workspace"}}, ensure_ascii=False),
+            json.dumps({"type": "final", "content": "目录读取完成。"}, ensure_ascii=False),
+        ]
+    )
+
+    async def model_call(messages):
+        calls.append(messages)
+        return next(responses)
+
+    runner = DeepAgentsProjectChatRunner(
+        provider=None,
+        model=None,
+        project_path=str(tmp_path),
+        model_call=model_call,
+    )
+    result = asyncio.run(runner.run([{"role": "user", "content": "列出项目目录"}]))
+
+    assert "visible.py" in result.content
+    assert len(calls) == 2
+    assert any("visible.py" in message["content"] for message in calls[-1])
+    assert not any("permission denied" in message["content"].lower() for message in calls[-1])
+
+
 def test_project_chat_denies_workspace_writes(tmp_path: Path):
     target = tmp_path / "app.py"
     target.write_text("original\n", encoding="utf-8")
@@ -62,6 +90,40 @@ def test_project_chat_denies_workspace_writes(tmp_path: Path):
     assert target.read_text(encoding="utf-8") == "original\n"
     assert "升级为 Agent Task" in result.content
     assert "write_file" in result.metadata["project_chat_tools"]
+
+
+def test_project_chat_reads_injected_context_file_data(tmp_path: Path):
+    calls: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            json.dumps({"tool": "read_file", "arguments": {"file_path": "/context/task.md"}}, ensure_ascii=False),
+            json.dumps({"type": "final", "content": "已读取上下文。"}, ensure_ascii=False),
+        ]
+    )
+
+    async def model_call(messages):
+        calls.append(messages)
+        return next(responses)
+
+    runner = DeepAgentsProjectChatRunner(
+        provider=None,
+        model=None,
+        project_path=str(tmp_path),
+        model_call=model_call,
+    )
+    result = asyncio.run(
+        runner.run(
+            [{"role": "user", "content": "读取任务上下文"}],
+            context_files={
+                "/context/task.md": "SENTINEL_PROJECT_CHAT_CONTEXT",
+                "/task.md": "SENTINEL_PROJECT_CHAT_CONTEXT",
+            },
+        )
+    )
+
+    assert "SENTINEL_PROJECT_CHAT_CONTEXT" in result.content
+    assert len(calls) == 2
+    assert any("SENTINEL_PROJECT_CHAT_CONTEXT" in message["content"] for message in calls[-1])
 
 
 def test_project_chat_only_auto_enables_for_official_provider_model():

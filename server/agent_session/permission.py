@@ -18,14 +18,21 @@ SENSITIVE_WORKSPACE_PATTERNS = (
     "/workspace/**/.env.*",
 )
 WORKSPACE_PATTERN = "/workspace/**"
+WORKSPACE_PATTERNS = ("/workspace", WORKSPACE_PATTERN)
 INTERNAL_READ_PATTERNS = (
+    "/context",
     "/context/**",
+    "/large_tool_results",
     "/large_tool_results/**",
+    "/conversation_history",
     "/conversation_history/**",
 )
 USER_MEMORY_PATTERN = "/memories/**"
 AGENT_MEMORY_PATTERN = "/agent-memory/**"
 ORG_POLICY_PATTERN = "/policies/**"
+USER_MEMORY_PATTERNS = ("/memories", USER_MEMORY_PATTERN)
+AGENT_MEMORY_PATTERNS = ("/agent-memory", AGENT_MEMORY_PATTERN)
+ORG_POLICY_PATTERNS = ("/policies", ORG_POLICY_PATTERN)
 FALLBACK_PATTERN = "/**"
 
 
@@ -59,7 +66,7 @@ def build_filesystem_permissions(profile: FilesystemPermissionProfile):
         rules.append(
             FilesystemPermission(
                 operations=["read", "write"],
-                paths=[WORKSPACE_PATTERN],
+                paths=list(WORKSPACE_PATTERNS),
                 mode="allow",
             )
         )
@@ -67,7 +74,7 @@ def build_filesystem_permissions(profile: FilesystemPermissionProfile):
         rules.append(
             FilesystemPermission(
                 operations=["read"],
-                paths=[WORKSPACE_PATTERN],
+                paths=list(WORKSPACE_PATTERNS),
                 mode="allow",
             )
         )
@@ -77,21 +84,21 @@ def build_filesystem_permissions(profile: FilesystemPermissionProfile):
         rules.append(
             FilesystemPermission(
                 operations=memory_operations,
-                paths=[USER_MEMORY_PATTERN, AGENT_MEMORY_PATTERN],
+                paths=[*USER_MEMORY_PATTERNS, *AGENT_MEMORY_PATTERNS],
                 mode="allow",
             )
         )
         rules.append(
             FilesystemPermission(
                 operations=["write"],
-                paths=[ORG_POLICY_PATTERN],
+                paths=list(ORG_POLICY_PATTERNS),
                 mode="deny",
             )
         )
         rules.append(
             FilesystemPermission(
                 operations=["read"],
-                paths=[ORG_POLICY_PATTERN],
+                paths=list(ORG_POLICY_PATTERNS),
                 mode="allow",
             )
         )
@@ -215,7 +222,7 @@ def validate_hitl_decisions(part: dict[str, Any], decisions: list[dict[str, Any]
             raise ValueError(f"Unsupported HITL decision type: {decision_type}")
         action = actions[index] if index < len(actions) and isinstance(actions[index], dict) else {}
         allowed = action.get("allowed_decisions") or payload.get("allowed_decisions") or ["approve", "edit", "reject", "respond"]
-        allowed_set = {str(item) for item in allowed} if isinstance(allowed, (list, tuple)) else {"approve", "reject"}
+        allowed_set = {str(item) for item in allowed} if isinstance(allowed, list | tuple) else {"approve", "reject"}
         if decision_type not in allowed_set:
             raise ValueError(f"Decision '{decision_type}' is not allowed for action {index + 1}")
 
@@ -247,10 +254,14 @@ __all__ = [
     "FilesystemPermissionProfile",
     "SENSITIVE_WORKSPACE_PATTERNS",
     "WORKSPACE_PATTERN",
+    "WORKSPACE_PATTERNS",
     "INTERNAL_READ_PATTERNS",
     "USER_MEMORY_PATTERN",
+    "USER_MEMORY_PATTERNS",
     "AGENT_MEMORY_PATTERN",
+    "AGENT_MEMORY_PATTERNS",
     "ORG_POLICY_PATTERN",
+    "ORG_POLICY_PATTERNS",
     "FALLBACK_PATTERN",
     "build_filesystem_permissions",
     "default_deepagents_permission_metadata",

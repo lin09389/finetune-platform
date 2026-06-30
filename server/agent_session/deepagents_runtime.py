@@ -22,6 +22,7 @@ from .model_adapter import get_chat_model
 from .permission import permission_policy_for_agent
 from .runtime import (
     build_deep_agent_runtime,
+    prepare_deepagents_files,
 )
 from .runtime_contract import (
     AgentRuntimeContract,
@@ -243,7 +244,7 @@ class DeepAgentsSessionRunner:
 
             payload: dict[str, Any] = {"messages": prompt}
             if context_files:
-                payload["files"] = context_files
+                payload["files"] = await prepare_deepagents_files(graph, config, context_files)
             async for event in graph.astream_events(payload, config=config, version="v2"):
                 mapper.handle(event)
                 summary = self._extract_summary(event)

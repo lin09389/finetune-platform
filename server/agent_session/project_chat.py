@@ -9,6 +9,7 @@ from typing import Any
 from .deepagents_runtime import CallableToolCallingChatModel
 from .execution_context import RuntimeExecutionContext
 from .model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
+from .runtime import prepare_deepagents_files
 from .runtime_contract import PROJECT_CHAT_PROMPT, AgentRuntimeContract
 from .runtime_factory import DeepAgentsRuntimeFactory
 
@@ -71,10 +72,10 @@ class DeepAgentsProjectChatRunner:
         context_files: dict[str, str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         graph = self._build_graph()
+        config = {"configurable": {"thread_id": f"project_chat:{uuid.uuid4().hex}"}}
         payload: dict[str, Any] = {"messages": messages}
         if context_files:
-            payload["files"] = context_files
-        config = {"configurable": {"thread_id": f"project_chat:{uuid.uuid4().hex}"}}
+            payload["files"] = await prepare_deepagents_files(graph, config, context_files)
         final_text = ""
         tool_names: list[str] = []
         async for event in graph.astream_events(payload, config=config, version="v2"):

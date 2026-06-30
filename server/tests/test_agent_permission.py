@@ -1,5 +1,3 @@
-from deepagents.middleware.filesystem import _check_fs_permission
-
 from agent_session.execution_context import AgentDefinition
 from agent_session.permission import (
     build_filesystem_permissions,
@@ -8,12 +6,15 @@ from agent_session.permission import (
     permission_policy_for_agent,
     validate_hitl_decisions,
 )
+from deepagents.middleware.filesystem import _check_fs_permission
 
 
 def test_build_profile_allows_workspace_read_and_write():
     rules = build_filesystem_permissions("build")
 
+    assert _check_fs_permission(rules, "read", "/workspace") == "allow"
     assert _check_fs_permission(rules, "read", "/workspace/src/app.py") == "allow"
+    assert _check_fs_permission(rules, "write", "/workspace") == "allow"
     assert _check_fs_permission(rules, "write", "/workspace/src/app.py") == "allow"
 
 
@@ -28,8 +29,17 @@ def test_build_profile_denies_sensitive_env_before_workspace_allow():
 def test_readonly_profile_allows_read_but_denies_write():
     rules = build_filesystem_permissions("readonly")
 
+    assert _check_fs_permission(rules, "read", "/workspace") == "allow"
     assert _check_fs_permission(rules, "read", "/workspace/src/app.py") == "allow"
+    assert _check_fs_permission(rules, "write", "/workspace") == "deny"
     assert _check_fs_permission(rules, "write", "/workspace/src/app.py") == "deny"
+
+
+def test_readable_virtual_mount_roots_are_not_caught_by_fallback_deny():
+    rules = build_filesystem_permissions("build")
+
+    for path in ("/context", "/large_tool_results", "/conversation_history", "/memories", "/agent-memory", "/policies"):
+        assert _check_fs_permission(rules, "read", path) == "allow"
 
 
 def test_fallback_denies_unknown_paths():
