@@ -174,10 +174,9 @@ class KnowledgeIntegrator:
         """获取混合检索器"""
         if self._hybrid_retriever is None:
             rag_service = self._get_rag_service()
-            self._hybrid_retriever = get_hybrid_retriever(
-                vector_store=rag_service.vector_store,
-                embedder=rag_service.embedder
-            )
+            self._hybrid_retriever = get_hybrid_retriever()
+            self._hybrid_retriever.set_vector_store(rag_service.vector_store)
+            self._hybrid_retriever.set_embedder(rag_service.embedder)
         return self._hybrid_retriever
 
     def _get_reranker(self) -> CrossEncoderReranker:
