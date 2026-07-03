@@ -12,7 +12,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -141,14 +141,34 @@ class TrainingEventHubV2:
             return self._sequence
 
 
-_hub_v2: TrainingEventHubV2 | None = None
+class TrainingEventHubProtocol(Protocol):
+    def publish(self, *, task_id: str, phase: str, kind: str, payload=None) -> TrainingEventV2: ...
+    def list_since(self, sequence: int = 0, task_id: str | None = None) -> list[TrainingEventV2]: ...
+    def get_latest(self, task_id: str | None = None) -> TrainingEventV2 | None: ...
+    def parse_last_event_id(self, last_event_id: str | None) -> int: ...
+    def current_sequence(self) -> int: ...
+
+
+_hub_v2: TrainingEventHubProtocol | None = None
 _hub_lock = threading.Lock()
 
 
-def get_training_event_hub_v2() -> TrainingEventHubV2:
+def get_training_event_hub_v2() -> TrainingEventHubProtocol:
     global _hub_v2
     with _hub_lock:
         if _hub_v2 is None:
             _hub_v2 = TrainingEventHubV2()
         return _hub_v2
 
+
+def configure_training_event_hub_v2(hub: TrainingEventHubProtocol) -> None:
+    """Replace the process-local hub, primarily with the SQLite-backed adapter."""
+    global _hub_v2
+    with _hub_lock:
+        _hub_v2 = hub
+
+
+def reset_training_event_hub_v2() -> None:
+    global _hub_v2
+    with _hub_lock:
+        _hub_v2 = None

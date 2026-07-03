@@ -74,6 +74,62 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+def _worker_mode() -> bool:
+    return getattr(get_settings(), "training_execution_mode", "in_process") == "worker"
+
+
+def _training_job_repository():
+    from training_worker.repository import get_training_job_repository
+
+    return get_training_job_repository()
+
+
+def _worker_progress(task_id: str | None = None) -> TrainingProgressResponse:
+    repository = _training_job_repository()
+    job = repository.get_job(task_id) if task_id else repository.active_job()
+    if job is None and task_id is None:
+        jobs = repository.list_jobs(limit=1)
+        job = jobs[0] if jobs else None
+    event = repository.latest_event(job.job_id) if job else None
+    payload = dict(event.payload) if event else {}
+    status = payload.get("status") or (job.status if job else "idle")
+    if status == "running":
+        status = "training"
+    if status in {"leased", "queued"}:
+        status = "loading"
+    defaults = {
+        "epoch": 0,
+        "step": 0,
+        "total_steps": 0,
+        "loss": 0.0,
+        "lr": 0.0,
+        "vram_used": 0.0,
+        "elapsed_time": 0.0,
+        "eta": 0.0,
+        "status": status,
+        "message": payload.get("message") or (f"Training job {job.status}" if job else ""),
+    }
+    for field in TrainingProgressResponse.model_fields:
+        if field in payload:
+            defaults[field] = payload[field]
+    return TrainingProgressResponse(**defaults)
+
+
+def _training_records() -> list[TrainingRecord]:
+    from services.training.records import list_training_records
+
+    return list_training_records()
+
+
+def _training_output_dir(task_id: str, state=None) -> Path:
+    if _worker_mode():
+        job = _training_job_repository().get_job(task_id)
+        if job:
+            return Path(job.output_path)
+    state = state or get_training_context().state
+    return resolve_training_output_dir(state, get_settings(), task_id)
+
+
 def _config_hash(config: dict[str, Any]) -> str:
     payload = json.dumps(config or {}, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -134,6 +190,16 @@ def _validate_resume_identity(
 @router.post("/stop")
 async def stop_training():
     """停止训练"""
+    if _worker_mode():
+        repository = _training_job_repository()
+        job = repository.active_job()
+        if job is None:
+            raise HTTPException(status_code=400, detail="No training in progress")
+        result = repository.request_cancel(job.job_id)
+        if result is None:
+            raise HTTPException(status_code=400, detail="Training is already terminal")
+        return {"message": "Stop requested", "status": "stopping", "task_id": job.job_id}
+
     state = get_training_context().state
     if not state.is_training():
         raise HTTPException(status_code=400, detail="No training in progress")
@@ -152,6 +218,8 @@ async def stop_training():
 @router.get("/progress", response_model=TrainingProgressResponse)
 async def get_progress():
     """获取训练进度"""
+    if _worker_mode():
+        return _worker_progress()
     state = get_training_context().state
     progress = state.get_progress()
     latest_event = get_training_event_hub_v2().get_latest()
@@ -168,6 +236,26 @@ async def progress_stream(
 ):
     """SSE 进度流"""
     import time
+    if _worker_mode():
+        async def durable_progress_events():
+            started = time.time()
+            last_payload = None
+            while time.time() - started <= timeout:
+                progress = _worker_progress()
+                payload = progress.model_dump_json()
+                if payload != last_payload:
+                    yield f"data: {payload}\n\n"
+                    last_payload = payload
+                if progress.status in {"completed", "failed", "stopped", "cancelled", "interrupted"}:
+                    break
+                await asyncio.sleep(1)
+
+        return StreamingResponse(
+            durable_progress_events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
+
     state = get_training_context().state
     hub = get_training_event_hub_v2()
 
@@ -355,10 +443,27 @@ async def training_events_websocket_v2(websocket: WebSocket, task_id: str):
 @router.get("/v2/overview")
 async def get_training_overview_v2():
     """训练概览"""
-    ctx = get_training_context()
-    state = ctx.state
-    queue = ctx.queue
-    history = state.get_history()
+    if _worker_mode():
+        repository = _training_job_repository()
+        active = repository.active_job()
+        history = _training_records()
+        queue_payload = repository.queue_status()
+        running_payload = {
+            "is_training": active is not None,
+            "record": active.record if active else None,
+            "progress": _worker_progress(active.job_id if active else None).model_dump(),
+        }
+    else:
+        ctx = get_training_context()
+        state = ctx.state
+        queue = ctx.queue
+        history = state.get_history()
+        queue_payload = queue.get_queue_status()
+        running_payload = {
+            "is_training": state.is_training(),
+            "record": state.get_current_record().model_dump() if state.get_current_record() else None,
+            "progress": state.get_progress().model_dump(),
+        }
 
     failed_records = [record for record in history if record.status == "failed"]
     recent_failed = sorted(failed_records, key=lambda record: record.start_time, reverse=True)[:5]
@@ -380,12 +485,8 @@ async def get_training_overview_v2():
 
     return {
         "version": "v2",
-        "queue": queue.get_queue_status(),
-        "running": {
-            "is_training": state.is_training(),
-            "record": state.get_current_record().model_dump() if state.get_current_record() else None,
-            "progress": state.get_progress().model_dump(),
-        },
+        "queue": queue_payload,
+        "running": running_payload,
         "recent_failures": [
             {
                 "task_id": record.id,
@@ -441,6 +542,11 @@ async def get_training_metrics_v2(
 @router.get("/history")
 async def get_history():
     """获取训练历史"""
+    if _worker_mode():
+        from training_worker.repository import TERMINAL_JOB_STATUSES
+
+        jobs = _training_job_repository().list_jobs(statuses=set(TERMINAL_JOB_STATUSES), limit=100)
+        return [TrainingRecordResponse(**job.record) for job in jobs]
     state = get_training_context().state
     records = state.get_history()
     enriched = [enrich_record_metrics(r) for r in records]
@@ -450,6 +556,19 @@ async def get_history():
 @router.get("/status")
 async def get_status():
     """获取训练状态"""
+    if _worker_mode():
+        repository = _training_job_repository()
+        job = repository.active_job()
+        return {
+            "mode": "worker",
+            "status": job.status if job else "idle",
+            "is_training": job is not None,
+            "record": job.record if job else None,
+            "progress": _worker_progress(job.job_id if job else None).model_dump(),
+            "workers": repository.worker_status(
+                stale_after_seconds=get_settings().training_worker_stale_seconds
+            ),
+        }
     state = get_training_context().state
     status = state.get_status()
     if isinstance(status, dict) and "status" not in status:
@@ -497,6 +616,9 @@ async def start_swift_training(config: TrainingConfigInput):
     dataset_path = settings.datasets_dir_resolved / config.dataset_id
     if not dataset_path.exists():
         raise HTTPException(status_code=404, detail=f"Dataset not found: {config.dataset_id}")
+    dataset_file = resolve_dataset_file(settings, config.dataset_id)
+    if not dataset_file:
+        raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
 
     resource_check = pre_training_resource_check(
         required_vram_gb=4.0 if config.method == "qlora" else 8.0,
@@ -675,6 +797,10 @@ async def get_checkpoints(task_id: str):
     """获取任务的检查点列表"""
     state = get_training_context().state
     settings = get_settings()
+    if _worker_mode():
+        checkpoint_dir = _training_output_dir(task_id, state) / "checkpoints"
+        if not checkpoint_dir.exists():
+            return []
     return load_checkpoints_for_task(state, settings, task_id)
 
 
@@ -709,7 +835,7 @@ async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
     state = get_training_context().state
     settings = get_settings()
 
-    records = state.get_history()
+    records = _training_records() if _worker_mode() else state.get_history()
     candidates = sorted(
         [record for record in records if record.status in ("failed", "stopped")],
         key=lambda item: _safe_parse_time(item.start_time),
@@ -763,16 +889,43 @@ async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
 async def get_failure_analytics():
     """返回训练失败画像统计"""
     state = get_training_context().state
-    records = state.get_history()
+    records = _training_records() if _worker_mode() else state.get_history()
     return build_failure_analytics_payload(records)
 
 
 @router.get("/logs/stream/{task_id}")
 async def stream_training_logs(task_id: str, history: int = Query(default=50, ge=0, le=500)):
     """SSE 流式传输训练日志"""
+    if _worker_mode():
+        repository = _training_job_repository()
+
+        async def durable_log_generator():
+            cursor = 0
+            if history > 0:
+                initial = repository.recent_logs(task_id, limit=history)
+                if initial:
+                    cursor = int(initial[-1]["sequence"])
+                    yield f"data: {json.dumps({'lines': [item['message'] for item in initial]}, ensure_ascii=False)}\n\n"
+            heartbeat_counter = 0
+            while True:
+                await asyncio.sleep(0.2)
+                rows = repository.list_logs(task_id, after_sequence=cursor)
+                if rows:
+                    cursor = int(rows[-1]["sequence"])
+                    yield f"data: {json.dumps({'lines': [item['message'] for item in rows]}, ensure_ascii=False)}\n\n"
+                heartbeat_counter += 1
+                if heartbeat_counter >= 25:
+                    heartbeat_counter = 0
+                    yield ": keepalive\n\n"
+
+        return StreamingResponse(
+            durable_log_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     state = get_training_context().state
-    settings = get_settings()
-    log_path = resolve_training_output_dir(state, settings, task_id) / "training.log"
+    log_path = _training_output_dir(task_id, state) / "training.log"
 
     async def log_generator():
         try:
@@ -783,7 +936,7 @@ async def stream_training_logs(task_id: str, history: int = Query(default=50, ge
                         lines = f.readlines()
                     tail = lines[-history:]
                     if tail:
-                        yield f"data: {json.dumps({'lines': [l.rstrip() for l in tail]})}\n\n"
+                        yield f"data: {json.dumps({'lines': [line.rstrip() for line in tail]})}\n\n"
                 except Exception:
                     pass
 
@@ -830,14 +983,18 @@ async def resume_training(task_id: str, checkpoint_name: str):
     state = get_training_context().state
     settings = get_settings()
 
-    if state.is_training():
+    if (_worker_mode() and _training_job_repository().active_job()) or (not _worker_mode() and state.is_training()):
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     original_record = _get_training_record_by_id(state, task_id)
+    if not original_record and _worker_mode():
+        durable_job = _training_job_repository().get_job(task_id)
+        if durable_job:
+            original_record = TrainingRecord(**durable_job.record)
     if not original_record:
         raise HTTPException(status_code=404, detail="Training record not found")
 
-    output_dir = resolve_training_output_dir(state, settings, task_id)
+    output_dir = _training_output_dir(task_id, state)
     checkpoint_path = output_dir / "checkpoints" / checkpoint_name
     if not checkpoint_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint not found")
@@ -891,7 +1048,7 @@ async def resume_training(task_id: str, checkpoint_name: str):
     if not dataset_file:
         raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
 
-    if not state.try_claim_training_slot():
+    if not _worker_mode() and not state.try_claim_training_slot():
         raise HTTPException(status_code=400, detail="Training already in progress")
     try:
         return _start_training_task(
@@ -927,7 +1084,7 @@ async def check_resources(
 async def preflight_training(config: TrainingConfigInput):
     """训练启动前预检"""
     settings = get_settings()
-    state = get_training_context().state
+    state = None if _worker_mode() else get_training_context().state
     checks: list[TrainingPreflightCheck] = []
     blockers: list[str] = []
     warnings: list[str] = []
@@ -937,7 +1094,8 @@ async def preflight_training(config: TrainingConfigInput):
     required_vram: float | None = None
     device_name: str | None = None
 
-    if state.is_training():
+    is_training = bool(_training_job_repository().active_job()) if _worker_mode() else state.is_training()
+    if is_training:
         blockers.append("当前已有训练任务在运行，需等待结束或停止后再启动新任务")
         preflight_check(checks, "runtime_state", "训练运行状态", "blocked", "已有训练任务正在运行", "当前版本默认只允许一个训练任务活跃运行。")
     else:
@@ -1072,9 +1230,10 @@ async def start_training(
 ):
     """开始训练"""
     settings = get_settings()
-    state = get_training_context().state
+    worker_mode = _worker_mode()
+    state = None if worker_mode else get_training_context().state
 
-    if not use_queue and state.is_training():
+    if not worker_mode and not use_queue and state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     validate_release_supported_features(config)
@@ -1139,9 +1298,8 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    if not use_queue:
-        if not state.try_claim_training_slot():
-            raise HTTPException(status_code=400, detail="Training already in progress")
+    if not worker_mode and not use_queue and not state.try_claim_training_slot():
+        raise HTTPException(status_code=400, detail="Training already in progress")
     try:
         return _start_training_task(
             config=config,
@@ -1153,13 +1311,16 @@ async def start_training(
             priority=priority,
         )
     except Exception:
-        state.queue_training_state(False)
+        if state is not None:
+            state.queue_training_state(False)
         raise
 
 
 @router.get("/queue/status")
 async def get_queue_status():
     """获取任务队列状态"""
+    if _worker_mode():
+        return _training_job_repository().queue_status()
     queue = get_training_context().queue
     return queue.get_queue_status()
 
@@ -1167,6 +1328,23 @@ async def get_queue_status():
 @router.get("/queue/task/{task_id}")
 async def get_task_status(task_id: str):
     """获取任务状态"""
+    if _worker_mode():
+        job = _training_job_repository().get_job(task_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {
+            "task_id": job.job_id,
+            "status": job.status,
+            "priority": job.priority,
+            "attempt": job.attempt,
+            "max_attempts": job.max_attempts,
+            "cancel_requested": job.cancel_requested,
+            "error": job.error,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "completed_at": job.finished_at,
+            "worker_id": job.lease_owner,
+        }
     queue = get_training_context().queue
     status = queue.get_task_status(task_id)
     if status is None:
@@ -1177,6 +1355,12 @@ async def get_task_status(task_id: str):
 @router.post("/queue/cancel/{task_id}")
 async def cancel_task(task_id: str):
     """取消队列中的任务"""
+    if _worker_mode():
+        result = _training_job_repository().request_cancel(task_id)
+        if result is None:
+            raise HTTPException(status_code=400, detail="Task not found or already terminal")
+        return {"message": f"Task {task_id} cancellation requested", "status": result}
+
     ctx = get_training_context()
     queue = ctx.queue
     state = ctx.state

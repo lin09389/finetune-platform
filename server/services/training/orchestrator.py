@@ -7,22 +7,22 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
+from training_engine.schemas import TrainingConfigInput, TrainingRecordResponse
+from training_engine.training_thread import training_thread
 
 from core.config import Settings
 from core.logging import get_logger
+from core.training_context import get_training_context
 from core.training_events_v2 import get_training_event_hub_v2
 from core.training_queue import TaskPriority
 from core.training_state import TrainingRecord, TrainingState
-from core.training_context import get_training_context
-from training_engine.schemas import TrainingConfigInput, TrainingRecordResponse
-from training_engine.training_thread import training_thread
 
 logger = get_logger(__name__)
 
 
 def start_training_task(
     config: TrainingConfigInput,
-    state: TrainingState,
+    state: TrainingState | None,
     settings: Settings,
     model_path: Path,
     dataset_file: Path,
@@ -36,6 +36,8 @@ def start_training_task(
     output_path = output_path or (settings.outputs_dir_resolved / f"train_{record_id[:8]}")
     output_path.mkdir(parents=True, exist_ok=True)
 
+    worker_mode = settings.training_execution_mode == "worker"
+
     from training_engine.reporter import sync_training_record_metadata
     record = TrainingRecord(
         id=record_id,
@@ -45,7 +47,7 @@ def start_training_task(
         dataset_id=config.dataset_id,
         task_goal=config.task_goal,
         method=config.method,
-        status="queued" if use_queue else "running",
+        status="queued" if worker_mode or use_queue else "running",
         start_time=__import__("datetime").datetime.now().isoformat(),
         config=config.model_dump(),
         output_path=str(output_path),
@@ -54,8 +56,30 @@ def start_training_task(
     )
     sync_training_record_metadata(record)
 
-    state.set_current_record(record)
     config.output_path = str(output_path)
+
+    if worker_mode:
+        from training_worker.repository import get_training_job_repository
+
+        priority_map = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+        repository = get_training_job_repository()
+        repository.enqueue(
+            job_id=record_id,
+            backend="native",
+            priority=priority_map.get(priority.lower(), 2),
+            config=config.model_dump(),
+            model_path=str(model_path),
+            dataset_path=str(dataset_file),
+            output_path=str(output_path),
+            record=record.model_dump(),
+            max_attempts=settings.training_worker_max_attempts,
+        )
+        logger.info("训练任务已提交到持久化 Worker 队列：%s", record_id)
+        return TrainingRecordResponse(**record.model_dump())
+
+    if state is None:  # pragma: no cover - defensive contract guard
+        raise RuntimeError("TrainingState is required for in-process execution")
+    state.set_current_record(record)
     hub_v2 = get_training_event_hub_v2()
 
     try:

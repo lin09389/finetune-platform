@@ -171,8 +171,12 @@ def _resolve_adapter_candidate(candidate: str | Path | None) -> Path | None:
 
 
 def _find_training_history_adapter(model_id: str, training_id: str | None = None) -> tuple[Path | None, str | None]:
-    state = get_training_context().state
-    records = list(state.get_history())
+    if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
+        from services.training.records import list_training_records
+
+        records = list_training_records()
+    else:
+        records = list(get_training_context().state.get_history())
 
     if training_id:
         for record in records:

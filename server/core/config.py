@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     ollama_max_connections: int = Field(default=10, ge=1, le=100, description="Ollama 连接池最大连接数")
     ollama_max_retries: int = Field(default=3, ge=0, le=10, description="Ollama 请求重试次数")
     ollama_retry_delay_seconds: float = Field(default=1.0, ge=0.1, le=10.0, description="Ollama 重试基础延迟（秒）")
-    
+
     # Ollama 高级性能参数 (为单用户优化)
     ollama_num_ctx: int = Field(default=4096, ge=1024, description="Ollama 上下文窗口大小")
     ollama_num_batch: int = Field(default=1024, ge=1, description="Ollama 处理 prompt 的批次大小")
@@ -120,6 +120,21 @@ class Settings(BaseSettings):
     enable_inference_grpc: bool = Field(default=False, description="启用本地推理 gRPC 服务")
     inference_grpc_host: str = Field(default="127.0.0.1", description="本地推理 gRPC 绑定地址")
     inference_grpc_port: int = Field(default=50061, ge=1, le=65535, description="本地推理 gRPC 端口")
+    inference_execution_mode: Literal["service", "in_process"] = Field(
+        default="service",
+        description="本地推理执行模式：独立服务或兼容的 API 进程内执行",
+    )
+    inference_service_url: str = Field(default="http://127.0.0.1:8020")
+    inference_service_host: str = Field(default="127.0.0.1")
+    inference_service_port: int = Field(default=8020, ge=1, le=65535)
+    inference_internal_api_key: str = Field(default="finetune-local-inference-dev-key")
+    inference_service_connect_timeout_seconds: float = Field(default=3.0, ge=0.1, le=60)
+    inference_service_read_timeout_seconds: float = Field(default=180.0, ge=1, le=3600)
+    inference_service_max_retries: int = Field(default=2, ge=0, le=10)
+    inference_service_retry_delay_seconds: float = Field(default=0.25, ge=0, le=10)
+    inference_cloud_fallback_enabled: bool = Field(default=False)
+    inference_cloud_fallback_provider: str | None = Field(default=None)
+    inference_cloud_fallback_model: str | None = Field(default=None)
 
     hf_mirror: str = Field(
         default="hf-mirror",
@@ -148,6 +163,15 @@ class Settings(BaseSettings):
     max_concurrent_training: int = Field(default=1, ge=1, le=4, description="最大并发训练数")
     enable_checkpoint: bool = Field(default=True, description="启用检查点")
     checkpoint_interval: int = Field(default=500, ge=100, description="检查点间隔步数")
+    training_execution_mode: Literal["worker", "in_process"] = Field(
+        default="worker",
+        description="训练执行模式：独立 GPU Worker 或兼容的 API 进程内执行",
+    )
+    training_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=60)
+    training_worker_heartbeat_seconds: float = Field(default=5.0, ge=0.5, le=120)
+    training_worker_lease_seconds: int = Field(default=30, ge=5, le=3600)
+    training_worker_max_attempts: int = Field(default=3, ge=1, le=20)
+    training_worker_stale_seconds: int = Field(default=30, ge=5, le=3600)
 
     max_upload_size: int = Field(default=100 * 1024 * 1024, description="最大上传大小 (字节)")
     allowed_file_types: list[str] | str = Field(
@@ -180,7 +204,7 @@ class Settings(BaseSettings):
                 import json
                 try:
                     return json.loads(v)
-                except:
+                except (TypeError, json.JSONDecodeError):
                     pass
             return [x.strip() for x in v.split(',') if x.strip()]
         return v
@@ -193,7 +217,7 @@ class Settings(BaseSettings):
                 import json
                 try:
                     return json.loads(v)
-                except:
+                except (TypeError, json.JSONDecodeError):
                     pass
             return [x.strip().lower() for x in v.split(',') if x.strip()]
         return v

@@ -299,6 +299,10 @@ def _validate_evaluation_gate(
 
 def _find_training_record(training_task_id: str):
     try:
+        if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
+            from services.training.records import find_training_record
+
+            return find_training_record(training_task_id)
         for record in get_training_context().state.get_history():
             if record.id == training_task_id:
                 return record
@@ -327,7 +331,12 @@ def _sync_training_promotion(
         record.deployment_package_id = package_id
         record.promotion_state = promotion_state
         write_training_artifact_manifest(record)
-        get_training_context().state.add_to_history_sync(record)
+        if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
+            from services.training.records import save_training_record
+
+            save_training_record(record)
+        else:
+            get_training_context().state.add_to_history_sync(record)
         return None
     except Exception as exc:
         logger.exception("failed to sync training promotion for %s", training_task_id)
