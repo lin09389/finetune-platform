@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
-from typing import AsyncIterator, Callable
 
 from fastapi import FastAPI
 
@@ -87,6 +87,19 @@ async def _initialize_agent_services() -> None:
 
 
 async def _initialize_finetune_services():
+    if settings.training_execution_mode == "worker":
+        from training_worker.repository import (
+            TrainingEventRepositoryHub,
+            get_training_job_repository,
+        )
+
+        from core.training_events_v2 import configure_training_event_hub_v2
+
+        repository = get_training_job_repository()
+        repository.recover_expired()
+        configure_training_event_hub_v2(TrainingEventRepositoryHub(repository))
+        logger.info("Durable training control plane initialized (execution=worker)")
+
     try:
         from api.evaluation import recover_evaluation_runs_after_restart
 
@@ -103,20 +116,21 @@ async def _initialize_finetune_services():
     settings.datasets_dir_resolved.mkdir(parents=True, exist_ok=True)
     settings.outputs_dir_resolved.mkdir(parents=True, exist_ok=True)
 
-    from core.training_context import init_training_context
+    if settings.training_execution_mode == "in_process":
+        from core.training_context import init_training_context
 
-    init_training_context(
-        settings=settings,
-        max_concurrent_training=settings.max_concurrent_training,
-        max_queue_size=10,
-    )
-    logger.info(
-        "TrainingContext initialized, max_concurrent=%s",
-        settings.max_concurrent_training,
-    )
+        init_training_context(
+            settings=settings,
+            max_concurrent_training=settings.max_concurrent_training,
+            max_queue_size=10,
+        )
+        logger.info(
+            "TrainingContext initialized, max_concurrent=%s",
+            settings.max_concurrent_training,
+        )
 
     grpc_server = None
-    if settings.enable_inference_grpc:
+    if settings.inference_execution_mode == "in_process" and settings.enable_inference_grpc:
         try:
             from api.inference.grpc_server import get_inference_grpc_server
 
@@ -154,15 +168,16 @@ async def _shutdown_finetune_services(grpc_server) -> None:
         except Exception as exc:
             logger.warning("Inference gRPC shutdown failed: %s", exc)
 
-    try:
-        from api.inference.pipeline import get_local_inference_pipeline
-        from api.inference.routes import get_scheduler
+    if settings.inference_execution_mode == "in_process":
+        try:
+            from api.inference.pipeline import get_local_inference_pipeline
+            from api.inference.routes import get_scheduler
 
-        await get_local_inference_pipeline().shutdown()
-        await get_scheduler().shutdown()
-        logger.info("Inference scheduler shutdown complete")
-    except Exception as exc:
-        logger.warning("Inference scheduler shutdown failed: %s", exc)
+            await get_local_inference_pipeline().shutdown()
+            await get_scheduler().shutdown()
+            logger.info("Inference scheduler shutdown complete")
+        except Exception as exc:
+            logger.warning("Inference scheduler shutdown failed: %s", exc)
 
     try:
         from core.training_context import shutdown_training_context
@@ -171,6 +186,11 @@ async def _shutdown_finetune_services(grpc_server) -> None:
         logger.info("TrainingContext shutdown complete")
     except Exception as exc:
         logger.warning("TrainingContext shutdown failed: %s", exc)
+
+    if settings.training_execution_mode == "worker":
+        from core.training_events_v2 import reset_training_event_hub_v2
+
+        reset_training_event_hub_v2()
 
 
 async def _shutdown_agent_services() -> None:
@@ -184,6 +204,14 @@ async def _shutdown_agent_services() -> None:
 
 
 async def _shutdown_shared_services() -> None:
+    try:
+        from inference_provider import close_inference_service_client
+
+        await close_inference_service_client()
+        logger.info("Inference provider HTTP client closed")
+    except Exception as exc:
+        logger.warning("Inference provider HTTP client shutdown failed: %s", exc)
+
     try:
         from ai.gateway import close_http_clients
 

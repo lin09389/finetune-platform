@@ -170,17 +170,15 @@ async def _heartbeat_lease(resource_id: str, ttl_seconds: int = 300) -> None:
 
 
 def _find_training_record(training_task_id: str | None):
-    if not training_task_id:
-        return None
     try:
+        if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
+            from services.training.records import find_training_record
+
+            return find_training_record(training_task_id)
         from core.training_context import get_training_context
 
         return next(
-            (
-                record
-                for record in get_training_context().state.get_history()
-                if record.id == training_task_id
-            ),
+            (record for record in get_training_context().state.get_history() if record.id == training_task_id),
             None,
         )
     except Exception:
@@ -259,16 +257,27 @@ def _persist_evaluation_link(training_task_id: str | None, run_id: str) -> str |
     try:
         from training_engine.reporter import write_training_artifact_manifest
 
-        from core.training_context import get_training_context
+        worker_mode = getattr(get_settings(), "training_execution_mode", "in_process") == "worker"
+        if worker_mode:
+            from services.training.records import find_training_record
 
-        state = get_training_context().state
-        record = next((item for item in state.get_history() if item.id == training_task_id), None)
+            record = find_training_record(training_task_id)
+        else:
+            from core.training_context import get_training_context
+
+            state = get_training_context().state
+            record = next((item for item in state.get_history() if item.id == training_task_id), None)
         if record is None:
             return "评估已完成，但未找到关联训练记录，release 状态未同步"
         record.evaluation_run_id = run_id
         record.promotion_state = "evaluated"
         write_training_artifact_manifest(record)
-        state.add_to_history_sync(record)
+        if worker_mode:
+            from services.training.records import save_training_record
+
+            save_training_record(record)
+        else:
+            state.add_to_history_sync(record)
         return None
     except Exception as exc:
         logger.exception("failed to persist evaluation link for %s", training_task_id)
@@ -276,7 +285,7 @@ def _persist_evaluation_link(training_task_id: str | None, run_id: str) -> str |
 
 
 def _parse_json(value: Any) -> tuple[bool, Any]:
-    if isinstance(value, (dict, list)):
+    if isinstance(value, dict | list):
         return True, value
     if not isinstance(value, str):
         return False, None
@@ -328,7 +337,7 @@ def _value_matches_schema(value: Any, expected_type: str | None) -> bool:
     if expected_type in (None, "any"):
         return True
     if expected_type in {"number", "integer"}:
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        return isinstance(value, int | float) and not isinstance(value, bool)
     if expected_type == "string":
         return isinstance(value, str)
     if expected_type == "boolean":
@@ -497,7 +506,49 @@ async def run_model_inference_batch(
     response_format: str | None = None,
     lora_adapter: str | None = None,
 ) -> list[str]:
-    """Run batch inference call directly via the ModelScheduler."""
+    """Run evaluation inference through the configured execution boundary."""
+    if get_settings().inference_execution_mode == "service":
+        from inference_provider.client import InferenceServiceError, get_inference_service_client
+
+        client = get_inference_service_client()
+        canonical_model = model if "/" in model else f"{backend}/{model}"
+        semaphore = asyncio.Semaphore(10)
+
+        async def remote_call(prompt: str) -> str:
+            async with semaphore:
+                remote_model = model
+                headers = {"Content-Type": "application/json", "X-Backend": backend}
+                model_path = Path(model)
+                if model_path.exists():
+                    remote_model = model_path.name
+                    headers["X-Model-Path"] = str(model_path)
+                if lora_adapter:
+                    headers["X-LoRA-Adapter"] = lora_adapter
+                request_payload = {
+                    "model": remote_model if model_path.exists() else canonical_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_completion_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": False,
+                }
+                response = await client.request(
+                    "POST",
+                    "/v1/chat/completions",
+                    content=json.dumps(request_payload, ensure_ascii=False).encode(),
+                    headers=headers,
+                )
+                if response.status_code >= 400:
+                    raise InferenceServiceError(
+                        f"Inference service returned HTTP {response.status_code}: "
+                        f"{response.content.decode(errors='replace')}"
+                    )
+                payload = json.loads(response.content)
+                choices = payload.get("choices") or []
+                return str((choices[0].get("message") or {}).get("content") or "") if choices else ""
+
+        return await asyncio.gather(*(remote_call(prompt) for prompt in prompts))
+
+    """Compatibility path: execute directly via the ModelScheduler."""
     from api.inference.backends.base import GenerationConfig
     from api.inference.scheduler import get_scheduler
 

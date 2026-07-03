@@ -83,6 +83,25 @@ echo ========================================
 echo.
 
 REM 启动后端
+echo [本地推理服务] 启动中...
+if "%USE_UV%"=="1" (
+    start "Finetune - 推理服务" /d "%~dp0" cmd /k uv run python -m server.inference_server
+) else if exist "%~dp0.venv\Scripts\python.exe" (
+    start "Finetune - 推理服务" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m inference_server
+) else (
+    start "Finetune - 推理服务" /d "%~dp0server" cmd /k python -m inference_server
+)
+
+echo [训练 Worker] 启动中...
+if "%USE_UV%"=="1" (
+    start "Finetune - 训练 Worker" /d "%~dp0" cmd /k uv run python -m server.training_worker
+) else if exist "%~dp0.venv\Scripts\python.exe" (
+    start "Finetune - 训练 Worker" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m training_worker
+) else (
+    start "Finetune - 训练 Worker" /d "%~dp0server" cmd /k python -m training_worker
+)
+
+REM 启动后端
 echo [后端] 启动中...
 if "%USE_UV%"=="1" (
     start "Finetune - 后端" /d "%~dp0" cmd /k uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
@@ -112,6 +131,7 @@ echo ========================================
 echo.
 echo   前端地址：http://localhost:5173
 echo   后端地址：http://127.0.0.1:8010
+echo   推理服务：http://127.0.0.1:8020（内部）
 echo   API 文档：http://127.0.0.1:8010/docs
 echo.
 echo   请打开浏览器访问：http://localhost:5173

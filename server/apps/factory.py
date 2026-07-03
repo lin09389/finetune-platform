@@ -372,6 +372,17 @@ async def api_info():
                 "action_recorder",
             ],
         },
+        "training_runtime": {
+            "execution_mode": settings.training_execution_mode,
+            "queue": "sqlite" if settings.training_execution_mode == "worker" else "in_process",
+            "worker_command": "uv run python -m server.training_worker",
+        },
+        "inference_runtime": {
+            "execution_mode": settings.inference_execution_mode,
+            "service_url": settings.inference_service_url,
+            "worker_command": "uv run python -m server.inference_server",
+            "cloud_fallback_enabled": settings.inference_cloud_fallback_enabled,
+        },
         "endpoints": {
             "device": "/device",
             "models": "/models",

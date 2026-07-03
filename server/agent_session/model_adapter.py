@@ -35,6 +35,7 @@ LANGCHAIN_PROVIDER_ALIASES = {
     "google_genai": "google_genai",
     "google-vertexai": "google_vertexai",
     "google_vertexai": "google_vertexai",
+    "local": "openai",
     "ollama": "ollama",
     "openai": "openai",
     "openrouter": "openrouter",
@@ -46,6 +47,7 @@ class OfficialModelSpec:
     provider: str
     model: str
     model_string: str
+    transport: str = "direct"
 
 
 _PROFILES_REGISTERED = False
@@ -72,13 +74,19 @@ def resolve_official_model_spec(context: RuntimeExecutionContext) -> OfficialMod
     provider_name = str(context.provider or "").strip()
     if _is_provider_model_string(model_name):
         provider, model = model_name.split(":", 1)
+        if _uses_local_inference_service(provider):
+            return _local_service_spec(provider, model, model_name)
         normalized = LANGCHAIN_PROVIDER_ALIASES[provider]
         return OfficialModelSpec(provider=normalized, model=model, model_string=model_name)
     if _is_provider_model_string(provider_name):
         provider, model = provider_name.split(":", 1)
+        if _uses_local_inference_service(provider):
+            return _local_service_spec(provider, model, provider_name)
         normalized = LANGCHAIN_PROVIDER_ALIASES[provider]
         return OfficialModelSpec(provider=normalized, model=model, model_string=provider_name)
     if provider_name in LANGCHAIN_PROVIDER_ALIASES and model_name:
+        if _uses_local_inference_service(provider_name):
+            return _local_service_spec(provider_name, model_name, f"{provider_name}:{model_name}")
         normalized = LANGCHAIN_PROVIDER_ALIASES[provider_name]
         return OfficialModelSpec(provider=normalized, model=model_name, model_string=f"{provider_name}:{model_name}")
     return None
@@ -110,6 +118,18 @@ def register_default_provider_profiles() -> None:
 
 
 def _official_model_kwargs(spec: OfficialModelSpec, context: RuntimeExecutionContext) -> dict[str, Any]:
+    if spec.transport == "local_inference_service":
+        metadata = context.metadata if isinstance(context.metadata, dict) else {}
+        kwargs: dict[str, Any] = {
+            "temperature": 0,
+            "timeout": settings.inference_service_read_timeout_seconds,
+            "max_retries": settings.inference_service_max_retries,
+            "api_key": settings.inference_internal_api_key,
+            "base_url": f"{settings.inference_service_url.rstrip('/')}/v1",
+        }
+        model_params = metadata.get("model_params")
+        return _merge_model_kwargs(kwargs, model_params) if isinstance(model_params, dict) else kwargs
+
     key_data = secure_storage.get(f"cloud_{spec.provider}_key") or {}
     if not isinstance(key_data, dict):
         key_data = {}
@@ -152,6 +172,22 @@ def _is_provider_model_string(value: str) -> bool:
     if len(provider) == 1 and provider.isalpha():
         return False
     return bool(provider in LANGCHAIN_PROVIDER_ALIASES and model)
+
+
+def _uses_local_inference_service(provider: str) -> bool:
+    return provider == "local" or (
+        provider == "ollama" and settings.inference_execution_mode == "service"
+    )
+
+
+def _local_service_spec(provider: str, model: str, model_string: str) -> OfficialModelSpec:
+    routed_model = model if provider == "local" or "/" in model else f"{provider}/{model}"
+    return OfficialModelSpec(
+        provider="openai",
+        model=routed_model,
+        model_string=model_string,
+        transport="local_inference_service",
+    )
 
 
 __all__ = [

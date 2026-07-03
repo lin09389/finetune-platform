@@ -261,11 +261,29 @@ async def _prepare_runtime(
     requested_model: str,
     explicit_backend: str | None,
     max_tokens: int,
+    *,
+    model_path_override: str | None = None,
+    lora_adapter_override: str | None = None,
 ) -> RuntimeTarget:
-    model_name, backend_name, model_path, lora_adapter = await _resolve_runtime_target(
-        requested_model,
-        explicit_backend,
-    )
+    if model_path_override:
+        canonical_backend, model_name = _split_canonical_model(requested_model)
+        backend_name = explicit_backend or canonical_backend
+        if backend_name not in _LOCAL_BACKENDS:
+            raise _openai_http_error(
+                400,
+                "X-Model-Path requires an explicit supported local backend.",
+                error_type="invalid_request_error",
+                code="unsupported_backend",
+                param="x-backend",
+            )
+        model_path = model_path_override
+        lora_adapter = lora_adapter_override
+    else:
+        model_name, backend_name, model_path, lora_adapter = await _resolve_runtime_target(
+            requested_model,
+            explicit_backend,
+        )
+        lora_adapter = lora_adapter_override or lora_adapter
     scheduler = get_scheduler()
     try:
         backend_available = await scheduler.is_backend_available(backend_name)
@@ -568,6 +586,8 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
         request.model,
         raw_request.headers.get("x-backend"),
         request.resolved_max_tokens,
+        model_path_override=raw_request.headers.get("x-model-path"),
+        lora_adapter_override=raw_request.headers.get("x-lora-adapter"),
     )
     messages = _messages_for_backend(request.messages)
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"

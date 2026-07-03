@@ -21,6 +21,10 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /app/models/sentence-transformers
       MODELSCOPE_CACHE_DIR: /app/models/modelscope_cache
       MAX_UPLOAD_SIZE: 104857600
+      TRAINING_EXECUTION_MODE: worker
+      INFERENCE_EXECUTION_MODE: service
+      INFERENCE_SERVICE_URL: http://inference-service:8020
+      INFERENCE_INTERNAL_API_KEY: ${INFERENCE_INTERNAL_API_KEY:-finetune-local-inference-dev-key}
     volumes:
       - ./models:/app/models
       - ./datasets:/app/datasets
@@ -33,6 +37,71 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    networks:
+      - finetune-network
+    restart: unless-stopped
+    depends_on:
+      training-worker:
+        condition: service_started
+      inference-service:
+        condition: service_healthy
+
+  training-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finetune-training-worker
+    command: ["python", "-m", "server.training_worker"]
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FORMAT: text
+      TRAINING_EXECUTION_MODE: worker
+      MODELS_DIR: /app/models
+      DATASETS_DIR: /app/datasets
+      OUTPUTS_DIR: /app/outputs
+      HF_HOME: /app/models/huggingface
+      MODELSCOPE_CACHE_DIR: /app/models/modelscope_cache
+    volumes:
+      - ./models:/app/models
+      - ./datasets:/app/datasets
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+    networks:
+      - finetune-network
+    restart: unless-stopped
+
+  inference-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finetune-inference-service
+    command: ["python", "-m", "server.inference_server"]
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FORMAT: text
+      INFERENCE_EXECUTION_MODE: in_process
+      INFERENCE_SERVICE_HOST: 0.0.0.0
+      INFERENCE_SERVICE_PORT: 8020
+      INFERENCE_INTERNAL_API_KEY: ${INFERENCE_INTERNAL_API_KEY:-finetune-local-inference-dev-key}
+      OLLAMA_BASE_URL: http://ollama:11434
+      MODELS_DIR: /app/models
+      DATASETS_DIR: /app/datasets
+      OUTPUTS_DIR: /app/outputs
+      HF_HOME: /app/models/huggingface
+      MODELSCOPE_CACHE_DIR: /app/models/modelscope_cache
+    volumes:
+      - ./models:/app/models
+      - ./datasets:/app/datasets
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - finetune-network
     restart: unless-stopped

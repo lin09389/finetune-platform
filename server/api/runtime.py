@@ -8,15 +8,17 @@ implementation of subsystem probes.
 
 from __future__ import annotations
 
-import inspect
 import importlib
+import inspect
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter
 
-from api.inference import routes as inference_routes
 from api.knowledge import routes as knowledge_routes
+from core.config import settings
+from core.db_manager import run_sync
 from core.storage import (
     backup_storage,
     check_storage,
@@ -25,10 +27,14 @@ from core.storage import (
     migrate_json_state,
     process_storage_outbox,
 )
-from core.db_manager import run_sync
 from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
+
+if settings.inference_execution_mode == "service":
+    from inference_provider.runtime import inference_runtime_facade as inference_routes
+else:
+    from api.inference import routes as inference_routes
 
 router = APIRouter()
 
