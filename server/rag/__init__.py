@@ -28,26 +28,40 @@ from rag.reranker import (
     reset_reranker,
 )
 from rag.service import RAGService, get_rag_service
-from rag.structured import (
-    ConnectionConfig,
-    DatabaseConnector,
-    MySQLConnector,
-    PostgreSQLConnector,
-    QueryEngine,
-    QueryHistory,
-    QueryResult,
-    SQLGenerationResult,
-    SQLiteConnector,
-    TableMetadata,
-    TableStore,
-    create_postgresql_connector,
-    create_sqlite_connector,
-    get_db_connector,
-    get_query_engine,
-    get_table_store,
-)
 from rag.text_chunker import TextChunker, get_chunker
 from rag.vector_store import VectorStore, get_vector_store
+
+# Lazy-load rag.structured to avoid eagerly importing pandas/pyarrow
+# (which can crash on Windows due to pyarrow C extension issues).
+_STRUCTURED_NAMES = frozenset({
+    "ConnectionConfig",
+    "DatabaseConnector",
+    "MySQLConnector",
+    "PostgreSQLConnector",
+    "QueryEngine",
+    "QueryHistory",
+    "QueryResult",
+    "SQLGenerationResult",
+    "SQLiteConnector",
+    "TableMetadata",
+    "TableStore",
+    "create_postgresql_connector",
+    "create_sqlite_connector",
+    "get_db_connector",
+    "get_query_engine",
+    "get_table_store",
+})
+
+
+def __getattr__(name: str):
+    if name in _STRUCTURED_NAMES:
+        import importlib
+
+        mod = importlib.import_module("rag.structured")
+        val = getattr(mod, name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     'get_parser',

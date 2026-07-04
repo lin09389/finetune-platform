@@ -37,6 +37,7 @@ dependencies = [
     "huggingface-hub==0.36.0",
     "safetensors==0.7.0",
     "pandas>=2.1,<3",  # structured table store (rag/structured/table_store.py)
+    "pyarrow>=15.0.0,<20",  # pinned: pyarrow 24+ crashes on Windows (C extension access violation)
     "modelscope>=1.10.0,<2",
     # ── Runtime utilities ──────────────────────────────────────────
     "psutil==5.9.8",

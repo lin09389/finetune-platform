@@ -2,6 +2,8 @@
 结构化数据 - 表格存储
 支持 CSV、Excel 文件导入和表格数据管理
 """
+from __future__ import annotations
+
 import json
 import logging
 import re
@@ -10,10 +12,12 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +253,8 @@ class TableStore:
             raise FileNotFoundError(f"文件不存在：{file_path}")
 
         try:
+            import pandas as pd
+
             df = pd.read_csv(file_path, encoding=encoding, delimiter=delimiter)
         except Exception as e:
             logger.error(f"读取 CSV 失败：{e}")
@@ -302,6 +308,8 @@ class TableStore:
             raise FileNotFoundError(f"文件不存在：{file_path}")
 
         try:
+            import pandas as pd
+
             if sheet_name is None:
                 all_sheets = pd.read_excel(file_path, sheet_name=None)
                 results = []
