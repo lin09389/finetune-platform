@@ -148,7 +148,7 @@ def test_agent_session_uses_saved_deepseek_cloud_default(monkeypatch: pytest.Mon
             return {"providers": ["deepseek"]}
         return None
 
-    monkeypatch.setattr("agent_session.service.secure_storage.get", fake_secure_get)
+    monkeypatch.setattr("agent_session.services.session_lifecycle.secure_storage.get", fake_secure_get)
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
 
     session = service.create_session(AgentSessionCreate(title="saved cloud model"))

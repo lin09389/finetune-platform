@@ -1,62 +1,46 @@
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
-import threading
-import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks
-
-from context.deepagents import build_deepagents_context_pack
-from core.config import settings
-from core.db_manager import run_sync
-from security.encryption import secure_storage
-from workspace.local_paths import get_allowed_workspace_roots
-
-from .agent_registry import AgentRegistry
-from .approval import permission_decisions
-from .async_subagents import AsyncSubagentService
-from .deepagents_runtime import DeepAgentsSessionRunner
-from .events import AgentSessionEventBus
-from .execution_plan import build_initial_execution_plan
-from .execution_plan_events import apply_execution_event_to_session
-from .failure_guard import AgentFailureGuard, AgentLoopGuardTriggered
-from .models import (
-    AgentArtifactResponse,
+from agent_session.async_subagents import AsyncSubagentService
+from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.events import AgentSessionEventBus
+from agent_session.failure_guard import AgentFailureGuard
+from agent_session.models import (
     AgentExecutionPlanRecoverRequest,
     AgentExecutionPlanRecoveryResponse,
     AgentMemoryFileResponse,
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
-    AgentSessionPreferences,
     AgentSessionPreferencesUpdate,
     AgentSessionResponse,
-    AgentWorkspaceResponse,
 )
-from .permission import default_deepagents_permission_metadata, validate_hitl_decisions
-from .repository import AgentSessionRepository
-from .runtime_policy import build_agent_runtime_policy
-from .session_state_machine import AgentSessionStateMachine
-from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary
-from .status import ACTIVE_SESSION_STATUSES, TERMINAL_SESSION_STATUSES
-from .workspace_view import AgentWorkspaceViewService
+from agent_session.repository import AgentSessionRepository
+from agent_session.session_state_machine import AgentSessionStateMachine
+from agent_session.status import ACTIVE_SESSION_STATUSES, TERMINAL_SESSION_STATUSES
+from agent_session.workspace_view import AgentWorkspaceViewService
 
-logger = logging.getLogger(__name__)
+from .services import (
+    ApprovalService,
+    BackgroundTaskManagerService,
+    EventBroadcastService,
+    ModelCallCoordinatorService,
+    RecoveryService,
+    SessionLifecycleService,
+)
+
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
-PromptTaskRecord = tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]]
-SAVED_CLOUD_PROVIDER_PRIORITY = ("deepseek", "openrouter", "openai")
 
 
 class AgentSessionService:
     _event_bus = AgentSessionEventBus()
     _event_queues = AgentSessionEventBus._queues
     _event_lock = AgentSessionEventBus._lock
+
+    ACTIVE_STATUSES = ACTIVE_SESSION_STATUSES
+    TERMINAL_STATUSES = TERMINAL_SESSION_STATUSES
 
     def __init__(
         self,
@@ -67,47 +51,62 @@ class AgentSessionService:
         _ = processor
         self.repository = repository or AgentSessionRepository()
         self.model_call = model_call
-        self.agent_registry = AgentRegistry()
+        self.agent_registry: Any = self._create_agent_registry()
+        self.lifecycle = SessionLifecycleService(self)
+        self.model_call_coordinator = ModelCallCoordinatorService(self)
+        self.background_manager = BackgroundTaskManagerService(self)
+        self.approval_service = ApprovalService(self)
+        self.recovery_service = RecoveryService(self)
+        self.event_service = EventBroadcastService(self)
         self.async_subagent_service = AsyncSubagentService(
             self.repository,
-            self._notify_event,
+            self.event_service._notify_event,
             model_call=self.model_call,
-            interrupt_session=self.interrupt_session,
+            interrupt_session=self.background_manager.interrupt_session,
         )
         self.deepagents_runner = DeepAgentsSessionRunner(
             repository=self.repository,
-            notify_event=self._notify_event,
+            notify_event=self.event_service._notify_event,
             model_call=self.model_call,
             async_subagent_service=self.async_subagent_service,
         )
         self.workspace_view_service = AgentWorkspaceViewService(self)
         self.state_machine = AgentSessionStateMachine(self.repository)
-        self.failure_guard = AgentFailureGuard(self.repository, self.state_machine, self._event_bus.notify)
-        self._prompt_tasks: dict[str, PromptTaskRecord] = {}
-        self._prompt_tasks_lock = threading.Lock()
+        self.failure_guard = AgentFailureGuard(self.repository, self.state_machine, self.event_service._notify_event)
 
-    ACTIVE_STATUSES = ACTIVE_SESSION_STATUSES
+    def _create_agent_registry(self) -> Any:
+        from agent_session.agent_registry import AgentRegistry
+        return AgentRegistry()
 
-    TERMINAL_STATUSES = TERMINAL_SESSION_STATUSES
+    def subscribe_events(self, session_id: str) -> Any:
+        return self.event_service.subscribe_events(session_id)
 
-    def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
-        return self._event_bus.subscribe(session_id)
-
-    def unsubscribe_events(self, session_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
-        self._event_bus.unsubscribe(session_id, queue)
+    def unsubscribe_events(self, session_id: str, queue: Any) -> None:
+        self.event_service.unsubscribe_events(session_id, queue)
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
-        apply_execution_event_to_session(self.repository, session_id, event)
-        self._clear_recovery_latches_for_event(session_id, event)
-        self._event_bus.notify(session_id, event)
-        self.failure_guard.observe_event(session_id, event)
+        self.event_service._notify_event(session_id, event)
 
     def _sync_async_service_model_call(self) -> None:
-        self.async_subagent_service.set_model_call(self.model_call)
-        self.deepagents_runner.model_call = self.model_call
+        self.model_call_coordinator._sync_async_service_model_call()
+
+    def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.event_service._event(session_id, event_type, message, payload)
+
+    def _attach_recovery_diagnostics(self, session: dict[str, Any]) -> dict[str, Any]:
+        return self.event_service._attach_recovery_diagnostics(session)
+
+    def _has_running_prompt_task(self, session_id: str) -> bool:
+        return self.background_manager._has_running_prompt_task(session_id)
+
+    async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
+        await self.background_manager._run_prompt_background(session_id, request, prompt_id)
+
+    def _record_background_failure_fallback(self, session_id: str, original_exc: Exception, failure_exc: Exception) -> None:
+        self.background_manager._record_background_failure_fallback(session_id, original_exc, failure_exc)
 
     async def start_async_subtask(self, session_id: str, subagent_type: str, description: str) -> dict[str, Any]:
-        self._sync_async_service_model_call()
+        self.model_call_coordinator._sync_async_service_model_call()
         return await self.async_subagent_service.start_task(session_id, subagent_type, description)
 
     def check_async_subtask(self, session_id: str, task_id: str) -> dict[str, Any]:
@@ -125,806 +124,15 @@ class AgentSessionService:
         return self.async_subagent_service.metrics(session_id)
 
     async def cancel_async_subtask(self, session_id: str, task_id: str, reason: str | None = None) -> dict[str, Any]:
-        self._sync_async_service_model_call()
+        self.model_call_coordinator._sync_async_service_model_call()
         return await self.async_subagent_service.cancel_task(session_id, task_id, reason)
 
     async def update_async_subtask(self, session_id: str, task_id: str, description: str) -> dict[str, Any]:
-        self._sync_async_service_model_call()
+        self.model_call_coordinator._sync_async_service_model_call()
         return await self.async_subagent_service.update_task(session_id, task_id, description)
 
-    async def recover_execution_node(
-        self,
-        session_id: str,
-        node_id: str,
-        request: AgentExecutionPlanRecoverRequest,
-        background_tasks: BackgroundTasks,
-    ) -> AgentExecutionPlanRecoveryResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        plan = metadata.get("execution_plan")
-        if not isinstance(plan, dict):
-            raise ValueError("Execution plan not found")
-        node = self._find_execution_node(plan, node_id)
-        if not node:
-            raise ValueError("Execution plan node not found")
-        if not bool(node.get("recoverable")):
-            raise ValueError("Execution plan node is not recoverable")
-        if self._has_running_prompt_task(session_id):
-            raise ValueError("Agent session already has a running background task")
-
-        action = str(request.action or node.get("recovery_action") or "").strip()
-        if action not in {"retry_node", "resume_node", "restart_subagent", "manual_review"}:
-            raise ValueError("Unsupported recovery action")
-        instruction = (request.instruction or "").strip()
-        existing_latch = self._get_recovery_latch(metadata, node_id)
-        if existing_latch:
-            workspace = self.get_workspace(session_id)
-            return AgentExecutionPlanRecoveryResponse(
-                session=workspace.session,
-                execution_plan=workspace.execution_plan,
-                workspace=workspace,
-                node_id=node_id,
-                action=str(existing_latch.get("action") or action),  # type: ignore[arg-type]
-                started_task_id=existing_latch.get("new_task_id"),
-            )
-        recovery_id = f"agrecovery_{uuid.uuid4().hex}"
-        self._set_recovery_latch(session_id, node_id, recovery_id, action)
-        self._event(
-            session_id,
-            "node_recovery_requested",
-            "用户请求恢复执行节点。",
-            {
-                "session_id": session_id,
-                "node_id": node_id,
-                "recovery_id": recovery_id,
-                "action": action,
-                "instruction": instruction,
-                "summary": "用户请求恢复执行节点。",
-            },
-        )
-
-        started_task_id: str | None = None
-        try:
-            if action == "restart_subagent":
-                started_task_id = await self._recover_subagent_node(session_id, node, instruction, recovery_id)
-            else:
-                self._start_recovery_prompt_background(session_id, node, action, instruction, recovery_id, background_tasks)
-            self.failure_guard.reset_for_recovery(session_id)
-        except Exception as exc:
-            self._event(
-                session_id,
-                "node_recovery_failed",
-                "节点恢复启动失败。",
-                {
-                    "session_id": session_id,
-                    "node_id": node_id,
-                    "recovery_id": recovery_id,
-                    "action": action,
-                    "error": str(exc)[:1200],
-                    "summary": "节点恢复启动失败。",
-                },
-            )
-            self._clear_recovery_latch(session_id, node_id)
-            failed_session = self.repository.get_session(session_id) or session
-            failed_metadata = ensure_session_state(dict(failed_session.get("metadata") or {}))
-            self.state_machine.mark_failed(session_id, metadata=failed_metadata, status="needs_manual_review")
-            raise
-
-        workspace = self.get_workspace(session_id)
-        return AgentExecutionPlanRecoveryResponse(
-            session=workspace.session,
-            execution_plan=workspace.execution_plan,
-            workspace=workspace,
-            node_id=node_id,
-            action=action,  # type: ignore[arg-type]
-            started_task_id=started_task_id,
-        )
-
-    async def recover_async_subtasks(self) -> dict[str, Any]:
-        self._sync_async_service_model_call()
-        return await self.async_subagent_service.recover_running_tasks()
-
-    def recover_active_sessions_after_restart(self) -> dict[str, Any]:
-        sessions = self.repository.list_sessions_by_status(self.ACTIVE_STATUSES)
-        recovered = 0
-        failed = 0
-        for session in sessions:
-            session_id = str(session.get("id") or "")
-            if not session_id:
-                continue
-            try:
-                self._mark_session_lost_after_restart(session)
-                recovered += 1
-            except Exception:
-                failed += 1
-                logger.exception("Failed to mark stale Agent session after restart: %s", session_id)
-        return {"recovered": recovered, "failed": failed, "session_ids": [str(item.get("id")) for item in sessions if item.get("id")]}
-
-    async def shutdown_async_subtasks(self) -> None:
-        await self.async_subagent_service.shutdown()
-
-    def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        enriched = dict(payload or {})
-        enriched.setdefault("session_id", session_id)
-        part_id = enriched.get("part_id")
-        part = enriched.get("part") if isinstance(enriched.get("part"), dict) else None
-        if part is None and isinstance(part_id, str) and part_id.startswith("agp_"):
-            part = self.repository.get_part(part_id)
-            if part:
-                enriched["part"] = part
-        if part:
-            enriched.setdefault("part_type", part.get("type"))
-            enriched.setdefault("status", part.get("status"))
-            enriched.setdefault("summary", part.get("content") or part.get("title") or message)
-        enriched.setdefault("summary", message)
-        enriched.setdefault("chunk_type", self._stream_chunk_type(event_type, enriched, part))
-        event = self.repository.add_event(session_id, event_type, message, enriched)
-        self._notify_event(session_id, event)
-        return event
-
-    def _default_project_path(self) -> str:
-        base_dir = settings.base_dir.resolve()
-        workspace = base_dir.parent if base_dir.name == "server" else base_dir
-        return str(workspace)
-
-    def validate_project_path(self, project_path: str | None) -> str:
-        if not project_path or not project_path.strip():
-            return self._default_project_path()
-        resolved = Path(project_path).expanduser().resolve()
-        if not resolved.exists():
-            raise ValueError("project_path does not exist")
-        if not resolved.is_dir():
-            raise ValueError("project_path must be a directory")
-        default_root = Path(self._default_project_path()).resolve()
-        allowed_roots = get_allowed_workspace_roots({default_root, settings.base_dir.resolve(), Path.cwd().resolve()})
-
-        if not any(resolved == allowed or resolved.is_relative_to(allowed) for allowed in allowed_roots):
-            allowed = ", ".join(sorted(str(path) for path in allowed_roots))
-            raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
-        return str(resolved)
-
-    def _validate_project_path(self, project_path: str | None) -> str:
-        return self.validate_project_path(project_path)
-
-    def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
-        project_path = self._validate_project_path(request.project_path)
-        agent = self._require_direct_agent(request.agent_id)
-        provider, model = self._resolve_session_model_defaults(agent.id, request.provider, request.model)
-        enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
-        metadata: dict[str, Any] = {
-            "autonomy_mode": request.autonomy_mode or "safe_auto",
-            **default_deepagents_permission_metadata(),
-            "enabled_skill_sources": enabled_skill_sources,
-            "model_configured": bool(request.provider and request.model)
-            or self._has_saved_cloud_model(provider, model),
-        }
-        if user_id:
-            metadata["user_id"] = user_id
-        session = self.repository.create_session(
-            {
-                "chat_session_id": request.chat_session_id,
-                "agent_id": agent.id,
-                "title": request.title or "Agent Session",
-                "project_path": project_path,
-                "provider": provider,
-                "model": model,
-                "metadata": metadata,
-            }
-        )
-        session["parts"] = []
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
-
-    def _require_direct_agent(self, agent_id: str):
-        agent = self.agent_registry.get(agent_id)
-        if agent is None:
-            raise ValueError(f"Unknown agent id: {agent_id}")
-        if not agent.can_start_directly:
-            raise ValueError(f"Agent '{agent_id}' cannot be started directly in mode '{agent.mode}'")
-        return agent
-
-    def _resolve_session_model_defaults(self, agent_id: str, provider: str | None, model: str | None) -> tuple[str | None, str | None]:
-        if provider and model:
-            return provider, model
-        if provider:
-            saved_provider, saved_model = self._saved_cloud_provider_model(provider)
-            if saved_provider and saved_model:
-                return provider, model or saved_model
-        if not provider and not model:
-            saved_provider, saved_model = self._saved_cloud_provider_model()
-            if saved_provider and saved_model:
-                return saved_provider, saved_model
-        agent = self.agent_registry.get(agent_id)
-        return provider or (agent.default_provider if agent else None), model or (agent.default_model if agent else None)
-
-    def _saved_cloud_provider_model(self, provider: str | None = None) -> tuple[str | None, str | None]:
-        providers = [provider] if provider else list(SAVED_CLOUD_PROVIDER_PRIORITY)
-        if not provider:
-            index = secure_storage.get("cloud_custom_provider_index") or {}
-            if isinstance(index, dict):
-                for candidate in index.get("providers") or []:
-                    provider_id = str(candidate or "").strip()
-                    if provider_id and provider_id not in providers:
-                        providers.append(provider_id)
-
-        for provider_id in providers:
-            if not provider_id:
-                continue
-            key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
-            if not isinstance(key_data, dict) or not key_data.get("api_key"):
-                continue
-            model = str(key_data.get("default_model") or "").strip()
-            if not model:
-                models = key_data.get("models") or []
-                if models:
-                    model = str(models[0] or "").strip()
-            if model:
-                return str(provider_id), model
-        return None, None
-
-    def _has_saved_cloud_model(self, provider: str | None, model: str | None) -> bool:
-        if not provider or not model:
-            return False
-        key_data = secure_storage.get(f"cloud_{provider}_key") or {}
-        if not isinstance(key_data, dict) or not key_data.get("api_key"):
-            return False
-        saved_model = str(key_data.get("default_model") or "").strip()
-        models = [str(item or "").strip() for item in key_data.get("models") or []]
-        return not saved_model or saved_model == model or model in models
-
-    def get_session(self, session_id: str) -> AgentSessionResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        session["parts"] = self.repository.list_parts(session_id)
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
-
-    def update_session_preferences(
-        self,
-        session_id: str,
-        request: AgentSessionPreferencesUpdate,
-    ) -> AgentSessionResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        preferences = self._session_preferences(metadata).model_dump()
-        if request.display_title is not None:
-            display_title = request.display_title.strip()
-            if not display_title:
-                preferences["display_title"] = None
-            else:
-                preferences["display_title"] = display_title[:80]
-        if request.pinned is not None:
-            preferences["pinned"] = bool(request.pinned)
-        if request.archived is not None:
-            preferences["archived"] = bool(request.archived)
-        preferences["updated_at"] = datetime.now().isoformat()
-        metadata["ui_preferences"] = preferences
-        updated = self.repository.update_session(session_id, metadata=metadata)
-        updated["parts"] = self.repository.list_parts(session_id)
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(updated))
-
-    def list_sessions(self, user_id: str, include_all: bool = False, limit: int = 100) -> list[AgentSessionResponse]:
-        sessions = self.repository.list_sessions(limit)
-        visible = []
-        for session in sessions:
-            owner = str((session.get("metadata") or {}).get("user_id") or "").strip()
-            if include_all or not owner or owner == user_id:
-                session["parts"] = []
-                visible.append(AgentSessionResponse(**self._attach_recovery_diagnostics(session)))
-        return visible
-
-    def get_overview(self, session_id: str) -> AgentSessionOverviewResponse:
-        session = self.get_session(session_id)
-        metadata = dict(session.metadata or {})
-        diagnostics = dict(metadata.get("diagnostics") or {})
-        return AgentSessionOverviewResponse(
-            session=session,
-            recent_events=list(diagnostics.get("recent_events") or []),
-            artifacts=self._build_artifacts(session.parts),
-            diagnostics=diagnostics,
-        )
-
-    def get_workspace(self, session_id: str) -> AgentWorkspaceResponse:
-        return self.workspace_view_service.get_workspace(session_id)
-
-    def list_memory_files(self, session_id: str) -> list[AgentMemoryFileResponse]:
-        session = self.get_session(session_id)
-        from memory.memory_service import get_memory_service
-
-        service = get_memory_service()
-        namespaces = self._resource_profile_for_session(session).memory.get("namespaces") or []
-        files = []
-        for namespace in namespaces:
-            if not isinstance(namespace, dict):
-                continue
-            files.extend(service.list_files(str(namespace.get("scope") or ""), str(namespace.get("namespace") or "")))
-        return [AgentMemoryFileResponse(**file) for file in files]
-
-    def read_memory_file(self, session_id: str, path: str) -> AgentMemoryFileResponse:
-        session = self.get_session(session_id)
-        scope, namespace, relative_path = self._resolve_memory_file_path(
-            path,
-            resource_profile=self._resource_profile_for_session(session).model_dump(),
-        )
-        from memory.memory_service import get_memory_service
-
-        try:
-            file = get_memory_service().store.read_file_by_path(scope, namespace, relative_path)
-        except (FileNotFoundError, ValueError) as exc:
-            raise ValueError("Memory file not found") from exc
-        return AgentMemoryFileResponse(**file)
-
-    def _resource_profile_for_session(self, session: AgentSessionResponse):
-        agent_id = str(session.agent_id or "build")
-        agent = self.agent_registry.get(agent_id)
-        policy = build_agent_runtime_policy(
-            agent=agent,
-            agent_id=agent_id,
-            project_path=session.project_path or ".",
-            metadata=dict(session.metadata or {}),
-            provider=session.provider,
-            model=session.model,
-            runtime_kind="agent_session",
-            thread_id=str((session.metadata or {}).get("deepagents_thread_id") or f"agent_session:{session.id}:deepagents"),
-            checkpointer=True,
-            agent_registry=self.agent_registry,
-        )
-        return policy.resource_profile
-
-    @staticmethod
-    def _normalize_enabled_skill_sources(enabled_skill_sources: list[str] | None) -> list[str] | None:
-        if enabled_skill_sources is None:
-            return None
-        return [source for source in (str(item).strip() for item in enabled_skill_sources) if source]
-
-    @staticmethod
-    def _resolve_memory_file_path(
-        path: str,
-        *,
-        resource_profile: dict[str, Any],
-    ) -> tuple[str, str, str]:
-        normalized = path.strip().replace("\\", "/")
-        for namespace in dict(resource_profile.get("memory") or {}).get("namespaces") or []:
-            if not isinstance(namespace, dict):
-                continue
-            mount = str(namespace.get("mount") or "").rstrip("/") + "/"
-            if normalized.startswith(mount):
-                relative = normalized.removeprefix(mount).lstrip("/")
-                return (
-                    str(namespace.get("scope") or ""),
-                    str(namespace.get("namespace") or ""),
-                    AgentSessionService._validate_memory_relative_path(relative),
-                )
-        raise ValueError("Unsupported memory path")
-
-    @staticmethod
-    def _validate_memory_relative_path(relative_path: str) -> str:
-        candidate = relative_path.strip().replace("\\", "/")
-        path = Path(candidate)
-        if not candidate or path.is_absolute() or ".." in path.parts or not candidate.endswith(".md"):
-            raise ValueError("Unsupported memory path")
-        return candidate
-
-    async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if session.get("status") == "interrupted" or metadata.get("interrupt_requested"):
-            return self.get_session(session_id)
-
-        if request.provider or request.model:
-            resolved_provider, resolved_model = self._resolve_session_model_defaults(
-                str(session.get("agent_id") or "build"),
-                request.provider or session.get("provider"),
-                request.model or session.get("model"),
-            )
-            metadata["model_configured"] = bool(request.provider and request.model) or self._has_saved_cloud_model(
-                resolved_provider,
-                resolved_model,
-            )
-            self.repository.update_session(
-                session_id,
-                provider=resolved_provider,
-                model=resolved_model,
-                metadata=metadata,
-            )
-            session = self.repository.get_session(session_id) or session
-
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if self.model_call is None and not (session.get("provider") and session.get("model")):
-            result = self.record_prompt_failure(
-                session_id,
-                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
-            )
-            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-
-        context_pack = await build_deepagents_context_pack(
-            goal=request.content,
-            active_context=request.active_context,
-            explicit_context=request.explicit_context,
-            project_path=session.get("project_path"),
-            session_id=session_id,
-        )
-        prompt_content = context_pack.prompt
-        if context_pack.has_files:
-            metadata["deep_context"] = {
-                "active_context": request.active_context,
-                "explicit_context": request.explicit_context,
-                "context_engineering": context_pack.metadata,
-            }
-        trace = dict(metadata.get("execution_trace") or {})
-        trace.update(
-            {
-                "provider": str(session.get("provider") or ""),
-                "model": str(session.get("model") or ""),
-                "model_entry": "injected_model_call" if self.model_call is not None else "deepagents_init_chat_model",
-                "fallback_used": False,
-                "last_graph_error": None,
-                "last_model_error": None,
-            }
-        )
-        metadata["execution_trace"] = trace
-        if self.model_call is not None:
-            metadata["streaming_diagnostics"] = {
-                "mode": "non_stream",
-                "status": "disabled",
-                "source": "injected_model_call",
-                "reason": "测试或自定义 model_call 未提供 stream_model_call",
-                "fallback_to_non_stream": True,
-            }
-        metadata["runtime"] = "deepagents"
-        metadata["deepagents_thread_id"] = f"agent_session:{session_id}:deepagents"
-        self.repository.update_session(session_id, metadata=metadata)
-        session = self.repository.get_session(session_id) or session
-
-        try:
-            self._sync_async_service_model_call()
-            result = await self.deepagents_runner.run_prompt(session_id, prompt_content, context_files=context_pack.files)
-        except AgentLoopGuardTriggered:
-            result = self.repository.get_session(session_id) or session
-            result["parts"] = self.repository.list_parts(session_id)
-        except Exception as exc:
-            result = self.record_prompt_failure(session_id, exc)
-
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-
-    def start_prompt_background(
-        self,
-        session_id: str,
-        request: AgentPromptRequest,
-        background_tasks: BackgroundTasks | None,
-    ) -> AgentSessionResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-
-        if str(session.get("status") or "") in self.ACTIVE_STATUSES:
-            self.repository.add_event(
-                session_id,
-                "prompt_already_running",
-                "Agent 正在处理当前任务，未重复启动。",
-                {"session_id": session_id, "status": session.get("status"), "summary": "Agent 正在处理当前任务，未重复启动。"},
-            )
-            return self.get_session(session_id)
-
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        prompt_id = f"agprompt_{uuid.uuid4().hex}"
-        now = datetime.now().isoformat()
-        metadata["active_prompt_id"] = prompt_id
-        metadata["background_run"] = True
-        metadata["last_prompt_started_at"] = now
-        metadata["current_goal"] = request.content
-        user_part = self.repository.add_part(
-            session_id,
-            "text",
-            status="completed",
-            title="我的消息",
-            content=request.content,
-            payload={"role": "user", "source": "prompt", "prompt_id": prompt_id},
-        )
-        effective_provider, effective_model = self._resolve_session_model_defaults(
-            str(session.get("agent_id") or "build"),
-            request.provider or session.get("provider"),
-            request.model or session.get("model"),
-        )
-        model_configured = bool(
-            metadata.get("model_configured")
-            or (request.provider and request.model)
-            or self._has_saved_cloud_model(effective_provider, effective_model)
-        )
-        metadata["model_configured"] = model_configured
-        if effective_provider != session.get("provider") or effective_model != session.get("model"):
-            session = self.repository.update_session(
-                session_id,
-                provider=effective_provider,
-                model=effective_model,
-                metadata=metadata,
-            )
-        if self.model_call is None and (not model_configured or not (effective_provider and effective_model)):
-            agent_id = str(session.get("agent_id") or "build")
-            policy = build_agent_runtime_policy(
-                agent=self.agent_registry.get(agent_id),
-                agent_id=agent_id,
-                project_path=session.get("project_path"),
-                metadata=metadata,
-                provider=effective_provider,
-                model=effective_model,
-                runtime_kind="agent_session",
-                thread_id=f"agent_session:{session_id}:deepagents",
-                checkpointer=True,
-                agent_registry=self.agent_registry,
-            )
-            metadata["execution_plan"] = build_initial_execution_plan(
-                session={**session, "provider": effective_provider, "model": effective_model},
-                policy=policy,
-                goal=request.content,
-                status="running",
-            )
-            metadata["active_prompt_id"] = None
-            metadata["background_run"] = False
-            metadata["last_prompt_started_at"] = now
-            metadata["current_goal"] = request.content
-            session = self.repository.update_session(session_id, metadata=metadata)
-            result = self.record_prompt_failure(
-                session_id,
-                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
-            )
-            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-        agent_id = str(session.get("agent_id") or "build")
-        policy = build_agent_runtime_policy(
-            agent=self.agent_registry.get(agent_id),
-            agent_id=agent_id,
-            project_path=session.get("project_path"),
-            metadata=metadata,
-            provider=effective_provider,
-            model=effective_model,
-            runtime_kind="agent_session",
-            thread_id=f"agent_session:{session_id}:deepagents",
-            checkpointer=True,
-            agent_registry=self.agent_registry,
-        )
-        metadata["execution_plan"] = build_initial_execution_plan(
-            session={**session, "provider": effective_provider, "model": effective_model},
-            policy=policy,
-            goal=request.content,
-            status="running",
-        )
-        if request.active_context or request.explicit_context:
-            metadata["deep_context"] = {
-                "active_context": request.active_context,
-                "explicit_context": request.explicit_context,
-            }
-        session = self.state_machine.mark_running(
-            session_id,
-            provider=effective_provider,
-            model=effective_model,
-            metadata=metadata,
-        )
-        self._event(
-            session_id,
-            "prompt_queued",
-            "Agent 已进入后台执行。",
-            {
-                "session_id": session_id,
-                "active_prompt_id": prompt_id,
-                "status": "running",
-                "summary": "Agent 已进入后台执行。",
-                "part_id": user_part.get("id"),
-                "part_type": "text",
-                "part": user_part,
-            },
-        )
-        if background_tasks is not None:
-            background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
-        session["parts"] = self.repository.list_parts(session_id)
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
-
-    async def start_prompt_detached(
-        self,
-        session_id: str,
-        request: AgentPromptRequest,
-    ) -> AgentSessionResponse:
-        response = await run_sync(self.start_prompt_background, session_id, request, None)
-        prompt_id = response.metadata.get("active_prompt_id") if isinstance(response.metadata, dict) else None
-        if response.status == "running" and prompt_id:
-            thread = threading.Thread(
-                target=self._run_prompt_thread_entry,
-                args=(session_id, request, str(prompt_id)),
-                name=f"agent-prompt-{session_id}",
-                daemon=True,
-            )
-            thread.start()
-        return response
-
-    def _run_prompt_thread_entry(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            task = loop.create_task(self._run_prompt_background(session_id, request, prompt_id))
-            loop.run_until_complete(task)
-        except Exception:
-            logger.exception("Agent prompt background thread failed for session %s", session_id)
-        finally:
-            try:
-                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            finally:
-                asyncio.set_event_loop(None)
-                loop.close()
-
-    async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
-        loop = asyncio.get_running_loop()
-        current_task = asyncio.current_task()
-        if current_task is not None:
-            with self._prompt_tasks_lock:
-                self._prompt_tasks[session_id] = (loop, current_task)
-        try:
-            if not self._is_active_prompt(session_id, prompt_id):
-                return
-            await self.prompt(session_id, request)
-            session = self.repository.get_session(session_id)
-            if session:
-                self.state_machine.clear_active_prompt(session_id, prompt_id)
-        except asyncio.CancelledError:
-            session = self.repository.get_session(session_id)
-            if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:
-                self.interrupt_session(session_id, "Agent 后台任务已取消。")
-        except Exception as exc:
-            try:
-                if self._is_active_prompt(session_id, prompt_id):
-                    self.record_prompt_failure(session_id, exc)
-            except Exception as failure_exc:
-                if self._is_active_prompt(session_id, prompt_id):
-                    self._record_background_failure_fallback(session_id, exc, failure_exc)
-        finally:
-            self._clear_recovery_latch_for_prompt(session_id, prompt_id)
-            with self._prompt_tasks_lock:
-                record = self._prompt_tasks.get(session_id)
-                if record and record[1] is current_task:
-                    self._prompt_tasks.pop(session_id, None)
-
-    def _is_active_prompt(self, session_id: str, prompt_id: str) -> bool:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return False
-        metadata = dict(session.get("metadata") or {})
-        return metadata.get("active_prompt_id") == prompt_id
-
-    def interrupt_session(self, session_id: str, reason: str | None = None) -> AgentSessionResponse:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        if str(session.get("status") or "") in self.TERMINAL_STATUSES:
-            return self.get_session(session_id)
-
-        message = reason or "用户已中断 Agent 任务。"
-        self._cancel_prompt_task(session_id)
-        for part in self.repository.list_parts(session_id):
-            if part.get("status") == "running":
-                payload = dict(part.get("payload") or {})
-                payload["interrupted"] = True
-                self.repository.update_part(
-                    part["id"],
-                    status="blocked",
-                    title=part.get("title") or "已中断",
-                    content=part.get("content") or message,
-                    payload=payload,
-                )
-
-        self.state_machine.mark_interrupted(session_id, reason=message)
-        self.repository.add_part(
-            session_id,
-            "summary",
-            status="completed",
-            title="已中断",
-            content=f"{message} 已停止继续调用模型和工具，当前 transcript 已保留。",
-            payload={"summary": message, "interrupted": True},
-        )
-        self.repository.add_event(
-            session_id,
-            "session_interrupted",
-            message,
-            {"session_id": session_id, "status": "interrupted", "summary": message, "interrupted": True},
-        )
-        return self.get_session(session_id)
-
-    def _cancel_prompt_task(self, session_id: str) -> None:
-        with self._prompt_tasks_lock:
-            record = self._prompt_tasks.get(session_id)
-        if not record:
-            return
-        loop, task = record
-        if task.done():
-            return
-        loop.call_soon_threadsafe(task.cancel)
-
-    def _has_running_prompt_task(self, session_id: str) -> bool:
-        with self._prompt_tasks_lock:
-            record = self._prompt_tasks.get(session_id)
-        if not record:
-            return False
-        return not record[1].done()
-
-    def _get_recovery_latch(self, metadata: dict[str, Any], node_id: str) -> dict[str, Any] | None:
-        latches = metadata.get("recovery_latches")
-        if not isinstance(latches, dict):
-            return None
-        latch = latches.get(node_id)
-        return dict(latch) if isinstance(latch, dict) else None
-
     def _set_recovery_latch(self, session_id: str, node_id: str, recovery_id: str, action: str) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        latches = dict(metadata.get("recovery_latches") or {})
-        latches[node_id] = {"recovery_id": recovery_id, "action": action, "started_at": datetime.now().isoformat()}
-        metadata["recovery_latches"] = latches
-        self.repository.update_session(session_id, metadata=metadata)
-
-    def _update_recovery_latch(self, session_id: str, node_id: str, **updates: Any) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        latches = dict(metadata.get("recovery_latches") or {})
-        latch = dict(latches.get(node_id) or {})
-        if not latch:
-            return
-        latch.update({key: value for key, value in updates.items() if value is not None})
-        latches[node_id] = latch
-        metadata["recovery_latches"] = latches
-        self.repository.update_session(session_id, metadata=metadata)
-
-    def _clear_recovery_latch(self, session_id: str, node_id: str) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        latches = dict(metadata.get("recovery_latches") or {})
-        if node_id not in latches:
-            return
-        latches.pop(node_id, None)
-        metadata["recovery_latches"] = latches
-        self.repository.update_session(session_id, metadata=metadata)
-
-    def _clear_recovery_latches_for_event(self, session_id: str, event: dict[str, Any]) -> None:
-        event_type = str(event.get("event_type") or "")
-        payload = dict(event.get("payload") or {}) if isinstance(event.get("payload"), dict) else {}
-        if event_type in {"node_recovery_failed", "node_recovery_rejected", "node_recovery_completed"}:
-            node_id = str(payload.get("node_id") or "")
-            if node_id:
-                self._clear_recovery_latch(session_id, node_id)
-            return
-        if event_type not in {"async_subtask_completed", "async_subtask_failed", "async_subtask_cancelled"}:
-            return
-        task_id = str(payload.get("task_id") or "")
-        if not task_id:
-            return
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        latches = dict(metadata.get("recovery_latches") or {})
-        for node_id, latch in list(latches.items()):
-            if isinstance(latch, dict) and latch.get("new_task_id") == task_id:
-                latches.pop(node_id, None)
-        metadata["recovery_latches"] = latches
-        self.repository.update_session(session_id, metadata=metadata)
-
-    @staticmethod
-    def _find_execution_node(plan: dict[str, Any], node_id: str) -> dict[str, Any] | None:
-        for node in plan.get("nodes") or []:
-            if isinstance(node, dict) and str(node.get("id") or "") == node_id:
-                return node
-        return None
+        self.recovery_service._set_recovery_latch(session_id, node_id, recovery_id, action)
 
     def _start_recovery_prompt_background(
         self,
@@ -933,900 +141,111 @@ class AgentSessionService:
         action: str,
         instruction: str,
         recovery_id: str,
-        background_tasks: BackgroundTasks,
+        background_tasks: Any,
     ) -> None:
-        prompt_id = f"agrecover_{uuid.uuid4().hex}"
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        plan = dict(metadata.get("execution_plan") or {})
-        if isinstance(plan, dict):
-            plan["current_node_id"] = str(node.get("id") or "")
-            metadata["execution_plan"] = plan
-        now = datetime.now().isoformat()
-        metadata["active_prompt_id"] = prompt_id
-        metadata["background_run"] = True
-        metadata["last_prompt_started_at"] = now
-        metadata["last_recovery"] = {
-            "node_id": str(node.get("id") or ""),
-            "recovery_id": recovery_id,
-            "action": action,
-            "instruction": instruction,
-            "active_prompt_id": prompt_id,
-            "started_at": now,
-        }
-        prompt = self._recovery_prompt(node, action, instruction)
-        self.state_machine.mark_running(session_id, metadata=metadata)
-        self._event(
-            session_id,
-            "node_recovery_started",
-            "节点恢复已进入后台执行。",
-            {
-                "session_id": session_id,
-                "node_id": str(node.get("id") or ""),
-                "recovery_id": recovery_id,
-                "action": action,
-                "active_prompt_id": prompt_id,
-                "keeps_running": True,
-                "summary": "节点恢复已进入后台执行。",
-            },
-        )
-        background_tasks.add_task(self._run_prompt_background, session_id, AgentPromptRequest(content=prompt), prompt_id)
+        self.recovery_service._start_recovery_prompt_background(session_id, node, action, instruction, recovery_id, background_tasks)
 
-    def _clear_recovery_latch_for_prompt(self, session_id: str, prompt_id: str) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        last_recovery = dict(metadata.get("last_recovery") or {})
-        if last_recovery.get("active_prompt_id") != prompt_id:
-            return
-        node_id = str(last_recovery.get("node_id") or "")
-        if node_id:
-            self._clear_recovery_latch(session_id, node_id)
+    async def recover_execution_node(
+        self,
+        session_id: str,
+        node_id: str,
+        request: AgentExecutionPlanRecoverRequest,
+        background_tasks: Any,
+    ) -> AgentExecutionPlanRecoveryResponse:
+        return await self.recovery_service.recover_execution_node(session_id, node_id, request, background_tasks)
 
-    async def _recover_subagent_node(self, session_id: str, node: dict[str, Any], instruction: str, recovery_id: str) -> str:
-        old_task_id = str(node.get("source_task_id") or "")
-        task = self.repository.get_subtask(old_task_id) if old_task_id else None
-        input_json = dict((task or {}).get("input_json") or {})
-        agent_name = str((task or {}).get("agent_name") or node.get("agent_id") or "").strip()
-        description = str(input_json.get("description") or node.get("description") or "").strip()
-        if instruction:
-            description = f"{description}\n\n恢复补充说明：{instruction}" if description else instruction
-        if not agent_name or not description:
-            raise ValueError("Subagent recovery requires agent name and description")
-        self._sync_async_service_model_call()
-        recovered = await self.async_subagent_service.start_task(session_id, agent_name, description)
-        new_task_id = str(recovered.get("task_id") or "")
-        self._update_recovery_latch(session_id, str(node.get("id") or ""), new_task_id=new_task_id)
-        self._event(
-            session_id,
-            "node_recovery_started",
-            "子 Agent 节点已重启。",
-            {
-                "session_id": session_id,
-                "node_id": str(node.get("id") or ""),
-                "recovery_id": recovery_id,
-                "action": "restart_subagent",
-                "old_task_id": old_task_id,
-                "new_task_id": new_task_id,
-                "summary": "子 Agent 节点已重启。",
-            },
-        )
-        return new_task_id
+    async def recover_async_subtasks(self) -> dict[str, Any]:
+        return await self.recovery_service.recover_async_subtasks()
 
-    @staticmethod
-    def _recovery_prompt(node: dict[str, Any], action: str, instruction: str) -> str:
-        details = {
-            "node_id": node.get("id"),
-            "title": node.get("title"),
-            "kind": node.get("kind"),
-            "status": node.get("status"),
-            "tool": node.get("tool"),
-            "source_part_id": node.get("source_part_id"),
-            "source_task_id": node.get("source_task_id"),
-            "error": node.get("error"),
-            "blocked_reason": node.get("blocked_reason"),
-            "recovery_action": action,
-        }
-        prompt = (
-            "请从 Agent execution_plan 中的失败/阻塞节点继续恢复执行。\n"
-            "不要盲目重放已有副作用；先读取上下文，判断已完成内容，再执行必要的最小后续步骤。\n"
-            f"恢复节点：{json.dumps(details, ensure_ascii=False)}"
-        )
-        if instruction:
-            prompt += f"\n用户补充恢复说明：{instruction}"
-        return prompt
+    def recover_active_sessions_after_restart(self) -> dict[str, Any]:
+        return self.recovery_service.recover_active_sessions_after_restart()
+
+    async def shutdown_async_subtasks(self) -> None:
+        await self.recovery_service.shutdown_async_subtasks()
+
+    def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
+        return self.lifecycle.create_session(request, user_id)
+
+    def get_session(self, session_id: str) -> AgentSessionResponse:
+        return self.lifecycle.get_session(session_id)
+
+    def update_session_preferences(
+        self,
+        session_id: str,
+        request: AgentSessionPreferencesUpdate,
+    ) -> AgentSessionResponse:
+        return self.lifecycle.update_session_preferences(session_id, request)
+
+    def list_sessions(self, user_id: str, include_all: bool = False, limit: int = 100) -> list[AgentSessionResponse]:
+        return self.lifecycle.list_sessions(user_id, include_all, limit)
+
+    def get_overview(self, session_id: str) -> AgentSessionOverviewResponse:
+        return self.lifecycle.get_overview(session_id)
+
+    def get_workspace(self, session_id: str) -> Any:
+        return self.lifecycle.get_workspace(session_id)
+
+    def list_memory_files(self, session_id: str) -> list[AgentMemoryFileResponse]:
+        return self.lifecycle.list_memory_files(session_id)
+
+    def read_memory_file(self, session_id: str, path: str) -> AgentMemoryFileResponse:
+        return self.lifecycle.read_memory_file(session_id, path)
+
+    def validate_project_path(self, project_path: str | None) -> str:
+        return self.lifecycle.validate_project_path(project_path)
+
+    async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
+        return await self.background_manager.prompt(session_id, request)
 
     def record_prompt_failure(self, session_id: str, exc: Exception) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        message = f"模型调用失败或内部错误，已停止且没有继续执行动作。错误：{str(exc)[:600]}"
-        metadata = self._ensure_failed_metadata(session, message)
-        summary = self.repository.add_part(
-            session_id,
-            "summary",
-            status="completed",
-            title="最终结果",
-            content=message,
-            payload={"summary": message, "fallback": False, "error": str(exc)[:1200]},
-        )
-        self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
-        self._event(
-            session_id,
-            "session_failed",
-            message,
-            {
-                "session_id": session_id,
-                "part_id": summary.get("id"),
-                "part_type": "summary",
-                "status": "completed",
-                "summary": message,
-                "error": str(exc)[:1200],
-                "fallback": False,
-            },
-        )
-        result = self.repository.get_session(session_id) or session
-        result["parts"] = self.repository.list_parts(session_id)
-        return result
+        return self.background_manager.record_prompt_failure(session_id, exc)
+
+    async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
+        await self.approval_service._resume_permission_background(session_id, decision)
+
+    def _stream_part_snapshot(self, event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self.event_service._stream_part_snapshot(event, payload)
+
+    def start_prompt_background(
+        self,
+        session_id: str,
+        request: AgentPromptRequest,
+        background_tasks: Any | None,
+    ) -> AgentSessionResponse:
+        return self.background_manager.start_prompt_background(session_id, request, background_tasks)
+
+    async def start_prompt_detached(
+        self,
+        session_id: str,
+        request: AgentPromptRequest,
+    ) -> AgentSessionResponse:
+        return await self.background_manager.start_prompt_detached(session_id, request)
+
+    def interrupt_session(self, session_id: str, reason: str | None = None) -> AgentSessionResponse:
+        return self.background_manager.interrupt_session(session_id, reason)
 
     def approve_permission(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
+        return self.approval_service.approve_permission(part_id, approved)
 
     async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        return await self.decide_permission_async(part_id, [{"type": "approve" if approved else "reject"}])
+        return await self.approval_service.approve_permission_async(part_id, approved)
 
-    def _record_permission_decision(self, part_id: str, decisions: list[dict[str, Any]]) -> tuple[AgentSessionResponse, dict[str, Any] | None]:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        session = self.repository.get_session(part["session_id"]) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if metadata.get("runtime") != "deepagents":
-            if len(decisions) != 1:
-                raise ValueError("Legacy permission approvals accept exactly one decision")
-            return self.approve_permission(part_id, decisions[0].get("type") == "approve"), None
-
-        normalized_decisions = validate_hitl_decisions(part, decisions)
-        result = self._decide_deepagents_permission(part, normalized_decisions)
-        self._sync_async_service_model_call()
-        decision = permission_decisions(part_id, normalized_decisions)
-        self._record_resume_decision(part["session_id"], decision)
-        session = self.repository.get_session(part["session_id"]) or result
-        session["parts"] = self.repository.list_parts(part["session_id"])
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(session)), decision
+    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
+        return await self.approval_service.decide_permission_async(part_id, decisions)
 
     def start_permission_resume_background(
         self,
         part_id: str,
         decisions: list[dict[str, Any]],
-        background_tasks: BackgroundTasks,
+        background_tasks: Any,
     ) -> AgentSessionResponse:
-        response, decision = self._record_permission_decision(part_id, decisions)
-        if decision is not None and self._can_resume_permission(response):
-            background_tasks.add_task(self._resume_permission_background, response.id, decision)
-        return response
-
-    def _can_resume_permission(self, response: AgentSessionResponse) -> bool:
-        return self.deepagents_runner.model_call is not None or bool(response.provider)
-
-    async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
-        # Register the resume coroutine so interrupt_session/_cancel_prompt_task
-        # can actually cancel an in-flight permission resume. Without this the
-        # resume keeps running after an interrupt and may still fire side-effect
-        # tools (even though resume() re-checks _is_interrupted before completion).
-        loop = asyncio.get_running_loop()
-        current_task = asyncio.current_task()
-        if current_task is not None:
-            with self._prompt_tasks_lock:
-                existing = self._prompt_tasks.get(session_id)
-                # Only take over the slot when no other live task owns it, so we
-                # never displace a still-running prompt task.
-                if existing is None or existing[1].done():
-                    self._prompt_tasks[session_id] = (loop, current_task)
-        try:
-            self._sync_async_service_model_call()
-            await self.deepagents_runner.resume(session_id, decision)
-        except AgentLoopGuardTriggered:
-            return
-        except asyncio.CancelledError:
-            session = self.repository.get_session(session_id)
-            if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:
-                self.interrupt_session(session_id, "权限审批后的 Agent 恢复执行已取消。")
-        except Exception as exc:
-            try:
-                self.record_prompt_failure(session_id, exc)
-            except Exception as failure_exc:
-                self._record_background_failure_fallback(session_id, exc, failure_exc)
-        finally:
-            with self._prompt_tasks_lock:
-                record = self._prompt_tasks.get(session_id)
-                if record and record[1] is current_task:
-                    self._prompt_tasks.pop(session_id, None)
-
-    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
-        response, decision = await run_sync(self._record_permission_decision, part_id, decisions)
-        if decision is not None and self._can_resume_permission(response):
-            await self._resume_permission_background(response.id, decision)
-            return self.get_session(response.id)
-        return response
-
-    def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:
-        session_id = str(part.get("session_id") or "")
-        if not session_id:
-            raise ValueError("Agent part session not found")
-        session = self.repository.get_session(session_id) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        # CAS guard: only transition a still-pending action. A repeated
-        # approve/reject (double click, retry) must not flip an already-decided
-        # part again or re-trigger state transitions. Return current state idempotently.
-        next_status = "blocked" if not approved else "approved"
-        updated = self.repository.update_part_if_status(part["id"], "pending", status=next_status)
-        if updated is None:
-            result = self.repository.get_session(session_id) or session
-            result["parts"] = self.repository.list_parts(session_id)
-            return result
-        if not approved:
-            self.state_machine.mark_failed(session_id, metadata=metadata, status="failed")
-            event_type, event_message = "action_rejected", "动作已拒绝"
-        else:
-            self.state_machine.mark_waiting_approval(session_id, metadata=metadata)
-            event_type, event_message = "action_approved", "动作已批准"
-        event = self.repository.add_event(
-            session_id,
-            event_type,
-            event_message,
-            {
-                "session_id": session_id,
-                "part_id": part["id"],
-                "part_type": part.get("type"),
-                "status": next_status,
-                "runtime": "deepagents",
-                "part": updated,
-            },
-        )
-        self._notify_event(session_id, event)
-        result = self.repository.get_session(session_id) or session
-        result["parts"] = self.repository.list_parts(session_id)
-        return result
-
-    def _record_background_failure_fallback(self, session_id: str, original_exc: Exception, failure_exc: Exception) -> None:
-        logger.exception(
-            "Failed to record Agent background failure for session %s after original error: %s",
-            session_id,
-            original_exc,
-            exc_info=failure_exc,
-        )
-        try:
-            def write_failure() -> None:
-                session = self.repository.get_session(session_id)
-                if not session:
-                    return
-                message = (
-                    "Agent 后台任务失败，且标准失败记录也失败。"
-                    f"原始错误：{str(original_exc)[:500]}；记录错误：{str(failure_exc)[:500]}"
-                )
-                metadata = self._ensure_failed_metadata(session, message)
-                self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
-                event = self.repository.add_event(
-                    session_id,
-                    "session_failed",
-                    message,
-                    {
-                        "session_id": session_id,
-                        "status": "needs_manual_review",
-                        "summary": message,
-                        "error": message,
-                        "fallback": True,
-                        "record_failure_error": str(failure_exc)[:1000],
-                    },
-                )
-                self._notify_event(session_id, event)
-
-            self.repository.run_write_with_retry(write_failure)
-        except Exception:
-            logger.exception("Failed to apply minimal Agent failure fallback for session %s", session_id)
-
-    def _mark_session_lost_after_restart(self, session: dict[str, Any]) -> None:
-        session_id = str(session.get("id") or "")
-        if not session_id:
-            return
-        message = "Agent 后台任务在服务重启或进程退出时中断，已停止自动执行。请查看 transcript 后重新发起。"
-
-        def write_recovery() -> None:
-            current = self.repository.get_session(session_id) or session
-            if str(current.get("status") or "") not in self.ACTIVE_STATUSES:
-                return
-            metadata = self._ensure_failed_metadata(current, message)
-            metadata["recovered_after_restart"] = True
-            summary = self.repository.add_part(
-                session_id,
-                "summary",
-                status="completed",
-                title="执行已中断",
-                content=message,
-                payload={"summary": message, "fallback": True, "recovered_after_restart": True},
-            )
-            self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
-            event = self.repository.add_event(
-                session_id,
-                "session_failed",
-                message,
-                {
-                    "session_id": session_id,
-                    "part_id": summary.get("id"),
-                    "part_type": "summary",
-                    "status": "needs_manual_review",
-                    "summary": message,
-                    "error": message,
-                    "fallback": True,
-                    "recovered_after_restart": True,
-                },
-            )
-            self._notify_event(session_id, event)
-
-        self.repository.run_write_with_retry(write_recovery)
-
-    def _decide_deepagents_permission(self, part: dict[str, Any], decisions: list[dict[str, Any]]) -> dict[str, Any]:
-        session_id = str(part.get("session_id") or "")
-        if not session_id:
-            raise ValueError("Agent part session not found")
-        session = self.repository.get_session(session_id) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        payload = dict(part.get("payload") or {})
-        payload["decisions"] = decisions
-        payload["decided_at"] = datetime.now().isoformat()
-        updated = self.repository.update_part_if_status(part["id"], "pending", status="approved", payload=payload)
-        if not updated:
-            raise ValueError("Permission part is not pending")
-        metadata["pending_deepagents_interrupt"] = None
-        self.state_machine.mark_running(session_id, metadata=metadata)
-        event = self.repository.add_event(
-            session_id,
-            "permission_decided",
-            "HITL 决策已提交，Agent 正在继续执行。",
-            {
-                "session_id": session_id,
-                "part_id": part["id"],
-                "part_type": part.get("type"),
-                "status": "approved",
-                "runtime": "deepagents",
-                "decisions": decisions,
-                "part": updated,
-            },
-        )
-        self._notify_event(session_id, event)
-        result = self.repository.get_session(session_id) or session
-        result["parts"] = self.repository.list_parts(session_id)
-        return result
+        return self.approval_service.start_permission_resume_background(part_id, decisions, background_tasks)
 
     def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_events_after(session_id, since_event_id)
 
     def build_stream_chunk(self, event: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(event.get("payload") or {})
-        session_id = str(event.get("session_id") or payload.get("session_id") or "")
-        session = self.repository.get_session(session_id) or {}
-        payload_chunk_type = payload.get("chunk_type")
-        payload_part = payload.get("part")
-        event_type = str(event.get("event_type") or "")
-        computed_part = payload_part if isinstance(payload_part, dict) else None
-        if computed_part is None or event_type in {"part_delta", "model_stream_started", "model_stream_completed", "model_stream_failed"}:
-            computed_part = self._stream_part_snapshot(event, payload)
-        chunk_type = payload_chunk_type if isinstance(payload_chunk_type, str) else self._stream_chunk_type(event_type, payload, computed_part)
-        return {
-            "id": event.get("id"),
-            "session_id": session_id,
-            "created_at": event.get("created_at"),
-            "event_type": event_type,
-            "chunk_type": chunk_type,
-            "message": str(event.get("message") or ""),
-            "payload": payload,
-            "session_status": session.get("status"),
-            "agent_id": session.get("agent_id"),
-            "phase": payload.get("phase"),
-            "tool": payload.get("tool"),
-            "agent_name": payload.get("agent_name"),
-            "agent_role": payload.get("agent_role"),
-            "task_id": payload.get("task_id"),
-            "child_session_id": payload.get("child_session_id"),
-            "async_status": payload.get("async_status"),
-            "health_status": payload.get("health_status"),
-            "delta": payload.get("delta"),
-            "content": payload.get("content"),
-            "summary": payload.get("summary") or event.get("message"),
-            "part": computed_part,
-        }
+        return self.event_service.build_stream_chunk(event)
 
     def build_session_snapshot_chunk(self, session_id: str) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return {"chunk_type": "session_snapshot", "session_id": session_id, "session_status": "unknown", "parts": [], "payload": {}}
-        parts = self.repository.list_parts(session_id)
-        session["parts"] = parts
-        hydrated = self._attach_recovery_diagnostics(session)
-        return {
-            "id": f"snap_{session_id}",
-            "session_id": session_id,
-            "created_at": hydrated.get("updated_at") or hydrated.get("created_at") or "",
-            "event_type": "session_snapshot",
-            "chunk_type": "session_snapshot",
-            "message": "Session state snapshot",
-            "payload": {},
-            "session_status": hydrated.get("status"),
-            "agent_id": hydrated.get("agent_id"),
-            "phase": None,
-            "tool": None,
-            "agent_name": None,
-            "agent_role": None,
-            "task_id": None,
-            "child_session_id": None,
-            "async_status": None,
-            "delta": None,
-            "content": None,
-            "summary": None,
-            "part": None,
-            "session_snapshot": hydrated,
-        }
-
-    def _ensure_failed_metadata(self, session: dict[str, Any], message: str) -> dict[str, Any]:
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = record_fallback_summary(metadata)
-        metadata = clear_runtime_latches(metadata)
-        metadata["latest_error"] = message
-        metadata["model_protocol_status"] = "needs_manual_review"
-        state = dict(metadata.get("state") or {})
-        state["latest_error"] = message
-        metadata["state"] = state
-        return metadata
-
-    def _attach_recovery_diagnostics(self, session: dict[str, Any]) -> dict[str, Any]:
-        hydrated = dict(session)
-        session_id = str(hydrated.get("id") or "")
-        parts = list(hydrated.get("parts") or self.repository.list_parts(session_id))
-        events = self.repository.list_events(session_id) if session_id else []
-        metadata = ensure_session_state(dict(hydrated.get("metadata") or {}))
-        preferences = self._session_preferences(metadata)
-        diagnostics = self._build_diagnostics(hydrated, parts, events, metadata)
-        ui_state = self._build_ui_state(hydrated, parts, diagnostics, metadata)
-        metadata["diagnostics"] = diagnostics
-        metadata["ui_state"] = ui_state
-        metadata["latest_event"] = diagnostics.get("latest_event")
-        metadata["latest_tool_call"] = diagnostics.get("latest_tool_call")
-        metadata["latest_tool_result"] = diagnostics.get("latest_tool_result")
-        metadata["latest_action"] = diagnostics.get("latest_action")
-        metadata["latest_command"] = diagnostics.get("latest_command")
-        metadata["latest_summary"] = diagnostics.get("latest_summary")
-        state = dict(metadata.get("state") or {})
-        metadata["latest_error"] = diagnostics.get("latest_error") or metadata.get("latest_error") or state.get("latest_error")
-        metadata["stop_reason"] = diagnostics.get("stop_reason")
-        metadata["next_action"] = diagnostics.get("next_action")
-        hydrated["metadata"] = metadata
-        hydrated["preferences"] = preferences.model_dump()
-        hydrated["parts"] = parts
-        return hydrated
-
-    @staticmethod
-    def _session_preferences(metadata: dict[str, Any]) -> AgentSessionPreferences:
-        raw = metadata.get("ui_preferences")
-        raw = raw if isinstance(raw, dict) else {}
-        display_title = raw.get("display_title")
-        display_title = display_title.strip()[:80] if isinstance(display_title, str) and display_title.strip() else None
-        return AgentSessionPreferences(
-            display_title=display_title,
-            pinned=bool(raw.get("pinned")),
-            archived=bool(raw.get("archived")),
-            updated_at=str(raw.get("updated_at") or "") or None,
-        )
-
-    def _stream_part_snapshot(self, event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
-        session_id = str(event.get("session_id") or payload.get("session_id") or "")
-        event_type = str(event.get("event_type") or "")
-        part_id = payload.get("part_id")
-        stored_part = self.repository.get_part(str(part_id)) if isinstance(part_id, str) and part_id.startswith("agp_") else None
-        payload_part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
-        if stored_part is None and not part_id:
-            return None
-        if event_type in {"part_delta", "model_stream_started", "model_stream_completed", "model_stream_failed"}:
-            part_type = str(payload.get("part_type") or (stored_part or {}).get("type") or "text")
-            if event_type == "part_delta":
-                status = str(payload.get("status") or (stored_part or {}).get("status") or "running")
-            elif event_type == "model_stream_completed":
-                status = self._completed_stream_status(payload, stored_part, payload_part)
-            else:
-                status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
-            stored_payload = dict((stored_part or {}).get("payload") or {})
-            if isinstance(payload.get("payload"), dict):
-                stored_payload.update(payload.get("payload") or {})
-            if isinstance(payload_part.get("payload"), dict):
-                stored_payload.update(payload_part.get("payload") or {})
-            if payload.get("streaming"):
-                stored_payload["streaming"] = True
-            elif event_type == "model_stream_completed":
-                stored_payload["streaming"] = False
-            return {
-                "id": str(part_id or ""),
-                "session_id": session_id,
-                "type": part_type,
-                "status": status,
-                "title": payload_part.get("title") or (stored_part or {}).get("title") or ("流式输出失败" if event_type == "model_stream_failed" else "生成中"),
-                "content": self._completed_stream_content(payload, stored_part, payload_part) if event_type == "model_stream_completed" else str(payload.get("content") or (stored_part or {}).get("content") or payload_part.get("content") or ""),
-                "payload": stored_payload,
-                "created_at": (stored_part or {}).get("created_at") or event.get("created_at"),
-                "updated_at": event.get("created_at"),
-            }
-        if stored_part is not None:
-            return stored_part
-        return {
-            "id": str(part_id or ""),
-            "session_id": session_id,
-            "type": str(payload.get("part_type") or "text"),
-            "status": str(payload.get("status") or "completed"),
-            "title": None,
-            "content": str(payload.get("content") or payload.get("summary") or event.get("message") or ""),
-            "payload": payload,
-            "created_at": event.get("created_at"),
-            "updated_at": event.get("created_at"),
-        }
-
-    @staticmethod
-    def _completed_stream_status(payload: dict[str, Any], stored_part: dict[str, Any] | None, payload_part: dict[str, Any]) -> str:
-        explicit = str(payload.get("status") or "").strip()
-        if explicit:
-            return explicit
-        candidates = [
-            str((stored_part or {}).get("status") or "").strip(),
-            str(payload_part.get("status") or "").strip(),
-        ]
-        if "completed" in candidates:
-            return "completed"
-        for candidate in candidates:
-            if candidate and candidate != "running":
-                return candidate
-        return "completed"
-
-    @staticmethod
-    def _completed_stream_content(payload: dict[str, Any], stored_part: dict[str, Any] | None, payload_part: dict[str, Any]) -> str:
-        explicit = payload.get("content")
-        if explicit is not None:
-            return str(explicit)
-        stored_status = str((stored_part or {}).get("status") or "").strip()
-        payload_status = str(payload_part.get("status") or "").strip()
-        if stored_status == "completed":
-            return str((stored_part or {}).get("content") or "")
-        if payload_status == "completed":
-            return str(payload_part.get("content") or "")
-        return str((stored_part or {}).get("content") or payload_part.get("content") or "")
-
-    @staticmethod
-    def _stream_chunk_type(event_type: str, payload: dict[str, Any], part: dict[str, Any] | None) -> str:
-        if event_type.startswith("async_subtask_") or payload.get("agent_role") == "async_subagent":
-            return "async_task"
-        if event_type == "phase_change":
-            return "phase"
-        if event_type == "model_stream_started":
-            return "part_start"
-        if event_type == "part_delta":
-            return "part_delta"
-        if event_type == "model_stream_completed":
-            return "part_complete"
-        if event_type == "tool_call_started":
-            return "tool_call"
-        if event_type == "tool_call_completed":
-            return "tool_result"
-        if event_type == "summary_completed":
-            return "summary"
-        if event_type == "permission_asked":
-            return "permission_request"
-        if event_type == "command_output":
-            return "part_delta"
-        if event_type in {"action_proposed", "action_approved", "action_rejected", "action_executed", "action_failed", "command_started", "command_completed", "command_failed"}:
-            return "action"
-        if event_type in {
-            "tool_call_failed",
-            "loop_guard_triggered",
-            "model_stream_failed",
-            "session_failed",
-            "session_blocked",
-            "session_interrupted",
-        }:
-            return "error"
-        if event_type in {"session_started", "prompt_queued", "prompt_already_running"}:
-            return "status"
-        if part is not None:
-            return "part_snapshot"
-        if payload.get("tool"):
-            return "tool"
-        return "event"
-
-    def _build_diagnostics(
-        self,
-        session: dict[str, Any],
-        parts: list[dict[str, Any]],
-        events: list[dict[str, Any]],
-        metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        status = str(session.get("status") or "idle")
-        state = dict(metadata.get("state") or {})
-        latest_event = events[-1] if events else None
-        latest_tool_call = self._latest_part(parts, {"tool_call"})
-        latest_tool_result = self._latest_part(parts, {"tool_result"})
-        latest_action = self._latest_part(parts, {"permission"})
-        latest_command = self._latest_part(parts, {"command"})
-        latest_summary = self._latest_part(parts, {"summary"})
-        latest_error = self._latest_part(parts, {"error"})
-        stop_reason, next_action = self._explain_status(
-            status,
-            state,
-            latest_summary,
-            latest_error,
-            latest_action,
-            latest_event,
-        )
-        return {
-            "status": status,
-            "current_phase": state.get("current_phase") or metadata.get("current_phase") or status,
-            "latest_event": self._compact_event(latest_event),
-            "latest_tool_call": self._compact_part(latest_tool_call),
-            "latest_tool_result": self._compact_part(latest_tool_result),
-            "latest_action": self._compact_part(latest_action),
-            "latest_command": self._compact_part(latest_command),
-            "latest_summary": self._compact_part(latest_summary),
-            "latest_error": self._compact_part(latest_error),
-            "recent_events": [self._compact_event(event) for event in events[-5:]],
-            "stop_reason": stop_reason,
-            "next_action": next_action,
-            "refresh_safe": True,
-        }
-
-    def _build_ui_state(
-        self,
-        session: dict[str, Any],
-        parts: list[dict[str, Any]],
-        diagnostics: dict[str, Any],
-        metadata: dict[str, Any],
-    ) -> dict[str, Any]:
-        latest = {
-            "tool_call": self._compact_part(self._latest_part(parts, {"tool_call"})),
-            "tool_result": self._compact_part(self._latest_part(parts, {"tool_result"})),
-            "summary": self._compact_part(self._latest_part(parts, {"summary"})),
-            "error": self._compact_part(self._latest_part(parts, {"error"})),
-            "permission": self._compact_part(self._latest_part(parts, {"permission"})),
-        }
-        artifacts = []
-        for artifact in self._build_artifacts(parts):
-            item = artifact.model_dump() if hasattr(artifact, "model_dump") else artifact.dict()
-            item["source"] = "legacy_diff"
-            artifacts.append(item)
-        return {
-            "session_id": session.get("id"),
-            "agent_id": session.get("agent_id"),
-            "status": session.get("status"),
-            "timeline": [self._ui_timeline_item(part) for part in parts],
-            "pending_permission": self._pending_permission_ui(parts),
-            "latest": latest,
-            "artifacts": artifacts,
-            "status_text": {
-                "current_phase": diagnostics.get("current_phase") or metadata.get("current_phase"),
-                "stop_reason": diagnostics.get("stop_reason"),
-                "next_action": diagnostics.get("next_action"),
-            },
-        }
-
-    @staticmethod
-    def _ui_timeline_item(part: dict[str, Any]) -> dict[str, Any]:
-        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
-        tool = payload.get("tool") or payload.get("name")
-        if not tool and isinstance(payload.get("action"), dict):
-            tool = payload["action"].get("name")
-        if not tool and isinstance(payload.get("action_requests"), list) and payload["action_requests"]:
-            first = payload["action_requests"][0]
-            if isinstance(first, dict):
-                tool = first.get("name")
-        return {
-            "id": part.get("id"),
-            "part_id": part.get("id"),
-            "session_id": part.get("session_id"),
-            "type": part.get("type"),
-            "status": part.get("status"),
-            "title": part.get("title"),
-            "content": part.get("content"),
-            "tool": tool,
-            "agent_name": payload.get("agent_name"),
-            "agent_role": payload.get("agent_role"),
-            "task_id": payload.get("task_id"),
-            "child_session_id": payload.get("child_session_id"),
-            "async_status": payload.get("async_status"),
-            "created_at": part.get("created_at"),
-            "updated_at": part.get("updated_at"),
-            "payload": payload,
-            "legacy": str(part.get("type") or "") in {"diff", "command"},
-        }
-
-    @classmethod
-    def _pending_permission_ui(cls, parts: list[dict[str, Any]]) -> dict[str, Any] | None:
-        part = cls._latest_part(parts, {"permission"})
-        if not part or part.get("status") != "pending":
-            return None
-        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
-        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
-        if not actions:
-            requests = payload.get("action_requests") if isinstance(payload.get("action_requests"), list) else []
-            if requests:
-                actions = requests
-        if not actions:
-            action_payload = payload.get("action") if isinstance(payload.get("action"), dict) else {}
-            actions = [
-                {
-                    "name": payload.get("tool") or action_payload.get("name") or "tool",
-                    "args": payload.get("args") or action_payload.get("args") or {},
-                    "allowed_decisions": payload.get("allowed_decisions") or ["approve", "reject"],
-                }
-            ]
-        normalized_actions = []
-        for index, action in enumerate(actions):
-            action = action if isinstance(action, dict) else {}
-            allowed = action.get("allowed_decisions") or payload.get("allowed_decisions") or ["approve", "reject"]
-            normalized_actions.append(
-                {
-                    "index": index,
-                    "name": str(action.get("name") or f"tool_{index + 1}"),
-                    "args": action.get("args") if isinstance(action.get("args"), dict) else {},
-                    "description": str(action.get("description") or ""),
-                    "allowed_decisions": [str(item) for item in allowed] if isinstance(allowed, list) else ["approve", "reject"],
-                }
-            )
-        return {
-            "part_id": part.get("id"),
-            "status": part.get("status"),
-            "title": part.get("title"),
-            "content": part.get("content"),
-            "actions": normalized_actions,
-            "allowed_decisions": sorted({decision for action in normalized_actions for decision in action.get("allowed_decisions", [])}),
-            "decisions_payload": {
-                "action_requests": payload.get("action_requests") or [],
-                "actions": payload.get("actions") or [],
-                "allowed_decisions": payload.get("allowed_decisions") or [],
-            },
-        }
-
-    @staticmethod
-    def _latest_part(parts: list[dict[str, Any]], part_types: set[str]) -> dict[str, Any] | None:
-        for part in reversed(parts):
-            if str(part.get("type")) in part_types:
-                return part
-        return None
-
-    @staticmethod
-    def _compact_part(part: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not part:
-            return None
-        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
-        return {
-            "id": part.get("id"),
-            "type": part.get("type"),
-            "status": part.get("status"),
-            "title": part.get("title"),
-            "content": AgentSessionService._truncate(str(part.get("content") or ""), 240),
-            "policy_decision": payload.get("policy_decision") or payload.get("execution_mode"),
-            "risk_level": payload.get("risk_level"),
-            "policy_reason": payload.get("policy_reason"),
-            "agent_name": payload.get("agent_name"),
-            "agent_role": payload.get("agent_role"),
-            "task_id": payload.get("task_id"),
-            "child_session_id": payload.get("child_session_id"),
-            "async_status": payload.get("async_status"),
-            "changed_files": payload.get("changed_files") or [],
-            "exit_code": payload.get("exit_code"),
-            "failure_summary": AgentSessionService._truncate(str(payload.get("failure_summary") or ""), 240),
-        }
-
-    @staticmethod
-    def _compact_event(event: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not event:
-            return None
-        return {
-            "id": event.get("id"),
-            "event_type": event.get("event_type"),
-            "message": AgentSessionService._truncate(str(event.get("message") or ""), 240),
-            "created_at": event.get("created_at"),
-            "payload": event.get("payload") if isinstance(event.get("payload"), dict) else {},
-        }
-
-    @staticmethod
-    def _build_artifacts(parts: list[Any]) -> list[AgentArtifactResponse]:
-        artifacts: list[AgentArtifactResponse] = []
-        seen: dict[str, int] = {}
-        for part in parts:
-            part_type = getattr(part, "type", None) if not isinstance(part, dict) else part.get("type")
-            if part_type != "diff":
-                continue
-            payload = getattr(part, "payload", None) if not isinstance(part, dict) else part.get("payload")
-            payload = dict(payload or {})
-            nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
-            diff_source = payload.get("diff") or payload.get("file_changes") or nested_payload.get("diff") or nested_payload.get("file_changes")
-            changed_files = payload.get("changed_files") or []
-            title = getattr(part, "title", None) if not isinstance(part, dict) else part.get("title")
-            content = getattr(part, "content", None) if not isinstance(part, dict) else part.get("content")
-            status = getattr(part, "status", None) if not isinstance(part, dict) else part.get("status")
-            part_id = getattr(part, "id", None) if not isinstance(part, dict) else part.get("id")
-            fallback_summary = str(title or content or payload.get("policy_reason") or "文件变更")
-            entries = diff_source if isinstance(diff_source, list) else [
-                {"path": path, "status": status or "modified", "summary": fallback_summary, "diff": diff_source}
-                for path in changed_files
-            ]
-            for entry in entries:
-                entry = entry or {}
-                path = str(entry.get("path") or entry.get("file_path") or entry.get("filename") or entry.get("name") or "").strip()
-                if not path:
-                    continue
-                seen[path] = seen.get(path, 0) + 1
-                preview = entry.get("diff") or entry.get("patch") or entry.get("content") or diff_source or ""
-                artifacts.append(
-                    AgentArtifactResponse(
-                        id=f"{part_id}:{path}:{seen[path]}",
-                        path=path,
-                        status=str(entry.get("status") or entry.get("change_type") or entry.get("action") or status or "modified"),
-                        summary=str(entry.get("summary") or entry.get("description") or fallback_summary),
-                        preview=str(preview),
-                        source_part_id=str(part_id or ""),
-                    )
-                )
-        return artifacts[-24:]
-
-    @staticmethod
-    def _explain_status(
-        status: str,
-        state: dict[str, Any],
-        latest_summary: dict[str, Any] | None,
-        latest_error: dict[str, Any] | None,
-        latest_action: dict[str, Any] | None,
-        latest_event: dict[str, Any] | None,
-    ) -> tuple[str, str]:
-        summary_text = str((latest_summary or {}).get("content") or "").strip()
-        error_text = str((latest_error or {}).get("content") or "").strip()
-        action_payload = latest_action.get("payload") if latest_action and isinstance(latest_action.get("payload"), dict) else {}
-        action_reason = str((action_payload or {}).get("policy_reason") or (latest_action or {}).get("content") or "").strip()
-        event_message = str((latest_event or {}).get("message") or "").strip()
-        latest_state_error = str(state.get("latest_error") or "").strip()
-
-        if status == "completed":
-            return summary_text or event_message or "任务已完成。", "可以查看结果，或继续提出下一步需求。"
-        if status == "waiting_approval":
-            reason = action_reason or event_message or "有修改或命令需要确认。"
-            return reason, "请确认待处理的修改或验证命令。"
-        if status == "waiting_permission":
-            return event_message or "有工具调用需要权限确认。", "请批准或拒绝该工具调用。"
-        if status == "needs_manual_review":
-            reason = summary_text or error_text or latest_state_error or event_message or "Agent 已停在需要人工处理的状态。"
-            return reason, "请根据上方原因调整需求、手动确认动作，或让 Agent 继续修复。"
-        if status == "interrupted":
-            reason = event_message or summary_text or latest_state_error or "用户已中断 Agent 任务。"
-            return reason, "当前 transcript 已保留；需要继续时请发送新任务或重试。"
-        if status == "failed":
-            reason = error_text or latest_state_error or summary_text or event_message or "执行失败。"
-            return reason, "请查看失败详情后重试，或改用只读/确认模式。"
-        if status in {"running", "verifying", "repairing"}:
-            phase = str(state.get("current_phase") or status)
-            return event_message or f"Agent 正在处理：{phase}。", "等待当前步骤完成，或刷新运行状态查看最新进展。"
-        return event_message or "会话已创建，等待输入。", "发送一个开发目标开始执行。"
-
-    @staticmethod
-    def _truncate(value: str, limit: int) -> str:
-        if len(value) <= limit:
-            return value
-        return value[:limit].rstrip() + "...[truncated]"
-
-    def _record_resume_decision(self, session_id: str, decision: dict[str, Any]) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata["last_resume_decision"] = dict(decision)
-        self.repository.update_session(session_id, metadata=metadata)
-
+        return self.event_service.build_session_snapshot_chunk(session_id)
