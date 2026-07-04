@@ -842,6 +842,13 @@ class TestTrainingReleaseFeatureGuards:
 
     @pytest.mark.asyncio
     async def test_stop_training_marks_stop_requested_instead_of_force_stopped(self, monkeypatch):
+        from core import training_context as _training_context_module
+        from core.config import get_settings
+
+        settings = get_settings()
+        original_mode = settings.training_execution_mode
+        settings.training_execution_mode = "in_process"
+
         class FakeState:
             def __init__(self):
                 self.stop_requested = False
@@ -861,12 +868,15 @@ class TestTrainingReleaseFeatureGuards:
 
         fake_state = FakeState()
         monkeypatch.setattr(
-            training_module,
+            _training_context_module,
             "get_training_context",
             lambda: type("FakeCtx", (), {"state": fake_state}),
         )
 
-        result = await stop_training()
+        try:
+            result = await stop_training()
+        finally:
+            settings.training_execution_mode = original_mode
 
         assert result["status"] == "stopping"
         assert fake_state.stop_requested is True

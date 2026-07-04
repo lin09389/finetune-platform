@@ -17,8 +17,8 @@ from typing import Any
 from fastapi import APIRouter
 
 from api.knowledge import routes as knowledge_routes
-from core.config import settings
 from core.db_manager import run_sync
+from core.inference_gateway import get_inference_gateway
 from core.storage import (
     backup_storage,
     check_storage,
@@ -31,12 +31,11 @@ from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
 
-if settings.inference_execution_mode == "service":
-    from inference_provider.runtime import inference_runtime_facade as inference_routes
-else:
-    from api.inference import routes as inference_routes
-
+# Inference execution mode is now abstracted behind InferenceGateway.
+# The old module-level branch that imported either the in-process routes or the
+# service facade has been removed to avoid import-time side effects.
 router = APIRouter()
+
 
 
 async def _resolve(value_or_awaitable: Any) -> Any:
@@ -136,21 +135,22 @@ async def get_runtime_bootstrap():
     """Return an aggregated runtime bootstrap payload for the frontend shell."""
     warnings: list[str] = []
 
+    inference_gateway = get_inference_gateway()
     backends_payload = await _collect(
         "inference.backends",
-        inference_routes.list_backends,
+        inference_gateway.list_backends,
         {"current": "huggingface", "backends": []},
         warnings,
     )
     hf_models_payload = await _collect(
         "inference.huggingface_models",
-        lambda: inference_routes.list_models("huggingface"),
+        lambda: inference_gateway.list_models("huggingface"),
         [],
         warnings,
     )
     ollama_payload = await _collect(
         "inference.ollama",
-        inference_routes.get_ollama_status,
+        inference_gateway.ollama_status,
         {"running": False, "models": []},
         warnings,
     )

@@ -4,6 +4,7 @@
 import os
 import sys
 
+import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _inference_in_process(monkeypatch):
+    """These smoke tests exercise the local inference path directly."""
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "inference_execution_mode", "in_process")
 
 
 class TestInferenceAPI:

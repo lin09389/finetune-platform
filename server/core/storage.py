@@ -22,7 +22,7 @@ _SAFE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 logger = logging.getLogger(__name__)
 
-APP_DB_PATH = "data/app.db"
+APP_DB_PATH = os.getenv("FINETUNE_PLATFORM_DB_PATH", "data/app.db")
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 BACKUP_DIR = Path("data/backups")
 

@@ -8,6 +8,8 @@ from core.training_events_v2 import TrainingEventHubV2, normalize_phase_v2
 
 training_api = importlib.import_module("api.training")
 
+pytestmark = pytest.mark.usefixtures("training_in_process")
+
 
 def test_event_hub_sequence_monotonic_and_replay():
     hub = TrainingEventHubV2(max_events=16)
@@ -91,7 +93,18 @@ async def test_get_status_prefers_v2_progress_payload(monkeypatch):
                 },
             }
 
-    monkeypatch.setattr(training_api, "get_training_context", lambda: SimpleNamespace(state=_State()))
+    class _Context:
+        def __init__(self):
+            self.state = _State()
+
+        def get_status(self):
+            return self.state.get_status()
+
+    import core.training_context
+    import core.training_events_v2 as _training_events_v2
+
+    monkeypatch.setattr(_training_events_v2, "get_training_event_hub_v2", lambda: hub)
+    monkeypatch.setattr(core.training_context, "get_training_context", lambda: _Context())
     status = await training_api.get_status()
     assert status["progress"]["loss"] == 0.123
     assert status["progress"]["lr"] == 0.0002

@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 from core.logging import get_logger
-from core.training_context import get_training_context
 from core.utils import format_bytes, safe_filename
 
 logger = get_logger(__name__)
@@ -171,12 +170,9 @@ def _resolve_adapter_candidate(candidate: str | Path | None) -> Path | None:
 
 
 def _find_training_history_adapter(model_id: str, training_id: str | None = None) -> tuple[Path | None, str | None]:
-    if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
-        from services.training.records import list_training_records
+    from services.training.records import list_training_records
 
-        records = list_training_records()
-    else:
-        records = list(get_training_context().state.get_history())
+    records = list_training_records()
 
     if training_id:
         for record in records:
@@ -210,8 +206,8 @@ def _find_training_history_adapter(model_id: str, training_id: str | None = None
 
 def _export_merged_lora_model(model_path: Path, adapter_path: Path, output_dir: Path) -> None:
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
         from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"缺少 LoRA 合并依赖: {e}") from e
 

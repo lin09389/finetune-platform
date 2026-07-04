@@ -8,8 +8,6 @@ from importlib import import_module
 
 from fastapi import FastAPI
 
-from core.config import settings
-
 from .profiles import ApplicationProfile
 
 
@@ -41,17 +39,13 @@ FINETUNE_ROUTERS = (
     RouterSpec("api.training", prefix="/training", tags=("Training",)),
     RouterSpec("api.evaluation", prefix="/evaluation", tags=("Evaluation",)),
     RouterSpec("api.deployment", prefix="/deployment", tags=("Deployment",)),
-)
-
-LOCAL_INFERENCE_ROUTERS = (
-    RouterSpec("api.inference", prefix="/inference", tags=("Inference",)),
-    RouterSpec("api.inference.openai_routes"),
+    RouterSpec("api.model_center", prefix="/model-center", tags=("Model Center",)),
     RouterSpec("api.model_runtime", prefix="/model-runtime", tags=("Model Runtime",)),
-    RouterSpec("api.inference_engine"),
 )
 
-INFERENCE_PROXY_ROUTERS = (
-    RouterSpec("api.inference_proxy"),
+INFERENCE_ROUTERS = (
+    RouterSpec("api.inference.facade", prefix="/inference", tags=("Inference",)),
+    RouterSpec("api.inference.facade", attribute="openai_router"),
 )
 
 AGENT_ROUTERS = (
@@ -64,13 +58,6 @@ AGENT_ROUTERS = (
     RouterSpec("api.agent_sessions"),
     RouterSpec("api.agent_sessions", attribute="permission_router"),
     RouterSpec("api.agent_terminals"),
-)
-
-# These management endpoints still bridge both domains. They remain assigned to
-# the profile that owns their underlying local runtime and will be replaced by
-# an HTTP boundary in the next phase.
-FINETUNE_MANAGEMENT_ROUTERS = (
-    RouterSpec("api.model_center", prefix="/model-center", tags=("Model Center",)),
 )
 
 AGENT_AUXILIARY_ROUTERS = (
@@ -107,16 +94,9 @@ def register_profile_routers(app: FastAPI, profile: ApplicationProfile) -> None:
     _register_many(app, SHARED_ROUTERS)
     if profile.includes_finetune:
         _register_many(app, FINETUNE_ROUTERS)
-        _register_many(
-            app,
-            INFERENCE_PROXY_ROUTERS
-            if settings.inference_execution_mode == "service"
-            else LOCAL_INFERENCE_ROUTERS,
-        )
+        _register_many(app, INFERENCE_ROUTERS)
     if profile.includes_agent:
         _register_many(app, AGENT_ROUTERS)
-    if profile.includes_finetune:
-        _register_many(app, FINETUNE_MANAGEMENT_ROUTERS)
     if profile.includes_agent:
         _register_many(app, AGENT_AUXILIARY_ROUTERS)
     if profile is ApplicationProfile.COMBINED:

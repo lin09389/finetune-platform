@@ -58,7 +58,7 @@ async def test_recovery_options_aggregates_tasks_with_checkpoints(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_failure_analytics_returns_expected_shape(monkeypatch):
+async def test_failure_analytics_returns_expected_shape(monkeypatch, training_in_process):
     records = [
         _make_record(
             record_id="task-1",

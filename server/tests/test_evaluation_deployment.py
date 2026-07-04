@@ -409,17 +409,12 @@ def test_deployment_package_resolves_training_history_metadata(tmp_path: Path, m
         checkpoint_path=str(adapter_dir),
     )
 
-    class FakeState:
-        def get_history(self):
-            return [record]
+    monkeypatch.setattr(deployment, "_find_training_record", lambda _task_id: record)
 
-        def add_to_history_sync(self, updated):
-            assert updated is record
+    def _save_assertion(updated):
+        assert updated is record
 
-    class FakeContext:
-        state = FakeState()
-
-    monkeypatch.setattr(deployment, "get_training_context", lambda: FakeContext())
+    monkeypatch.setattr("services.training.records.save_training_record", _save_assertion)
 
     app = FastAPI()
     app.include_router(deployment.router, prefix="/deployment")
@@ -702,17 +697,8 @@ def test_full_training_deployment_uses_final_model_directory(tmp_path: Path, mon
         checkpoint_path=str(full_model_dir),
     )
 
-    class FakeState:
-        def get_history(self):
-            return [record]
-
-        def add_to_history_sync(self, _record):
-            return None
-
-    class FakeContext:
-        state = FakeState()
-
-    monkeypatch.setattr(deployment, "get_training_context", lambda: FakeContext())
+    monkeypatch.setattr(deployment, "_find_training_record", lambda _task_id: record)
+    monkeypatch.setattr("services.training.records.save_training_record", lambda _r: None)
     app = FastAPI()
     app.include_router(deployment.router, prefix="/deployment")
     response = TestClient(app).post(
@@ -763,20 +749,13 @@ def test_training_evaluation_deployment_alias_end_to_end(tmp_path: Path, monkeyp
         artifact_digest=hash_path(adapter_dir),
     )
 
-    class FakeState:
-        def get_history(self):
-            return [record]
-
-        def add_to_history_sync(self, updated):
-            assert updated is record
-
-    class FakeContext:
-        state = FakeState()
-
-    context = FakeContext()
     monkeypatch.setattr(evaluation, "_find_training_record", lambda _task_id: record)
-    monkeypatch.setattr("core.training_context.get_training_context", lambda: context)
-    monkeypatch.setattr(deployment, "get_training_context", lambda: context)
+    monkeypatch.setattr("services.training.records.find_training_record", lambda _task_id: record)
+
+    def _save_assertion(updated):
+        assert updated is record
+
+    monkeypatch.setattr("services.training.records.save_training_record", _save_assertion)
 
     async def fake_inference(**kwargs):
         prompts = kwargs["prompts"]

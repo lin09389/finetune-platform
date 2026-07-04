@@ -170,17 +170,10 @@ async def _heartbeat_lease(resource_id: str, ttl_seconds: int = 300) -> None:
 
 
 def _find_training_record(training_task_id: str | None):
+    from services.training.records import find_training_record
+
     try:
-        if getattr(get_settings(), "training_execution_mode", "in_process") == "worker":
-            from services.training.records import find_training_record
-
-            return find_training_record(training_task_id)
-        from core.training_context import get_training_context
-
-        return next(
-            (record for record in get_training_context().state.get_history() if record.id == training_task_id),
-            None,
-        )
+        return find_training_record(training_task_id)
     except Exception:
         return None
 
@@ -257,27 +250,15 @@ def _persist_evaluation_link(training_task_id: str | None, run_id: str) -> str |
     try:
         from training_engine.reporter import write_training_artifact_manifest
 
-        worker_mode = getattr(get_settings(), "training_execution_mode", "in_process") == "worker"
-        if worker_mode:
-            from services.training.records import find_training_record
-
-            record = find_training_record(training_task_id)
-        else:
-            from core.training_context import get_training_context
-
-            state = get_training_context().state
-            record = next((item for item in state.get_history() if item.id == training_task_id), None)
+        record = _find_training_record(training_task_id)
         if record is None:
             return "评估已完成，但未找到关联训练记录，release 状态未同步"
         record.evaluation_run_id = run_id
         record.promotion_state = "evaluated"
         write_training_artifact_manifest(record)
-        if worker_mode:
-            from services.training.records import save_training_record
+        from services.training.records import save_training_record
 
-            save_training_record(record)
-        else:
-            state.add_to_history_sync(record)
+        save_training_record(record)
         return None
     except Exception as exc:
         logger.exception("failed to persist evaluation link for %s", training_task_id)

@@ -249,10 +249,8 @@ class TestModelAPI:
         monkeypatch.setattr(models_api, "get_models_dir", lambda: models_dir)
         monkeypatch.setattr(models_api, "get_settings", lambda: DummySettings())
         monkeypatch.setattr(
-            models_api,
-            "get_training_context",
-            lambda: SimpleNamespace(state=SimpleNamespace(get_history=lambda: [fake_record])),
-            raising=False,
+            "services.training.records.list_training_records",
+            lambda: [fake_record],
         )
 
         response = client.post(

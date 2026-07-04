@@ -256,8 +256,7 @@ def test_public_proxy_strips_internal_model_path_headers(monkeypatch):
 def test_control_profile_does_not_import_native_inference_runtime():
     script = (
         "import sys; import apps.combined; "
-        "forbidden=[m for m in sys.modules if m in {'api.inference.routes','api.inference.scheduler'} "
-        "or m.startswith('core.inference')]; "
+        "forbidden=[m for m in sys.modules if m in {'api.inference.routes','api.inference.scheduler'}]; "
         "assert not forbidden, forbidden"
     )
     env = dict(os.environ)

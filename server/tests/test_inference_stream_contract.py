@@ -16,6 +16,8 @@ from api.inference.backends import ollama as ollama_backend_module
 from api.inference import routes as inference_routes
 from main import app
 
+pytestmark = pytest.mark.usefixtures("inference_in_process")
+
 
 class _FakeBackend:
     def __init__(self):

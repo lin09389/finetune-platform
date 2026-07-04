@@ -19,55 +19,63 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-
-from core.config import get_settings
-from core.logging import get_logger
-from core.training_events_v2 import get_training_event_hub_v2
-from core.training_state import TrainingRecord, TrainingState
-from core.training_context import get_training_context
-from core.utils import pre_training_resource_check
+from services.training.orchestrator import resolve_dataset_file, start_training_task
+from services.training.validator import (
+    TrainingValidator,
+    estimate_preflight_required_vram,
+    preflight_check,
+    validate_release_supported_features,
+)
+from training_engine.callbacks import ProgressCallback
+from training_engine.callbacks import queue_training_progress as _base_queue_training_progress
+from training_engine.checkpoint_manager import _get_training_record_by_id, load_checkpoints_for_task
+from training_engine.checkpoint_manager import (
+    _resolve_training_output_dir as resolve_training_output_dir,
+)
+from training_engine.config_builder import (
+    apply_memory_preset,
+    apply_precision_preset,
+    estimate_training_total_steps,
+)
+from training_engine.dataset_formatter import detect_dataset_sample_format
+from training_engine.dataset_loader import load_dataset, split_train_test_dataset
+from training_engine.errors import RecoverableError, UnrecoverableError
+from training_engine.reporter import (
+    _safe_parse_time,
+    build_failure_analytics_payload,
+    enrich_record_metrics,
+    sync_training_record_metadata,
+)
 
 # === 从下沉模块导入业务逻辑，并在底部 re-export 以兼容测试 ===
 from training_engine.schemas import (
-    TrainingConfigInput,
-    TrainingProgressResponse,
-    TrainingRecordResponse,
+    TRAINING_PROGRESS_STATUS_VALUES,
+    QueueTaskResponse,
     ResourceCheckResponse,
+    SwiftCheckResponse,
+    TrainingConfigInput,
     TrainingPreflightCheck,
     TrainingPreflightResponse,
-    SwiftCheckResponse,
-    QueueTaskResponse,
-    ValidationResult,
+    TrainingProgressResponse,
     TrainingProgressStatus,
-    TRAINING_PROGRESS_STATUS_VALUES,
+    TrainingRecordResponse,
+    ValidationResult,
 )
-from training_engine.errors import RecoverableError, UnrecoverableError
-from training_engine.dataset_formatter import detect_dataset_sample_format
-from training_engine.dataset_loader import load_dataset, split_train_test_dataset
-from training_engine.checkpoint_manager import load_checkpoints_for_task, _get_training_record_by_id, _resolve_training_output_dir as resolve_training_output_dir
+from training_engine.training_thread import finalize_stop_requested, handle_training_failure
+
+from core.config import get_settings
+from core.logging import get_logger
+from core.training_context import get_training_context
+from core.training_events_v2 import get_training_event_hub_v2
+from core.training_state import TrainingRecord, TrainingState
+from core.utils import pre_training_resource_check
 
 
 def _load_checkpoints_for_task(state, settings, task_id):
     return load_checkpoints_for_task(state, settings, task_id)
-from training_engine.config_builder import estimate_training_total_steps, apply_precision_preset, apply_memory_preset
-from training_engine.callbacks import ProgressCallback, queue_training_progress as _base_queue_training_progress
-from training_engine.training_thread import handle_training_failure, finalize_stop_requested
-from training_engine.reporter import (
-    legacy_progress_from_v2_event,
-    enrich_record_metrics,
-    sync_training_record_metadata,
-    build_failure_analytics_payload,
-    _safe_parse_time,
-)
-from services.training.validator import (
-    TrainingValidator,
-    validate_release_supported_features,
-    estimate_preflight_required_vram,
-    preflight_check,
-)
-from services.training.orchestrator import start_training_task, resolve_dataset_file
+
 
 logger = get_logger(__name__)
 
@@ -190,43 +198,26 @@ def _validate_resume_identity(
 @router.post("/stop")
 async def stop_training():
     """停止训练"""
-    if _worker_mode():
-        repository = _training_job_repository()
-        job = repository.active_job()
-        if job is None:
-            raise HTTPException(status_code=400, detail="No training in progress")
-        result = repository.request_cancel(job.job_id)
-        if result is None:
-            raise HTTPException(status_code=400, detail="Training is already terminal")
-        return {"message": "Stop requested", "status": "stopping", "task_id": job.job_id}
+    from core.training_gateway import get_training_gateway
 
-    state = get_training_context().state
-    if not state.is_training():
-        raise HTTPException(status_code=400, detail="No training in progress")
-    if state.should_stop():
-        return {"message": "Stop already requested", "status": "stopping"}
-    state.request_stop()
-    queue_training_progress(
-        state,
-        status="stopping",
-        message="Stop requested, waiting for current step to finish",
-    )
-    logger.info("收到训练停止请求，等待训练线程安全退出")
-    return {"message": "Stop requested", "status": "stopping"}
+    try:
+        return await get_training_gateway().stop()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/progress", response_model=TrainingProgressResponse)
 async def get_progress():
     """获取训练进度"""
-    if _worker_mode():
-        return _worker_progress()
-    state = get_training_context().state
-    progress = state.get_progress()
-    latest_event = get_training_event_hub_v2().get_latest()
-    if latest_event:
-        merged = legacy_progress_from_v2_event(latest_event, progress)
-        return TrainingProgressResponse(**merged)
-    return TrainingProgressResponse(**progress.model_dump())
+    from training_engine.schemas import TrainingProgressResponse
+
+    from core.training_gateway import get_training_gateway
+
+    gateway = get_training_gateway()
+    progress = gateway.get_progress()
+    if isinstance(progress, dict):
+        return TrainingProgressResponse(**progress)
+    return progress
 
 
 @router.get("/progress/stream")
@@ -235,110 +226,18 @@ async def progress_stream(
     heartbeat: int = Query(default=30, ge=10, le=120)
 ):
     """SSE 进度流"""
-    import time
-    if _worker_mode():
-        async def durable_progress_events():
-            started = time.time()
-            last_payload = None
-            while time.time() - started <= timeout:
-                progress = _worker_progress()
-                payload = progress.model_dump_json()
-                if payload != last_payload:
-                    yield f"data: {payload}\n\n"
-                    last_payload = payload
-                if progress.status in {"completed", "failed", "stopped", "cancelled", "interrupted"}:
-                    break
-                await asyncio.sleep(1)
+    from core.training_gateway import get_training_gateway
 
-        return StreamingResponse(
-            durable_progress_events(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
-
-    state = get_training_context().state
-    hub = get_training_event_hub_v2()
-
-    # 加载阶段强制发送间隔（秒）：即使 status/step 不变也推送，让前端感知到心跳
-    FORCE_SEND_INTERVAL = 5
+    gateway = get_training_gateway()
 
     async def event_generator():
-        last_step = -1
-        last_status = ""
-        last_message = ""
-        last_seq = 0
-        idle_count = 0
-        last_heartbeat = time.time()
-        last_force_send = time.time()
-        connection_start = time.time()
-        last_activity = time.time()
-
-        try:
-            while True:
-                current_time = time.time()
-                if current_time - connection_start > timeout:
-                    yield f"event: timeout\ndata: {{\"message\": \"Connection timeout after {timeout}s\"}}\n\n"
-                    break
-                if current_time - last_activity > timeout:
-                    yield "event: timeout\ndata: {\"message\": \"Idle timeout\"}\n\n"
-                    break
-
-                latest_event = hub.get_latest()
-                if latest_event and latest_event.sequence > last_seq:
-                    merged = legacy_progress_from_v2_event(latest_event, state.get_progress())
-                    progress = TrainingProgressResponse(**merged)
-                    last_seq = latest_event.sequence
-                else:
-                    progress = state.get_progress()
-
-                current_message = getattr(progress, "message", "") or ""
-                # 状态/步骤变化 OR message 变化（心跳线程会更新 message）OR 强制周期发送
-                force_send = (current_time - last_force_send) >= FORCE_SEND_INTERVAL
-                should_send = (
-                    progress.step != last_step
-                    or progress.status != last_status
-                    or current_message != last_message
-                    or force_send
-                )
-                if should_send:
-                    yield f"data: {progress.model_dump_json()}\n\n"
-                    last_step = progress.step
-                    last_status = progress.status
-                    last_message = current_message
-                    last_force_send = current_time
-                    last_activity = current_time
-
-                if current_time - last_heartbeat >= heartbeat:
-                    yield f"event: heartbeat\ndata: {{\"timestamp\": {current_time}}}\n\n"
-                    last_heartbeat = current_time
-
-                if progress.status == "idle":
-                    idle_count += 1
-                    if idle_count > 30:
-                        yield "event: idle_timeout\ndata: {\"message\": \"Idle timeout\"}\n\n"
-                        break
-                else:
-                    idle_count = 0
-
-                if progress.status in ["completed", "failed", "stopped"]:
-                    yield f"data: {progress.model_dump_json()}\n\n"
-                    break
-
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            logger.info("SSE 连接被客户端取消")
-        except Exception as e:
-            logger.error(f"SSE 连接错误：{e}")
-            yield 'event: error\ndata: {"message": "Internal stream error"}\n\n'
+        async for chunk in gateway.progress_stream(timeout=timeout, heartbeat=heartbeat):
+            yield chunk
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 
@@ -542,13 +441,10 @@ async def get_training_metrics_v2(
 @router.get("/history")
 async def get_history():
     """获取训练历史"""
-    if _worker_mode():
-        from training_worker.repository import TERMINAL_JOB_STATUSES
+    from core.training_gateway import get_training_gateway
 
-        jobs = _training_job_repository().list_jobs(statuses=set(TERMINAL_JOB_STATUSES), limit=100)
-        return [TrainingRecordResponse(**job.record) for job in jobs]
-    state = get_training_context().state
-    records = state.get_history()
+    gateway = get_training_gateway()
+    records = gateway.get_history()
     enriched = [enrich_record_metrics(r) for r in records]
     return [TrainingRecordResponse(**r.model_dump()) for r in enriched]
 
@@ -556,21 +452,13 @@ async def get_history():
 @router.get("/status")
 async def get_status():
     """获取训练状态"""
-    if _worker_mode():
-        repository = _training_job_repository()
-        job = repository.active_job()
-        return {
-            "mode": "worker",
-            "status": job.status if job else "idle",
-            "is_training": job is not None,
-            "record": job.record if job else None,
-            "progress": _worker_progress(job.job_id if job else None).model_dump(),
-            "workers": repository.worker_status(
-                stale_after_seconds=get_settings().training_worker_stale_seconds
-            ),
-        }
-    state = get_training_context().state
-    status = state.get_status()
+    from training_engine.reporter import legacy_progress_from_v2_event
+
+    from core.training_events_v2 import get_training_event_hub_v2
+    from core.training_gateway import get_training_gateway
+
+    gateway = get_training_gateway()
+    status = gateway.get_status()
     if isinstance(status, dict) and "status" not in status:
         progress_status = (status.get("progress") or {}).get("status") if isinstance(status.get("progress"), dict) else None
         status["status"] = progress_status or ("running" if status.get("is_training") else "idle")
@@ -1229,11 +1117,13 @@ async def start_training(
     apply_recommended_config: bool = False,
 ):
     """开始训练"""
-    settings = get_settings()
-    worker_mode = _worker_mode()
-    state = None if worker_mode else get_training_context().state
+    from core.training_gateway import get_training_gateway
 
-    if not worker_mode and not use_queue and state.is_training():
+    settings = get_settings()
+    gateway = get_training_gateway()
+    state = None if _worker_mode() else get_training_context().state
+
+    if not use_queue and gateway.is_training_in_progress():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     validate_release_supported_features(config)
@@ -1298,7 +1188,7 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    if not worker_mode and not use_queue and not state.try_claim_training_slot():
+    if not _worker_mode() and not use_queue and not state.try_claim_training_slot():
         raise HTTPException(status_code=400, detail="Training already in progress")
     try:
         return _start_training_task(

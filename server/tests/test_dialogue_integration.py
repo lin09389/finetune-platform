@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import app
 from rag.vector_store import reset_vector_store
 
+pytestmark = pytest.mark.usefixtures("inference_in_process")
+
 
 class TestDialogueAPIIntegration:
     """对话 API 集成测试"""

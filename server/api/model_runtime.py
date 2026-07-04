@@ -16,8 +16,6 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from api.inference import routes as inference_routes
-from api.inference.scheduler import BackendType, get_scheduler
 from api.model_center import get_model_suggestions, list_local_models
 from api.models import get_models_list
 from core.config import get_settings
@@ -100,6 +98,8 @@ def _format_bytes(size: Any) -> str:
 
 
 def _model_capabilities(model_id: str, backend: str, config: dict[str, Any] | None = None) -> list[str]:
+    from api.inference.scheduler import BackendType
+
     lowered = model_id.lower()
     capabilities = ["inference"]
     if backend == BackendType.OLLAMA.value:
@@ -116,6 +116,8 @@ def _model_capabilities(model_id: str, backend: str, config: dict[str, Any] | No
 
 
 def _readiness_for_model(backend: str, backend_available: bool, capabilities: list[str]) -> dict[str, Any]:
+    from api.inference.scheduler import BackendType
+
     if not backend_available:
         if backend == BackendType.OLLAMA.value:
             return {
@@ -147,6 +149,8 @@ def _readiness_for_model(backend: str, backend_available: bool, capabilities: li
 
 
 def _normalize_backend_availability(backends_payload: dict[str, Any]) -> dict[str, bool]:
+    from api.inference.scheduler import BackendType
+
     availability: dict[str, bool] = {
         BackendType.HUGGINGFACE.value: True,
         BackendType.OLLAMA.value: False,
@@ -176,6 +180,8 @@ def _normalize_local_models(
     ollama_models: list[dict[str, Any]],
     backend_available: dict[str, bool],
 ) -> list[dict[str, Any]]:
+    from api.inference.scheduler import BackendType
+
     normalized: list[dict[str, Any]] = []
 
     for model in legacy_models:
@@ -287,6 +293,8 @@ def _derive_summary(models: list[dict[str, Any]], backend_available: dict[str, b
     else:
         state = "setup_required"
         headline = "还没有可直接运行的本地模型"
+    from api.inference.scheduler import BackendType
+
     return {
         "state": state,
         "headline": headline,
@@ -351,6 +359,9 @@ def _quick_actions(summary: dict[str, Any], agent: dict[str, Any]) -> list[dict[
 @router.get("/overview")
 async def get_model_runtime_overview():
     """Return the unified model access overview for local and Agent runtimes."""
+    from api.inference import routes as inference_routes
+    from api.inference.scheduler import BackendType, get_scheduler
+
     diagnostics: list[dict[str, str]] = []
     scheduler = get_scheduler()
     settings = get_settings()
@@ -419,6 +430,8 @@ async def get_model_runtime_overview():
 @router.post("/selection")
 async def set_model_runtime_selection(request: ModelRuntimeSelectionRequest):
     """Set the product-level model selection and switch the inference backend."""
+    from api.inference.scheduler import BackendType, get_scheduler
+
     try:
         get_scheduler().set_default_backend(request.backend)
     except ValueError as exc:

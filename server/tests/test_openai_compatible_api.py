@@ -16,6 +16,8 @@ from api.inference.backends.ollama_resilient import OllamaResilientBackend
 
 client = TestClient(app)
 
+pytestmark = pytest.mark.usefixtures("inference_in_process")
+
 
 class FakeBackend:
     def __init__(self) -> None:

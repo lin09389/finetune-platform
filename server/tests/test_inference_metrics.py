@@ -1,6 +1,7 @@
 import os
 import sys
 
+import pytest
 from fastapi.testclient import TestClient
 
 server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -10,6 +11,8 @@ from core.performance import PerformanceMetrics, PerformanceMonitor, StreamingMe
 from api.inference import routes as inference_routes
 from api.device import get_device_info
 from main import app
+
+pytestmark = pytest.mark.usefixtures("inference_in_process")
 
 
 def test_performance_monitor_exposes_extended_stats():

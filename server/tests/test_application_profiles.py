@@ -18,7 +18,7 @@ def test_combined_profile_preserves_legacy_application_contract():
 
     assert main.app is combined_app
     assert combined_app.state.profile == "combined"
-    assert len(combined_app.routes) == 397
+    assert len(combined_app.routes) == 388
     assert {
         "/device/info",
         "/models",
@@ -33,6 +33,8 @@ def test_combined_profile_preserves_legacy_application_contract():
         "/runtime/bootstrap",
         "/gateway/ws",
         "/api/info",
+        "/model-runtime/overview",
+        "/model-runtime/selection",
     } <= paths
 
 
@@ -70,6 +72,8 @@ def test_finetune_profile_owns_gpu_and_model_lifecycle_routes_only():
         "/deployment/packages",
         "/inference/models",
         "/v1/models",
+        "/model-runtime/overview",
+        "/model-runtime/selection",
     } <= paths
     assert "/agent-sessions" not in paths
     assert "/chat/sessions" not in paths
@@ -89,11 +93,14 @@ def test_profile_import_does_not_eagerly_load_other_domain(module, forbidden_mod
         f"assert not any(name in sys.modules for name in {forbidden_modules!r})"
     )
 
+    import pathlib
+    server_dir = str(pathlib.Path(__file__).resolve().parent.parent)
     completed = subprocess.run(
         [sys.executable, "-c", expression],
         check=False,
         capture_output=True,
         text=True,
+        cwd=server_dir,
     )
 
     assert completed.returncode == 0, completed.stdout + completed.stderr

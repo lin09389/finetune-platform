@@ -52,9 +52,17 @@ async def test_runtime_bootstrap_aggregates_core_runtime_contract(monkeypatch):
             "progress": None,
         }
 
-    monkeypatch.setattr(runtime_api.inference_routes, "list_backends", _list_backends)
-    monkeypatch.setattr(runtime_api.inference_routes, "list_models", _list_models)
-    monkeypatch.setattr(runtime_api.inference_routes, "get_ollama_status", _ollama_status)
+    class _FakeInferenceGateway:
+        async def list_backends(self):
+            return await _list_backends()
+
+        async def list_models(self, backend=None):
+            return await _list_models(backend)
+
+        async def ollama_status(self):
+            return await _ollama_status()
+
+    monkeypatch.setattr(runtime_api, "get_inference_gateway", lambda: _FakeInferenceGateway())
     monkeypatch.setattr(runtime_api.knowledge_routes, "list_collections", _collections)
     monkeypatch.setattr(runtime_api.knowledge_routes, "get_embedder_status", _embedder_status)
     monkeypatch.setattr(runtime_api.training_routes, "get_status", _training_status)
@@ -95,9 +103,17 @@ async def test_runtime_bootstrap_degrades_when_subsystems_fail(monkeypatch):
     async def _training_status():
         return {"is_training": False, "progress": None}
 
-    monkeypatch.setattr(runtime_api.inference_routes, "list_backends", _raise_error)
-    monkeypatch.setattr(runtime_api.inference_routes, "list_models", _list_models)
-    monkeypatch.setattr(runtime_api.inference_routes, "get_ollama_status", _ollama_status)
+    class _FakeInferenceGateway:
+        async def list_backends(self):
+            return await _raise_error()
+
+        async def list_models(self, backend=None):
+            return await _list_models(backend)
+
+        async def ollama_status(self):
+            return await _ollama_status()
+
+    monkeypatch.setattr(runtime_api, "get_inference_gateway", lambda: _FakeInferenceGateway())
     monkeypatch.setattr(runtime_api.knowledge_routes, "list_collections", _collections)
     monkeypatch.setattr(runtime_api.knowledge_routes, "get_embedder_status", _embedder_status)
     monkeypatch.setattr(runtime_api.training_routes, "get_status", _training_status)

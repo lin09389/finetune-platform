@@ -13,7 +13,7 @@ def test_resolve_official_model_from_provider_model_string():
     assert spec.model == "z-ai/glm-5.1"
 
 
-def test_resolve_official_model_from_provider_and_model():
+def test_resolve_official_model_from_provider_and_model(inference_in_process):
     context = type("Context", (), {"provider": "ollama", "model": "qwen3:8b"})()
 
     spec = resolve_official_model_spec(context)

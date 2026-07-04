@@ -33,7 +33,7 @@ def reset_selection(monkeypatch):
         "model_id": None,
         "scope": "global",
     })
-    monkeypatch.setattr(model_runtime, "get_scheduler", lambda: scheduler)
+    monkeypatch.setattr("api.inference.scheduler.get_scheduler", lambda: scheduler)
     monkeypatch.setattr(model_runtime, "get_device_info", _fake_get_device_info)
     monkeypatch.setattr(
         model_runtime,
@@ -61,8 +61,8 @@ async def test_model_runtime_overview_guides_setup_when_no_models(monkeypatch):
     async def _ollama_status():
         return {"running": False, "base_url": "http://localhost:11434", "models": []}
 
-    monkeypatch.setattr(model_runtime.inference_routes, "list_backends", _backends)
-    monkeypatch.setattr(model_runtime.inference_routes, "get_ollama_status", _ollama_status)
+    monkeypatch.setattr("api.inference.routes.list_backends", _backends)
+    monkeypatch.setattr("api.inference.routes.get_ollama_status", _ollama_status)
     monkeypatch.setattr(model_runtime, "get_models_list", lambda: [])
     monkeypatch.setattr(model_runtime, "list_local_models", lambda: [])
     monkeypatch.setattr(
@@ -109,8 +109,8 @@ async def test_model_runtime_overview_promotes_ollama_model_for_agent(monkeypatc
             "models": [{"name": "qwen2.5:7b", "size": 4_000_000_000}],
         }
 
-    monkeypatch.setattr(model_runtime.inference_routes, "list_backends", _backends)
-    monkeypatch.setattr(model_runtime.inference_routes, "get_ollama_status", _ollama_status)
+    monkeypatch.setattr("api.inference.routes.list_backends", _backends)
+    monkeypatch.setattr("api.inference.routes.get_ollama_status", _ollama_status)
     monkeypatch.setattr(model_runtime, "get_models_list", lambda: [])
     monkeypatch.setattr(model_runtime, "list_local_models", lambda: [])
     monkeypatch.setattr(model_runtime, "get_model_suggestions", lambda: {"suggestions": []})
