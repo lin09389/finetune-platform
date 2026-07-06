@@ -18,8 +18,6 @@
   display: flex;
   align-items: center;
   width: 100%;
-  /* GPU 加速 */
-  transform: translateZ(0);
 }
 
 .input {
@@ -32,7 +30,7 @@
   font-size: var(--text-base);
   transition: all var(--transition-base);
   outline: none;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   z-index: 2;
 }
 
@@ -43,39 +41,17 @@
 
 .input:hover {
   border-color: var(--border-hover);
-  box-shadow: var(--shadow-md);
 }
 
 .input:focus {
   border-color: var(--accent-primary);
   background: var(--bg-primary);
-  box-shadow:
-    0 0 0 1px var(--accent-primary),
-    0 8px 16px -4px rgba(0, 0, 0, 0.08);
-}
-
-/* 焦点环特效 */
-.focusRing {
-  position: absolute;
-  inset: -1px;
-  border-radius: var(--radius-md);
-  pointer-events: none;
-  border: 2px solid var(--accent-primary);
-  opacity: 0;
-  transform: scale(0.98);
-  transition: all var(--transition-base);
-  z-index: 1;
-}
-
-.input:focus ~ .focusRing {
-  opacity: 0.15;
-  transform: scale(1.02);
-  filter: blur(4px);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .icon {
   position: absolute;
-  left: var(--space-3.5);
+  left: var(--space-3-5);
   color: var(--text-tertiary);
   pointer-events: none;
   display: flex;
@@ -87,7 +63,7 @@
 
 .suffix {
   position: absolute;
-  right: var(--space-3.5);
+  right: var(--space-3-5);
   color: var(--text-tertiary);
   display: flex;
   align-items: center;
@@ -117,7 +93,6 @@
   color: var(--error);
   margin: 0;
   padding-left: var(--space-1);
-  animation: fadeInDown 0.2s var(--ease-smooth);
 }
 
 :global(.dark-theme) .input {
@@ -126,18 +101,4 @@
 
 :global(.dark-theme) .input:focus {
   background: var(--bg-secondary);
-  box-shadow:
-    0 0 0 1px var(--accent-primary),
-    0 8px 24px -4px rgba(0, 0, 0, 0.4);
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }

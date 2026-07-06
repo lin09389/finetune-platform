@@ -34,7 +34,7 @@ const DesignSystem: React.FC = () => {
         {/* 玻璃拟态展示 */}
         <section className="space-y-8">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-glass-border">
+            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-surface-border">
               <LayoutOutlined className="text-accent-primary" />
             </div>
             <h2 className="text-2xl font-bold text-text-primary">
@@ -83,7 +83,7 @@ const DesignSystem: React.FC = () => {
         {/* 交互组件展示 */}
         <section className="space-y-8">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-glass-border">
+            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-surface-border">
               <PlayCircleOutlined className="text-accent-primary" />
             </div>
             <h2 className="text-2xl font-bold text-text-primary">交互反馈 (Interaction)</h2>
@@ -140,7 +140,7 @@ const DesignSystem: React.FC = () => {
         {/* 色彩体系 */}
         <section className="space-y-8">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-glass-border">
+            <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-surface-border">
               <BgColorsOutlined className="text-accent-primary" />
             </div>
             <h2 className="text-2xl font-bold text-text-primary">色彩体系 (Colors)</h2>
@@ -159,7 +159,7 @@ const DesignSystem: React.FC = () => {
             ].map((item) => (
               <div
                 key={item.label}
-                className="p-4 rounded-xl bg-bg-secondary border border-glass-border space-y-3"
+                className="p-4 rounded-xl bg-bg-secondary border border-surface-border space-y-3"
               >
                 <div className={`w-full h-12 rounded-lg ${item.color} shadow-sm`} />
                 <span className="text-xs font-bold text-text-secondary">{item.label}</span>

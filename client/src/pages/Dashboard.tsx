@@ -40,19 +40,18 @@ const containerVariants = {
   show: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.08,
+      staggerChildren: 0.04,
     },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 12, filter: 'blur(4px)' },
+  hidden: { opacity: 0, y: 6 },
   show: {
     opacity: 1,
     y: 0,
-    filter: 'blur(0px)',
     transition: {
-      duration: 0.4,
+      duration: 0.3,
       ease: [0.23, 1, 0.32, 1] as const,
     },
   },
@@ -325,8 +324,8 @@ export default function Dashboard() {
         const id = record.baseModelId || record.config?.modelId || record.modelName;
         const model = models.find((m) => m.id === id);
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <FolderOutlined style={{ color: 'var(--accent-primary)', fontSize: '16px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <FolderOutlined style={{ color: 'var(--accent-primary)', fontSize: 'var(--text-base)' }} />
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
               {model?.name || id}
             </span>
@@ -341,8 +340,8 @@ export default function Dashboard() {
         const id = record.datasetId || record.config?.datasetId || record.datasetName;
         const dataset = datasets.find((d) => d.id === id);
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <DatabaseOutlined style={{ color: 'var(--accent-secondary)', fontSize: '16px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <DatabaseOutlined style={{ color: 'var(--accent-secondary)', fontSize: 'var(--text-base)' }} />
             <span style={{ color: 'var(--text-secondary)' }}>{dataset?.name || id}</span>
           </div>
         );
@@ -392,7 +391,7 @@ export default function Dashboard() {
       key: 'checkpoint',
       render: (_: unknown, record: TrainingRecord) => {
         const cp = latestCheckpoints[record.id];
-        if (!cp) return <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>-</span>;
+        if (!cp) return <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>-</span>;
         return (
           <div>
             <Tag
@@ -407,7 +406,7 @@ export default function Dashboard() {
               step {cp.step}
             </Tag>
             {cp.metadata?.loss !== undefined && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 'var(--space-0-5)' }}>
                 loss {cp.metadata.loss.toFixed(4)}
               </div>
             )}
@@ -510,11 +509,11 @@ export default function Dashboard() {
               {/* Card 1: 硬件设备控制台 */}
               <div className={styles['span-6']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                  <GlassHoverCard className={styles.statCard} >
                     <div className={styles.deviceConsole}>
                       <div className={styles.deviceTitleArea}>
                         <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
-                          <DesktopOutlined style={{ color: 'var(--accent-neon-cyan, #00d8a5)' }} />
+                          <DesktopOutlined style={{ color: 'var(--info)' }} />
                           硬件设备控制台
                         </span>
                       </div>
@@ -526,7 +525,7 @@ export default function Dashboard() {
                             <span className={styles.metricTitle}>GPU 显存占用</span>
                             <span className={styles.metricValue}>
                               <CountUp value={vramUsed} decimals={1} />
-                              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 'var(--font-medium)' }}>
                                  / {vramTotal} GB
                               </span>
                             </span>
@@ -537,21 +536,21 @@ export default function Dashboard() {
                               style={{ 
                                 width: `${vramPercent}%`,
                                 background: vramPercent > 90
-                                  ? 'linear-gradient(90deg, #ef4444, #f87171)'
+                                  ? 'var(--gradient-error)'
                                   : vramPercent > 75
-                                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                                    ? 'var(--gradient-warning)'
                                     : 'var(--gradient-brand)',
-                                transition: 'width 0.8s ease, background 0.6s ease',
+                                transition: `width 0.8s var(--ease-smooth), background 0.6s var(--ease-smooth)`,
                               }}
                             />
                           </div>
-                          <span style={{ fontSize: 11, textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 'var(--text-xs)', textAlign: 'right', display: 'flex', alignItems: 'center', gap: 'var(--space-1-5)' }}>
                             <span style={{ color: 'var(--text-tertiary)' }}>已占用 {vramPercent}%</span>
                             {vramPercent > 90 && (
-                              <span style={{ color: '#ef4444', fontWeight: 600, fontSize: 10, padding: '1px 6px', background: 'rgba(239,68,68,0.12)', borderRadius: 4, border: '1px solid rgba(239,68,68,0.3)' }}>危险</span>
+                              <span style={{ color: 'var(--error)', fontWeight: 'var(--font-semibold)', fontSize: 10, padding: '1px 6px', background: 'var(--error-light)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error-border)' }}>危险</span>
                             )}
                             {vramPercent > 75 && vramPercent <= 90 && (
-                              <span style={{ color: '#f59e0b', fontWeight: 600, fontSize: 10, padding: '1px 6px', background: 'rgba(245,158,11,0.12)', borderRadius: 4, border: '1px solid rgba(245,158,11,0.3)' }}>警告</span>
+                              <span style={{ color: 'var(--warning)', fontWeight: 'var(--font-semibold)', fontSize: 10, padding: '1px 6px', background: 'var(--warning-light)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--warning-border)' }}>警告</span>
                             )}
                           </span>
                         </div>
@@ -562,7 +561,7 @@ export default function Dashboard() {
                             <span className={styles.metricTitle}>系统内存占用</span>
                             <span className={styles.metricValue}>
                               <CountUp value={memUsed} decimals={1} />
-                              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 'var(--font-medium)' }}>
                                  / {memTotal} GB
                               </span>
                             </span>
@@ -576,7 +575,7 @@ export default function Dashboard() {
                               }}
                             />
                           </div>
-                          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'right' }}>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textAlign: 'right' }}>
                             已占用 {memPercent}%
                           </span>
                         </div>
@@ -589,7 +588,7 @@ export default function Dashboard() {
               {/* Card 2: 运行服务矩阵 */}
               <div className={styles['span-3']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                  <GlassHoverCard className={styles.statCard} >
                     <div className={styles.servicesMatrix}>
                       <span className={styles.sectionTitle} style={{ marginBottom: 'var(--space-2)' }}>
                         <ApiOutlined style={{ color: 'var(--accent-secondary)' }} />
@@ -599,7 +598,7 @@ export default function Dashboard() {
                         {/* Service Item 1: Backend */}
                         <div className={styles.serviceItem}>
                           <span className={styles.serviceName}>
-                            <ThunderboltOutlined style={{ fontSize: 12 }} />
+                            <ThunderboltOutlined style={{ fontSize: 'var(--text-xs)' }} />
                             API 核心服务
                           </span>
                           <div className={styles.serviceStatusArea}>
@@ -613,7 +612,7 @@ export default function Dashboard() {
                         {/* Service Item 2: Ollama */}
                         <div className={styles.serviceItem}>
                           <span className={styles.serviceName}>
-                            <CloudOutlined style={{ fontSize: 12 }} />
+                            <CloudOutlined style={{ fontSize: 'var(--text-xs)' }} />
                             Ollama 实例
                           </span>
                           <div className={styles.serviceStatusArea}>
@@ -627,7 +626,7 @@ export default function Dashboard() {
                         {/* Service Item 3: Storage */}
                         <div className={styles.serviceItem}>
                           <span className={styles.serviceName}>
-                            <DatabaseOutlined style={{ fontSize: 12 }} />
+                            <DatabaseOutlined style={{ fontSize: 'var(--text-xs)' }} />
                             存储健康
                           </span>
                           <div className={styles.serviceStatusArea}>
@@ -646,7 +645,7 @@ export default function Dashboard() {
               {/* Card 3: 平台资产仓 */}
               <div className={styles['span-3']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                  <GlassHoverCard className={styles.statCard} >
                     <div className={styles.assetStatusCard}>
                       <span className={styles.sectionTitle}>
                         <FolderOutlined style={{ color: 'var(--warning)' }} />
@@ -656,7 +655,7 @@ export default function Dashboard() {
                         <div className={styles.assetStats}>
                           <div>
                             <span className={styles.assetTitle}>可用模型</span>
-                            <div className={styles.assetMainNumber} style={{ background: 'var(--gradient-brand)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                            <div className={styles.assetMainNumber} style={{ color: 'var(--accent-primary)' }}>
                               <CountUp value={inference.availableModelCount} />
                             </div>
                           </div>
@@ -758,16 +757,16 @@ export default function Dashboard() {
                           padding: '20px',
                         }}
                       >
-                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                          <div style={{ fontSize: 22, color: getColor(), marginTop: 2 }}>
+                        <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start' }}>
+                          <div style={{ fontSize: 'var(--text-xl)', color: getColor(), marginTop: 'var(--space-0-5)' }}>
                             {getIcon()}
                           </div>
                           <div style={{ flex: 1 }}>
                             <div
                               style={{
-                                fontWeight: 700,
+                                fontWeight: 'var(--font-bold)',
                                 color: 'var(--text-primary)',
-                                marginBottom: 6,
+                                marginBottom: 'var(--space-1-5)',
                                 fontSize: 'var(--text-base)',
                               }}
                             >
@@ -776,9 +775,9 @@ export default function Dashboard() {
                             <div
                               style={{
                                 color: 'var(--text-secondary)',
-                                fontSize: '14px',
-                                lineHeight: 1.6,
-                                marginBottom: suggestion.action ? 16 : 0,
+                                fontSize: 'var(--text-sm)',
+                                lineHeight: 'var(--leading-normal)',
+                                marginBottom: suggestion.action ? 'var(--space-4)' : 0,
                               }}
                             >
                               {suggestion.desc}
@@ -787,7 +786,7 @@ export default function Dashboard() {
                               <InteractiveButton
                                 variant="primary"
                                 onClick={suggestion.action}
-                                style={{ borderRadius: '6px', fontWeight: 600, padding: '4px 12px', fontSize: '14px', height: '32px' }}
+                                style={{ borderRadius: 'var(--radius-sm)', fontWeight: 'var(--font-semibold)', padding: 'var(--space-1) var(--space-3)', fontSize: 'var(--text-sm)', height: '32px' }}
                               >
                                 {suggestion.buttonText}
                               </InteractiveButton>
@@ -817,7 +816,6 @@ export default function Dashboard() {
                       <GlassHoverCard
                         className={styles.quickActionCard}
                         onClick={action.onClick}
-                        tilt3D={true}
                         style={{
                           '--spotlight-color': `${action.color}15`,
                           '--spotlight-border': `${action.color}35`,

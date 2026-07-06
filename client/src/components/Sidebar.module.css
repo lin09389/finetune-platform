@@ -1,18 +1,10 @@
 .sidebar {
-  background: var(--glass-bg) !important;
-  border: 1px solid var(--border-color) !important;
+  background: var(--sidebar-bg) !important;
+  border: 1px solid var(--sidebar-border) !important;
   transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
   overflow: hidden;
   transform: translateZ(0);
-  backdrop-filter: blur(32px) saturate(200%);
-  -webkit-backdrop-filter: blur(32px) saturate(200%);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
-}
-
-:global(.dark-theme) .sidebar {
-  background: rgba(5, 5, 5, 0.45) !important;
-  border-color: rgba(255, 255, 255, 0.06) !important;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  box-shadow: var(--shadow-xl) !important;
 }
 
 .sidebar :global(.ant-layout-sider-children) {
@@ -34,7 +26,7 @@
 .logoIcon {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--gradient-brand);
   display: flex;
   align-items: center;
@@ -42,30 +34,31 @@
   flex-shrink: 0;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .logoIcon:hover {
-  transform: scale(1.05) rotate(-5deg);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
 }
 
 .logoTitle {
   margin: 0;
+  font-family: var(--font-display);
   font-size: 1.1rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: -0.04em;
+  font-weight: var(--font-medium);
+  color: var(--sidebar-foreground);
+  letter-spacing: var(--tracking-tight);
   line-height: 1;
 }
 
 .logoSubtitle {
   margin: 2px 0 0;
-  color: var(--text-tertiary);
+  color: var(--muted-foreground, var(--text-tertiary));
+  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-weight: var(--font-medium);
+  letter-spacing: 0.04em;
 }
 
 .statusIndicator {
@@ -76,11 +69,11 @@
 .statusBadge {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
+  gap: var(--space-2-5);
+  padding: var(--space-1-5) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
   letter-spacing: 0.05em;
   transition: all var(--transition-base);
 }
@@ -102,19 +95,20 @@
 }
 
 .menuGroupLabel {
+  font-family: var(--font-sans);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  padding: 16px var(--space-3) 8px;
+  padding: var(--space-4) var(--space-3) var(--space-2);
   white-space: nowrap;
 }
 
 .menuGroupDivider {
   height: 1px;
   background: var(--border-color);
-  margin: 12px var(--space-3);
+  margin: var(--space-3) var(--space-3);
   opacity: 0.4;
 }
 
@@ -122,9 +116,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 10px var(--space-3);
-  margin: 4px 0;
-  border-radius: 10px;
+  padding: var(--space-2-5) var(--space-3);
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--text-secondary);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -134,14 +128,12 @@
 .menuItem:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  padding-left: calc(var(--space-3) + 4px);
 }
 
 .menuItemActive {
   background: var(--accent-primary-light) !important;
   color: var(--accent-primary) !important;
-  font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  font-weight: var(--font-semibold);
 }
 
 .activeIndicator {
@@ -149,10 +141,9 @@
   left: 0;
   top: 15%;
   height: 70%;
-  width: 4px;
-  background: linear-gradient(180deg, var(--accent-neon-cyan), var(--accent-primary));
-  border-radius: 0 4px 4px 0;
-  box-shadow: 2px 0 12px var(--accent-primary);
+  width: 3px;
+  background: var(--accent-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   z-index: 10;
 }
 
@@ -165,17 +156,17 @@
 }
 
 .menuItem:hover .menuIcon {
-  transform: scale(1.1);
+  transform: scale(1.05);
 }
 
 .menuLabel {
-  font-size: 14px;
+  font-size: var(--text-sm);
   white-space: nowrap;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .menuDesc {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
   margin-top: 1px;
   white-space: nowrap;
@@ -190,8 +181,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

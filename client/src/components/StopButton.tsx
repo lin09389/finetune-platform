@@ -134,8 +134,8 @@ export const StopButton: React.FC<StopButtonProps> = ({
         whileTap={{ scale: 0.98 }}
         animate={{
           boxShadow: pulseAnimation
-            ? '0 0 0 0 rgba(255, 77, 79, 0.4)'
-            : '0 0 0 8px rgba(255, 77, 79, 0)',
+            ? '0 0 0 0 rgba(214, 69, 69, 0.4)'
+            : '0 0 0 8px rgba(214, 69, 69, 0)',
         }}
         transition={{ duration: 1.5 }}
       >

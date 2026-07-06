@@ -31,6 +31,12 @@ export default {
           primary: 'var(--accent-primary)',
           secondary: 'var(--accent-secondary)',
           tertiary: 'var(--accent-tertiary)',
+          light: 'var(--accent-primary-light)',
+        },
+        // 纸质表面映射
+        surface: {
+          card: 'var(--surface-card)',
+          border: 'var(--surface-border)',
         },
         // 功能色映射
         success: {
@@ -58,6 +64,7 @@ export default {
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
         serif: 'var(--font-serif)',
+        reading: 'var(--font-reading)',
       },
       borderRadius: {
         sm: 'var(--radius-sm)',
@@ -109,8 +116,8 @@ export default {
         'toast': 'var(--z-toast)',
       },
       backdropBlur: {
-        glass: '18px',
-        'glass-xl': '20px',
+        glass: '0',
+        'glass-xl': '0',
       },
       keyframes: {
         shimmer: {

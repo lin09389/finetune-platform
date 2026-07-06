@@ -80,7 +80,7 @@ const VersionComparisonChat: React.FC<VersionComparisonChatProps> = ({ modelOpti
         {/* Model B */}
         <div className={styles.modelPane}>
           <div className={styles.paneHeader}>
-            <span className={styles.modelTag} style={{color: 'var(--accent-neon-cyan)', borderColor: 'var(--accent-neon-cyan)'}}>Model B</span>
+            <span className={styles.modelTag} style={{color: 'var(--accent-primary)', borderColor: 'var(--accent-primary)'}}>Model B</span>
             <Select 
               className="deepSelect"
               placeholder="Select Fine-tuned Model"

@@ -65,7 +65,21 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-neutral-300 dark:bg-neutral-600 rounded-full hover:bg-neutral-400 dark:hover:bg-neutral-500 transition-colors;
+    background: var(--neutral-300, #D4C9B6);
+    border-radius: var(--radius-full);
+    transition: background-color var(--transition-fast);
+  }
+
+  .dark-theme ::-webkit-scrollbar-thumb {
+    background: var(--neutral-600, #7A7367);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--neutral-400, #B8AC95);
+  }
+
+  .dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: var(--neutral-500, #9B9384);
   }
 
   /* 选中文本 */
@@ -75,23 +89,23 @@
 }
 
 @layer components {
-  /* 全局卡片基础样式 (AntD 覆盖) */
+  /* 全局卡片基础样式 (AntD 覆盖) — Claude quiet paper card */
   .ant-card {
-    @apply rounded-xl shadow-md border-border-color bg-bg-secondary transition-all duration-base;
+    @apply rounded-xl shadow-sm border-border-color bg-bg-secondary transition-all duration-base;
     border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
   }
 
   .ant-card:hover {
-    @apply shadow-lg -translate-y-0.5 border-border-hover;
+    @apply shadow-md border-border-hover;
   }
 
-  /* 按钮基础动效 (AntD 覆盖) */
+  /* 按钮基础动效 (AntD 覆盖) — Claude quiet interaction */
   .ant-btn {
-    @apply rounded-md font-medium transition-all duration-fast active:scale-95;
+    @apply rounded-md font-medium transition-all duration-fast;
   }
 
-  .ant-btn:hover {
-    @apply -translate-y-px;
+  .ant-btn:active {
+    @apply scale-95;
   }
 
   /* 骨架屏动画 */
@@ -102,7 +116,21 @@
 
 @layer utilities {
   .glass-effect {
-    @apply bg-glass-bg border-glass-border backdrop-blur-glass saturate-150;
+    background: var(--surface-card, var(--bg-secondary));
+    border: 1px solid var(--surface-border, var(--border-color));
+  }
+
+  /* 阅读正文工具类 - Lora 衬线，宽松行距 */
+  .reading-text {
+    font-family: var(--font-reading);
+    line-height: var(--leading-relaxed);
+  }
+
+  /* 展示标题工具类 - Newsreader 衬线，收紧字间距 */
+  .display-title {
+    font-family: var(--font-display);
+    font-weight: var(--font-semibold);
+    letter-spacing: var(--tracking-tight);
   }
 
   .gpu-accelerated {
@@ -123,8 +151,8 @@
    ============================================ */
 @keyframes surface-rise {
   from {
-    opacity: 0.86;
-    transform: translateY(8px);
+    opacity: 0.92;
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -133,7 +161,7 @@
 }
 
 .app-content {
-  animation: surface-rise 420ms var(--ease-smooth);
+  animation: surface-rise 350ms var(--ease-smooth);
 }
 
 /* 减少动画偏好支持 */
@@ -327,7 +355,7 @@
 
 .ant-modal-mask,
 .ant-drawer-mask {
-  backdrop-filter: blur(6px);
+  background: var(--bg-overlay) !important;
 }
 
 .ant-modal-content,

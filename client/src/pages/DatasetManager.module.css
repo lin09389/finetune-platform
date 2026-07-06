@@ -31,8 +31,7 @@
   bottom: 0;
   width: 4px;
   background: var(--stripe-color);
-  box-shadow: 0 0 10px var(--stripe-color), 0 0 20px var(--stripe-color);
-  opacity: 0.8;
+  opacity: 1;
   z-index: 10;
 }
 
@@ -60,13 +59,13 @@
 }
 
 .cardFormat.jsonl {
-  color: var(--accent-neon-cyan);
-  background: rgba(0, 255, 194, 0.1);
-  border: 1px solid rgba(0, 255, 194, 0.3);
+  color: var(--accent-primary);
+  background: rgba(201, 100, 66, 0.1);
+  border: 1px solid rgba(201, 100, 66, 0.3);
 }
 
 .cardFormat.json {
-  color: var(--accent-neon-purple);
+  color: var(--accent-primary);
   background: rgba(157, 0, 255, 0.1);
   border: 1px solid rgba(157, 0, 255, 0.3);
 }
@@ -146,7 +145,7 @@
 .actionBtn.danger:hover {
   background: rgba(255, 77, 77, 0.1);
   border-color: rgba(255, 77, 77, 0.4);
-  color: var(--accent-neon-red);
+  color: var(--error);
 }
 
 .actionBtnDisabled,
@@ -188,13 +187,12 @@
 
 /* Dropzone */
 .dropzone {
-  border: 2px dashed rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 40px;
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-10);
   text-align: center;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: var(--glass-bg);
-  backdrop-filter: blur(10px);
+  background: var(--bg-secondary);
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -204,16 +202,15 @@
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: radial-gradient(circle at center, rgba(0, 255, 194, 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--accent-primary) 10%, transparent) 0%, transparent 70%);
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
 }
 
 .dropzone:hover {
-  border-color: var(--accent-neon-cyan);
-  box-shadow: 0 0 30px rgba(0, 255, 194, 0.15);
-  transform: translateY(-2px);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-lg);
 }
 
 .dropzone:hover::before {
@@ -221,26 +218,26 @@
 }
 
 .dropIcon {
-  font-size: 32px;
-  color: var(--accent-neon-cyan);
-  margin-bottom: 16px;
+  font-size: var(--text-3xl);
+  color: var(--accent-primary);
+  margin-bottom: var(--space-4);
 }
 
 .dropText {
-  font-size: 16px;
+  font-size: var(--text-lg);
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .dropSubtext {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
 }
 
 /* Editor Preview */
 .editorWrapper {
   height: 500px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
 }

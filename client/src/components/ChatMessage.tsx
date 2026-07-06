@@ -347,9 +347,9 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           <Avatar 
             size={28}
             icon={isUser ? <UserOutlined /> : <RobotOutlined />} 
-            style={{ 
-              background: isUser ? 'var(--bg-secondary)' : 'var(--accent-primary)',
-              color: isUser ? 'var(--text-secondary)' : '#fff',
+            style={{
+              background: isUser ? 'var(--bg-elevated)' : 'var(--accent-primary)',
+              color: isUser ? 'var(--text-secondary)' : 'var(--text-inverse)',
               border: isUser ? '1px solid var(--border-color)' : 'none',
               flexShrink: 0
             }} 
@@ -401,7 +401,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                           setEditContent(content);
                         }}
                         icon={<CloseOutlined />}
-                        style={{ color: 'white' }}
+                        style={{ color: 'var(--text-inverse)' }}
                       >
                         取消
                       </Button>
@@ -411,7 +411,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                         onClick={handleSaveEdit}
                         icon={<CheckOutlined />}
                         style={{
-                          background: 'white',
+                          background: 'var(--text-inverse)',
                           color: 'var(--accent-primary)',
                           fontWeight: 600,
                         }}

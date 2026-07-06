@@ -45,7 +45,7 @@ export default function ThemeToggle() {
       trigger={['click']}
       overlayClassName="theme-dropdown"
     >
-      <div className="flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg hover:bg-bg-hover transition-colors duration-base border border-transparent hover:border-glass-border">
+      <div className="flex items-center gap-2 px-3 py-2 cursor-pointer rounded-lg hover:bg-bg-hover transition-colors duration-base border border-transparent hover:border-surface-border">
         <div className="relative w-4 h-4 flex items-center justify-center overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.div

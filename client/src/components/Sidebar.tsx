@@ -202,8 +202,8 @@ export default function Sidebar() {
         height: 'calc(100vh - 32px)',
         display: 'flex',
         flexDirection: 'column',
-        borderRadius: 'var(--radius-xl)',
-        boxShadow: 'var(--shadow-xl)',
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: 'var(--shadow-lg)',
       }}
     >
       <motion.div
@@ -218,7 +218,7 @@ export default function Sidebar() {
         <motion.div
           className={styles.logoIcon}
           onClick={() => navigate('/dashboard')}
-          whileTap={{ scale: 0.95 }}
+          whileTap={{ scale: 0.97 }}
         >
           <img src="/favicon.svg" alt="Logo" style={{ width: 24, height: 24 }} />
         </motion.div>
@@ -251,8 +251,8 @@ export default function Sidebar() {
               justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
               background:
                 backendStatus === 'connected'
-                  ? 'rgba(91, 138, 114, 0.1)'
-                  : 'rgba(196, 92, 72, 0.1)',
+                  ? 'var(--success-light)'
+                  : 'var(--error-light)',
               color: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)',
             }}
           >
@@ -263,22 +263,8 @@ export default function Sidebar() {
                 borderRadius: '50%',
                 background: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)',
                 display: 'inline-block',
-                position: 'relative',
-                boxShadow: backendStatus === 'connected' ? '0 0 10px var(--success)' : 'none',
               }}
-            >
-              {backendStatus === 'connected' && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    inset: -4,
-                    borderRadius: '50%',
-                    border: `2px solid ${'var(--success)'}`,
-                    animation: 'pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite',
-                  }}
-                />
-              )}
-            </span>
+            />
             {!sidebarCollapsed && (
               <span style={{ whiteSpace: 'nowrap' }}>
                 {backendStatus === 'connected' ? 'ONLINE' : 'OFFLINE'}
@@ -317,7 +303,7 @@ export default function Sidebar() {
                       animate="show"
                       className={`${styles.menuItem} ${isActive ? styles.menuItemActive : ''}`}
                       onClick={() => navigate(item.key)}
-                      whileHover={{ x: 4 }}
+                      whileHover={{ x: 2 }}
                       whileTap={{ scale: 0.98 }}
                       style={{
                         justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
@@ -334,7 +320,7 @@ export default function Sidebar() {
                         className={styles.menuIcon}
                         style={{
                           color: isActive ? 'var(--accent-primary)' : 'inherit',
-                          transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                          transform: isActive ? 'scale(1.05)' : 'scale(1)',
                         }}
                       >
                         {item.icon}
@@ -375,18 +361,6 @@ export default function Sidebar() {
         {!sidebarCollapsed && <span style={{ whiteSpace: 'nowrap' }}>收起侧边栏</span>}
       </motion.div>
 
-      <style>{`
-        @keyframes pulse-ring {
-          0% {
-            transform: scale(0.8);
-            opacity: 1;
-          }
-          100% {
-            transform: scale(1.5);
-            opacity: 0;
-          }
-        }
-      `}</style>
     </Sider>
   );
 }

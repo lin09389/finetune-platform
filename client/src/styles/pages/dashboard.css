@@ -32,24 +32,8 @@
 }
 
 .dashboard-stat-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
-}
-
-.dashboard-stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--accent-primary);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.dashboard-stat-card:hover::before {
-  opacity: 1;
+  border-color: var(--border-hover);
 }
 
 .dashboard-quick-actions {
@@ -79,8 +63,8 @@
 }
 
 .quick-action-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
 }
 
 .quick-action-card::after {
@@ -92,7 +76,7 @@
   height: 80px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.05;
+  opacity: 0.03;
 }
 
 .dashboard-recent-training {

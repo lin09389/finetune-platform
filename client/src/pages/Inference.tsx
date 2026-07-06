@@ -7,7 +7,7 @@ import {
 } from '@ant-design/icons';
 import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, Tag, Switch } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import glassStyles from '../components/shared/GlassCard.module.css';
+import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import VersionComparisonChat from '../components/shared/VersionComparisonChat';
@@ -182,7 +182,7 @@ export default function Inference() {
 
       {backendStatus !== 'connected' ? (
         <MotionItem>
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+          <div style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--text-secondary)' }}>
             后端服务未连接，请先启动应用
           </div>
         </MotionItem>
@@ -190,17 +190,17 @@ export default function Inference() {
         <MotionItem>
           <Row gutter={[24, 24]}>
             <Col xs={24} lg={16}>
-              <div className={`${glassStyles.glassCard} ${styles.card}`}>
+              <GlassCard className={styles.card}>
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    marginBottom: 24,
+                    marginBottom: 'var(--space-6)',
                   }}
                 >
                   <Space>
-                    <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>对话测试</h3>
+                    <h3 style={{ margin: 0, fontSize: 'var(--text-lg)', color: 'var(--text-primary)' }}>对话测试</h3>
                     <Select
                       value={currentBackend}
                       onChange={handleBackendChange}
@@ -218,7 +218,7 @@ export default function Inference() {
                     <Switch 
                       checked={comparisonMode} 
                       onChange={setComparisonMode} 
-                      style={{ background: comparisonMode ? 'var(--accent-neon-cyan)' : undefined }}
+                      style={{ background: comparisonMode ? 'var(--accent-primary)' : undefined }}
                     />
                   </Space>
                 </div>
@@ -229,7 +229,7 @@ export default function Inference() {
                     message="Ollama 未运行"
                     description="请确保 Ollama 已启动，然后刷新页面"
                     showIcon
-                    style={{ marginBottom: 16, borderRadius: 8 }}
+                    style={{ marginBottom: 'var(--space-4)', borderRadius: 'var(--radius-sm)' }}
                     action={
                       <Button size="small" onClick={() => void refreshInference()}>
                         刷新
@@ -242,7 +242,7 @@ export default function Inference() {
                   <Alert
                     type="info"
                     showIcon
-                    style={{ marginBottom: 16, borderRadius: 8 }}
+                    style={{ marginBottom: 'var(--space-4)', borderRadius: 'var(--radius-sm)' }}
                     message={`当前设备推荐优先使用 ${recommendedBackend}`}
                     description={`硬件档位：${recommendedProfile || 'unknown'}，推荐量化：${recommendedQuantization || 'auto'}。如果你更关注低显存稳定性，可优先尝试推荐组合。`}
                   />
@@ -255,7 +255,7 @@ export default function Inference() {
                   />
                 ) : (
                   <>
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 'var(--space-4)' }}>
                       <Select
                         placeholder={currentBackend === 'ollama' ? '选择 Ollama 模型' : '选择模型'}
                         value={selectedModel}
@@ -270,7 +270,7 @@ export default function Inference() {
                       />
                     </div>
                     {currentBackend === 'huggingface' && (
-                      <div style={{ marginBottom: 16 }}>
+                      <div style={{ marginBottom: 'var(--space-4)' }}>
                         <Input
                           value={loraAdapter}
                           onChange={(event) => setLoraAdapter(event.target.value)}
@@ -296,7 +296,7 @@ export default function Inference() {
                       }}
                       rows={4}
                       disabled={loading || !selectedModel}
-                      style={{ marginBottom: 16, borderRadius: 8 }}
+                      style={{ marginBottom: 'var(--space-4)', borderRadius: 'var(--radius-sm)' }}
                       className="glass-input"
                     />
 
@@ -307,7 +307,7 @@ export default function Inference() {
                         onClick={handleSend}
                         loading={loading}
                         disabled={!selectedModel || !prompt.trim()}
-                        style={{ borderRadius: 8 }}
+                        style={{ borderRadius: 'var(--radius-sm)' }}
                       >
                         发送
                       </Button>
@@ -315,40 +315,40 @@ export default function Inference() {
                         icon={<ClearOutlined />}
                         onClick={handleClear}
                         disabled={loading}
-                        style={{ borderRadius: 8 }}
+                        style={{ borderRadius: 'var(--radius-sm)' }}
                       >
                         清空
                       </Button>
-                      <Tag color="blue" style={{ borderRadius: 4 }}>
+                      <Tag color="blue" style={{ borderRadius: 'var(--radius-sm)' }}>
                         Shift+Enter 换行
                       </Tag>
                       {getBackendBadge()}
                     </Space>
                   </>
                 )}
-              </div>
+              </GlassCard>
             </Col>
 
             <Col xs={24} lg={8}>
               <Space direction="vertical" size={24} style={{ width: '100%' }}>
-                <div className={glassStyles.glassCard}>
+                <GlassCard>
                   <h3
                     style={{
                       marginTop: 0,
-                      marginBottom: 24,
-                      fontSize: 18,
+                      marginBottom: 'var(--space-6)',
+                      fontSize: 'var(--text-lg)',
                       color: 'var(--text-primary)',
                     }}
                   >
                     推理参数
                   </h3>
 
-                  <div style={{ marginBottom: 24 }}>
+                  <div style={{ marginBottom: 'var(--space-6)' }}>
                     <div
-                      style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}
+                      style={{ marginBottom: 'var(--space-2)', display: 'flex', justifyContent: 'space-between' }}
                     >
                       <span style={{ color: 'var(--text-primary)' }}>最大Token数</span>
-                      <Tag color="blue" style={{ borderRadius: 4 }}>
+                      <Tag color="blue" style={{ borderRadius: 'var(--radius-sm)' }}>
                         {maxTokens}
                       </Tag>
                     </div>
@@ -362,12 +362,12 @@ export default function Inference() {
                     />
                   </div>
 
-                  <div style={{ marginBottom: 24 }}>
+                  <div style={{ marginBottom: 'var(--space-6)' }}>
                     <div
-                      style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}
+                      style={{ marginBottom: 'var(--space-2)', display: 'flex', justifyContent: 'space-between' }}
                     >
                       <span style={{ color: 'var(--text-primary)' }}>Temperature (创造性)</span>
-                      <Tag color="blue" style={{ borderRadius: 4 }}>
+                      <Tag color="blue" style={{ borderRadius: 'var(--radius-sm)' }}>
                         {temperature}
                       </Tag>
                     </div>
@@ -389,9 +389,9 @@ export default function Inference() {
                   <Divider style={{ borderColor: 'var(--border-color)' }}>参数说明</Divider>
                   <ul
                     style={{
-                      paddingLeft: 20,
+                      paddingLeft: 'var(--space-5)',
                       color: 'var(--text-secondary)',
-                      fontSize: 13,
+                      fontSize: 'var(--text-sm)',
                       margin: 0,
                     }}
                   >
@@ -405,14 +405,14 @@ export default function Inference() {
                       <b>建议:</b> 问答用 0.3-0.5，创作用 0.7-1.0
                     </li>
                   </ul>
-                </div>
+                </GlassCard>
 
-                <div className={glassStyles.glassCard}>
+                <GlassCard>
                   <h3
                     style={{
                       marginTop: 0,
-                      marginBottom: 16,
-                      fontSize: 18,
+                      marginBottom: 'var(--space-4)',
+                      fontSize: 'var(--text-lg)',
                       color: 'var(--text-primary)',
                     }}
                   >
@@ -430,25 +430,25 @@ export default function Inference() {
                     >
                       <div
                         style={{
-                          fontWeight: currentBackend === backend.id ? 600 : 400,
+                          fontWeight: currentBackend === backend.id ? 'var(--font-semibold)' : 'var(--font-normal)',
                           color: 'var(--text-primary)',
                         }}
                       >
                         {backend.name}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                         {backend.description}
                       </div>
                     </div>
                   ))}
-                </div>
+                </GlassCard>
 
-                <div className={glassStyles.glassCard}>
+                <GlassCard>
                   <h3
                     style={{
                       marginTop: 0,
-                      marginBottom: 16,
-                      fontSize: 18,
+                      marginBottom: 'var(--space-4)',
+                      fontSize: 'var(--text-lg)',
                       color: 'var(--text-primary)',
                     }}
                   >
@@ -456,9 +456,9 @@ export default function Inference() {
                   </h3>
                   <ul
                     style={{
-                      paddingLeft: 20,
+                      paddingLeft: 'var(--space-5)',
                       color: 'var(--text-secondary)',
-                      fontSize: 13,
+                      fontSize: 'var(--text-sm)',
                       margin: 0,
                     }}
                   >
@@ -466,7 +466,7 @@ export default function Inference() {
                     <li>也支持 Ollama 部署的模型</li>
                     <li>训练完成后可在推理测试中验证效果</li>
                   </ul>
-                </div>
+                </GlassCard>
               </Space>
             </Col>
           </Row>

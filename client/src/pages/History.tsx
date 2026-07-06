@@ -937,9 +937,9 @@ export default function History({ mode = 'history' }: HistoryProps) {
             {sortRecentFirst(trainingRecords).map((record) => {
               const finalLoss = record.finalLoss !== undefined && record.finalLoss !== null ? record.finalLoss.toFixed(4) : '-';
               let stripeColor = 'var(--text-tertiary)';
-              if (record.status === 'completed') stripeColor = 'var(--accent-neon-green, #00FFC2)';
-              else if (record.status === 'running') stripeColor = 'var(--accent-neon-cyan, #00FFFF)';
-              else if (record.status === 'failed') stripeColor = 'var(--accent-neon-red, #FF3366)';
+              if (record.status === 'completed') stripeColor = 'var(--success)';
+              else if (record.status === 'running') stripeColor = 'var(--accent-primary)';
+              else if (record.status === 'failed') stripeColor = 'var(--error)';
 
               const isChecked = compareIds.includes(record.id);
               const isDisabled = compareIds.length >= maxCompareRecords && !isChecked;

@@ -312,15 +312,15 @@
 .agent-phase-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  margin: 6px 0;
-  border-radius: 16px;
-  background: rgba(22, 119, 255, 0.08);
-  border: 1px solid rgba(22, 119, 255, 0.15);
-  font-size: 13px;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3-5);
+  margin: var(--space-1-5) 0;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  font-size: var(--text-sm);
   line-height: 1;
-  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+  color: var(--text-secondary);
   opacity: 0;
   transform: translateY(6px);
   transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease;
@@ -333,8 +333,8 @@
 }
 
 .agent-phase-indicator-transient {
-  background: rgba(82, 196, 26, 0.08);
-  border-color: rgba(82, 196, 26, 0.2);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success) 20%, transparent);
 }
 
 .agent-phase-spinner {
@@ -342,42 +342,42 @@
   align-items: center;
   justify-content: center;
   animation: agentPhasePulse 1.5s ease-in-out infinite;
-  color: #1677ff;
+  color: var(--accent-primary);
 }
 
 .agent-phase-indicator-transient .agent-phase-spinner {
-  color: #52c41a;
+  color: var(--success);
   animation: none;
 }
 
 .agent-phase-text {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 
 .agent-phase-label {
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .agent-phase-tool {
-  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .agent-phase-detail {
-  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 .agent-phase-sub {
-  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .agent-phase-icon svg {

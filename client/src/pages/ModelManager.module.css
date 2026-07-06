@@ -127,8 +127,7 @@
 }
 
 .vramValue {
-  color: var(--accent-neon-cyan);
-  text-shadow: 0 0 10px rgba(0, 255, 194, 0.3);
+  color: var(--accent-primary);
 }
 
 .modelActions {
@@ -148,8 +147,7 @@
   bottom: 0;
   width: 4px;
   background: var(--stripe-color);
-  box-shadow: 0 0 12px var(--stripe-color);
-  opacity: 0.8;
+  opacity: 1;
 }
 
 .modalDescription {

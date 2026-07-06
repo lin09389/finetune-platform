@@ -15,6 +15,8 @@
   border-color: var(--border-hover);
 }
 
+/* Claude cards are quiet — no transform on hover */
+
 .ant-card-head {
   border-bottom: 1px solid var(--border-color);
   background: transparent;
@@ -94,7 +96,6 @@
 }
 
 .ant-card-hoverable:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
   border-color: var(--border-hover);
 }
@@ -138,7 +139,6 @@
 }
 
 .quick-action-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 

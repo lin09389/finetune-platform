@@ -287,7 +287,7 @@
 .ant-form-item-has-error .ant-input:focus,
 .ant-form-item-has-error .ant-input-affix-wrapper:focus,
 .ant-form-item-has-error .ant-select-focused .ant-select-selector {
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 15%, transparent) !important;
 }
 
 .ant-form-item-has-warning .ant-input,
@@ -299,7 +299,7 @@
 .ant-form-item-has-warning .ant-input:focus,
 .ant-form-item-has-warning .ant-input-affix-wrapper:focus,
 .ant-form-item-has-warning .ant-select-focused .ant-select-selector {
-  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.15) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 15%, transparent) !important;
 }
 
 /* ============================================
@@ -563,7 +563,7 @@
 
 .ant-select-focused .ant-select-selector {
   border-color: var(--accent-primary) !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent) !important;
 }
 
 .ant-select-disabled .ant-select-selector {

@@ -2,9 +2,9 @@
   display: flex;
   flex-direction: row;
   width: 100%;
-  margin-bottom: 24px; /* Reduced from 40px */
+  margin-bottom: var(--space-6);
   position: relative;
-  gap: 12px; /* Reduced from 20px */
+  gap: var(--space-3);
   align-items: flex-start;
 }
 
@@ -12,7 +12,7 @@
 .agentFlowMiddle,
 .agentFlowLast,
 .agentFlowOnly {
-  margin-bottom: 22px;
+  margin-bottom: var(--space-5);
   gap: 0;
 }
 
@@ -63,18 +63,17 @@
 
 .userBubble {
   max-width: 88%;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 14px 14px 2px 14px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
-  font-weight: 500;
+  border-radius: var(--radius-lg);
+  font-weight: var(--font-medium);
 }
 
 :global(.dark-theme) .userBubble {
-  background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-elevated));
-  border-color: color-mix(in srgb, var(--accent-primary) 12%, var(--border-color));
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
 }
 
 .assistantBubble {
@@ -89,6 +88,7 @@
 }
 
 .markdownContent {
+  font-family: var(--font-reading);
   font-size: 15.5px;
   line-height: 1.72;
   color: var(--text-primary);
@@ -114,7 +114,6 @@
   height: 1.2em;
   margin-left: 0.2em;
   background: var(--accent-primary);
-  box-shadow: 0 0 10px var(--accent-primary);
   border-radius: 2px;
   vertical-align: -0.2em;
   animation: cursorPulse 0.8s ease-in-out infinite alternate;
@@ -133,12 +132,13 @@
   margin-top: 0.85rem;
 }
 
-.markdownContent h1, 
-.markdownContent h2, 
+.markdownContent h1,
+.markdownContent h2,
 .markdownContent h3 {
   margin: 1.15rem 0 0.65rem;
   color: var(--text-primary);
-  font-weight: 650;
+  font-family: var(--font-display);
+  font-weight: var(--font-semibold);
   line-height: 1.28;
 }
 
@@ -185,41 +185,42 @@
   width: 100%;
   border-collapse: collapse;
   margin: 1rem 0;
-  font-size: 13.5px;
-  border-radius: 6px;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border-color);
 }
 
 .markdownContent th, 
 .markdownContent td {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   text-align: left;
   border-bottom: 1px solid var(--border-color);
 }
 
 .markdownContent blockquote {
   margin: 1rem 0;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-left: 3px solid var(--accent-primary);
   background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
   color: var(--text-secondary);
   font-style: italic;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
+  margin-top: var(--space-2);
   padding: 0;
 }
 
 .timestamp {
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   color: var(--text-tertiary);
-  font-weight: 500;
+  font-weight: var(--font-medium);
   letter-spacing: 0.02em;
 }
 
@@ -248,7 +249,7 @@
 
 .shimmerLine {
   height: 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--text-tertiary) 10%, transparent) 0%,
@@ -271,18 +272,18 @@
 }
 
 .editInput {
-  background: rgba(255, 255, 255, 0.1) !important;
-  color: white !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
   border-radius: var(--radius-md) !important;
-  padding: 8px 12px !important;
+  padding: var(--space-2) var(--space-3) !important;
   font-size: 14px !important;
   resize: none;
 }
 
 .editInput:focus {
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-color: rgba(255, 255, 255, 0.4) !important;
+  background: var(--bg-secondary) !important;
+  border-color: var(--accent-primary) !important;
   box-shadow: none !important;
 }
 
@@ -322,13 +323,13 @@
 .thinkingWrapper {
   margin-bottom: var(--space-4);
   padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 /* Knowledge Sources Styling */
 .knowledgeWrapper {
   margin-top: var(--space-4);
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-color);
   padding-top: var(--space-4);
 }
 
@@ -351,14 +352,14 @@
   color: var(--text-primary);
   font-size: 0.95em;
   font-family: var(--font-mono);
-  font-weight: 600; /* Subtle bold instead of background */
+  font-weight: var(--font-semibold);
 }
 
 .pathCode {
   color: var(--text-primary);
   font-size: 0.95em;
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 :global(.dark-theme) .inlineCode,

@@ -1,27 +1,29 @@
 /* ============================================
    Finetune Platform - 设计令牌系统
+   Claude Design System 官方精确值
+   "Make the interface feel like a beautifully typeset book."
    ============================================ */
 
 :root {
   /* ============================================
-     字体系统
+     字体系统 - Claude 编辑感字体栈
      ============================================ */
-  --font-sans:
-    'Avenir Next', 'Segoe UI Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
-  --font-serif: 'Source Han Serif CN', 'Noto Serif SC', Georgia, serif;
+  --font-display: Newsreader, Georgia, ui-serif, serif;
+  --font-sans: Poppins, ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Lora, Georgia, ui-serif, serif;
+  --font-reading: Lora, Georgia, ui-serif, serif;
+  --font-mono: Geist Mono, ui-monospace, monospace;
 
-  /* 字体大小 - 模块化流体缩放 (支持 4K/Retina) */
-  --text-xs: clamp(0.7rem, 0.65rem + 0.25vw, 0.875rem); /* 12px -> 14px */
-  --text-sm: clamp(0.8rem, 0.75rem + 0.25vw, 1rem); /* 14px -> 16px */
-  --text-base: clamp(0.9375rem, 0.85rem + 0.4vw, 1.125rem); /* 15px -> 18px */
-  --text-lg: clamp(1.0625rem, 0.95rem + 0.5vw, 1.25rem); /* 17px -> 20px */
-  --text-xl: clamp(1.2rem, 1.05rem + 0.7vw, 1.5rem); /* 19px -> 24px */
-  --text-2xl: clamp(1.4rem, 1.2rem + 1vw, 2rem); /* 22px -> 32px */
-  --text-3xl: clamp(1.75rem, 1.5rem + 1.2vw, 2.5rem); /* 28px -> 40px */
-  --text-4xl: clamp(2.25rem, 2rem + 1.5vw, 3.5rem); /* 36px -> 56px */
-  --text-5xl: clamp(3rem, 2.5rem + 2.5vw, 5rem); /* 48px -> 80px */
+  /* 字体大小 - 模块化流体缩放 */
+  --text-xs: clamp(0.7rem, 0.65rem + 0.25vw, 0.875rem);
+  --text-sm: clamp(0.8rem, 0.75rem + 0.25vw, 1rem);
+  --text-base: clamp(0.9375rem, 0.85rem + 0.4vw, 1.125rem);
+  --text-lg: clamp(1.0625rem, 0.95rem + 0.5vw, 1.25rem);
+  --text-xl: clamp(1.2rem, 1.05rem + 0.7vw, 1.5rem);
+  --text-2xl: clamp(1.4rem, 1.2rem + 1vw, 2rem);
+  --text-3xl: clamp(1.75rem, 1.5rem + 1.2vw, 2.5rem);
+  --text-4xl: clamp(2.25rem, 2rem + 1.5vw, 3.5rem);
+  --text-5xl: clamp(3rem, 2.5rem + 2.5vw, 5rem);
 
   /* 字重 */
   --font-light: 300;
@@ -41,79 +43,74 @@
   /* 字间距 */
   --tracking-tighter: -0.05em;
   --tracking-tight: -0.025em;
-  --tracking-normal: 0;
+  --tracking-normal: 0em;
   --tracking-wide: 0.025em;
   --tracking-wider: 0.05em;
   --tracking-widest: 0.1em;
 
   /* ============================================
-     间距系统 - 8pt 网格
+     间距系统 - 4px 基准节奏
      ============================================ */
+  --spacing: 0.25rem;
   --space-0: 0;
   --space-px: 1px;
-  --space-0-5: 0.125rem; /* 2px */
-  --space-1: 0.25rem; /* 4px */
-  --space-1-5: 0.375rem; /* 6px */
-  --space-2: 0.5rem; /* 8px */
-  --space-2-5: 0.625rem; /* 10px */
-  --space-3: 0.75rem; /* 12px */
-  --space-3-5: 0.875rem; /* 14px */
-  --space-4: 1rem; /* 16px */
-  --space-5: 1.25rem; /* 20px */
-  --space-6: 1.5rem; /* 24px */
-  --space-7: 1.75rem; /* 28px */
-  --space-8: 2rem; /* 32px */
-  --space-9: 2.25rem; /* 36px */
-  --space-10: 2.5rem; /* 40px */
-  --space-11: 2.75rem; /* 44px */
-  --space-12: 3rem; /* 48px */
-  --space-14: 3.5rem; /* 56px */
-  --space-16: 4rem; /* 64px */
-  --space-20: 5rem; /* 80px */
-  --space-24: 6rem; /* 96px */
-  --space-28: 7rem; /* 112px */
-  --space-32: 8rem; /* 128px */
+  --space-0-5: 0.125rem;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-3-5: 0.875rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 1.75rem;
+  --space-8: 2rem;
+  --space-9: 2.25rem;
+  --space-10: 2.5rem;
+  --space-11: 2.75rem;
+  --space-12: 3rem;
+  --space-14: 3.5rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --space-28: 7rem;
+  --space-32: 8rem;
 
   /* ============================================
-     圆角系统
+     圆角系统 - Claude 柔和几何
      ============================================ */
-  --radius-none: 0;
-  --radius-sm: 0.25rem; /* 4px */
-  --radius-md: 0.375rem; /* 6px */
-  --radius-lg: 0.5rem; /* 8px */
-  --radius-xl: 0.75rem; /* 12px */
-  --radius-2xl: 1rem; /* 16px */
-  --radius-3xl: 1.5rem; /* 24px */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius: 1rem;     /* Claude base radius = 16px */
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 24px;
   --radius-full: 9999px;
 
   /* ============================================
-     阴影系统 - 分层阴影增强空间深度
+     阴影系统 - Claude 安静纸质风
+     用于分隔而非炫技，暗色模式同样使用纯黑阴影
      ============================================ */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
-  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
-  --shadow-glass: 0 14px 34px -18px rgba(16, 24, 40, 0.35), 0 8px 18px -12px rgba(16, 24, 40, 0.25);
-  --shadow-neumorph-out: 6px 6px 12px rgba(0, 0, 0, 0.05), -6px -6px 12px rgba(255, 255, 255, 0.8);
-  --shadow-neumorph-in:
-    inset 4px 4px 8px rgba(0, 0, 0, 0.05), inset -4px -4px 8px rgba(255, 255, 255, 0.8);
+  --shadow-2xs: 0 1px 3px 0px rgba(0, 0, 0, 0.05);
+  --shadow-xs: 0 1px 3px 0px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 8px 10px -1px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 1px 3px 0px rgba(0, 0, 0, 0.25);
   --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.04);
   --shadow-none: none;
+  --shadow-glass: var(--shadow-md);
 
   /* ============================================
-     玻璃拟态令牌
+     纸质卡片令牌（替代玻璃拟态）
      ============================================ */
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-border: rgba(255, 255, 255, 0.48);
-  --glass-blur: blur(18px) saturate(170%);
-  --glass-reflection: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.42) 0%,
-    rgba(255, 255, 255, 0.06) 45%,
-    rgba(255, 255, 255, 0) 100%
-  );
+  --glass-bg: var(--surface-card, var(--bg-secondary));
+  --glass-border: var(--surface-border, var(--border-color));
+  --glass-blur: none;
+  --glass-reflection: none;
 
   /* ============================================
      过渡系统
@@ -125,7 +122,6 @@
   --transition-slow: 300ms cubic-bezier(0.16, 1, 0.3, 1);
   --transition-slower: 500ms cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* 动画曲线 */
   --ease-linear: linear;
   --ease-in: cubic-bezier(0.75, 0, 0.25, 1);
   --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
@@ -142,9 +138,7 @@
   --state-disabled-opacity: 0.38;
   --state-focus-opacity: 0.12;
 
-  /* ============================================
-     焦点环
-     ============================================ */
+  /* 焦点环 */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   --focus-ring-color: var(--accent-primary);
@@ -152,16 +146,12 @@
     0 0 0 var(--focus-ring-offset) var(--bg-secondary),
     0 0 0 calc(var(--focus-ring-width) + var(--focus-ring-offset)) var(--focus-ring-color);
 
-  /* ============================================
-     触控目标
-     ============================================ */
+  /* 触控目标 */
   --touch-target-min: 44px;
   --touch-target-sm: 36px;
   --touch-target-lg: 48px;
 
-  /* ============================================
-     Z-index 层级
-     ============================================ */
+  /* Z-index 层级 */
   --z-dropdown: 1000;
   --z-sticky: 1020;
   --z-fixed: 1030;
@@ -171,9 +161,7 @@
   --z-tooltip: 1070;
   --z-toast: 1080;
 
-  /* ============================================
-     响应式断点（仅作参考，CSS中不直接使用）
-     ============================================ */
+  /* 响应式断点 */
   --breakpoint-xs: 0;
   --breakpoint-sm: 576px;
   --breakpoint-md: 768px;
@@ -181,53 +169,45 @@
   --breakpoint-xl: 1200px;
   --breakpoint-2xl: 1600px;
 
-  /* ============================================
-     容器宽度
-     ============================================ */
-  --container-xs: 20rem; /* 320px */
-  --container-sm: 24rem; /* 384px */
-  --container-md: 28rem; /* 448px */
-  --container-lg: 32rem; /* 512px */
-  --container-xl: 36rem; /* 576px */
-  --container-2xl: 42rem; /* 672px */
-  --container-3xl: 48rem; /* 768px */
-  --container-4xl: 56rem; /* 896px */
-  --container-5xl: 64rem; /* 1024px */
-  --container-6xl: 72rem; /* 1152px */
-  --container-7xl: 80rem; /* 1280px */
+  /* 容器宽度 */
+  --container-xs: 20rem;
+  --container-sm: 24rem;
+  --container-md: 28rem;
+  --container-lg: 32rem;
+  --container-xl: 36rem;
+  --container-2xl: 42rem;
+  --container-3xl: 48rem;
+  --container-4xl: 56rem;
+  --container-5xl: 64rem;
+  --container-6xl: 72rem;
+  --container-7xl: 80rem;
 
-  /* ============================================
-     渐变系统 - 极简黑白灰
-     ============================================ */
-  --gradient-primary: linear-gradient(135deg, #000000 0%, #333333 100%);
-  --gradient-secondary: linear-gradient(135deg, #666666 0%, #333333 100%);
-  --gradient-success: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  --gradient-warning: linear-gradient(135deg, #d97706 0%, #b45309 100%);
-  --gradient-error: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  --gradient-info: linear-gradient(135deg, #000000 0%, #333333 100%);
+  /* 渐变系统 - terra-cotta 暖色 */
+  --gradient-primary: linear-gradient(135deg, #c96442 0%, #b0562f 100%);
+  --gradient-secondary: linear-gradient(135deg, #b0562f 0%, #934828 100%);
+  --gradient-brand: linear-gradient(135deg, #c96442 0%, #b0562f 100%);
+  --gradient-warm: linear-gradient(135deg, #d97757 0%, #c96442 100%);
+  --gradient-success: linear-gradient(135deg, #788c5d 0%, #647649 100%);
+  --gradient-warning: linear-gradient(135deg, #b8860b 0%, #9c7209 100%);
+  --gradient-error: linear-gradient(135deg, #d64545 0%, #b83636 100%);
+  --gradient-info: linear-gradient(135deg, #5b7b9a 0%, #4a6883 100%);
   --gradient-mesh: none;
   --gradient-card-shine: none;
   --gradient-button: none;
 
-  /* ============================================
-     动画预设
-     ============================================ */
+  /* 动画预设 */
   --animation-instant: 100ms var(--ease-smooth);
   --animation-fast: 150ms var(--ease-smooth);
   --animation-base: 200ms var(--ease-smooth);
   --animation-slow: 300ms var(--ease-smooth);
   --animation-slower: 500ms var(--ease-smooth);
   --animation-slowest: 700ms var(--ease-smooth);
-
-  /* 动画时长变量 */
   --duration-instant: 100ms;
   --duration-fast: 150ms;
   --duration-base: 200ms;
   --duration-slow: 300ms;
   --duration-slower: 500ms;
   --duration-slowest: 700ms;
-
-  /* 动画延迟 */
   --delay-1: 50ms;
   --delay-2: 100ms;
   --delay-3: 150ms;
@@ -236,166 +216,209 @@
 }
 
 /* ============================================
-   浅色主题 - 极简白
+   浅色主题 - Claude 纸质暖白
+   精确值来自 colors_and_type.css :root
    ============================================ */
 .light-theme {
-  /* 背景色 */
-  --bg-primary: #ffffff;
-  --bg-secondary: #fcfcfc;
-  --bg-elevated: #f5f5f5;
-  --bg-hover: #f0f0f0;
-  --bg-active: #e5e5e5;
-  --bg-disabled: #f9f9f9;
-  --bg-overlay: rgba(0, 0, 0, 0.4);
+  /* 背景色 - bg 色阶 */
+  --bg-primary: #faf9f5;      /* bg-100 background */
+  --bg-secondary: #f5f4ef;    /* bg-200 card */
+  --bg-elevated: #ede9de;     /* bg-300 muted */
+  --bg-hover: #e3e0d4;        /* bg-400 */
+  --bg-active: #dad9d4;       /* bg-500 */
+  --bg-disabled: #f5f4ef;     /* bg-200 */
+  --bg-overlay: rgba(40, 38, 27, 0.35);
+  --bg-popover: #ffffff;      /* bg-50 */
 
-  /* 文字色 */
-  --text-primary: #000000;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
-  --text-disabled: #cccccc;
-  --text-inverse: #ffffff;
+  /* 文字色 - text 色阶 */
+  --text-primary: #3d3929;    /* text-800 foreground */
+  --text-secondary: #6e6d68;  /* text-500 muted-foreground */
+  --text-tertiary: #9b988c;   /* text-400 */
+  --text-disabled: #c2c0b6;   /* text-300 */
+  --muted-foreground: #6e6d68; /* text-500 = muted-foreground */
+  --text-inverse: #ffffff;    /* primary-foreground */
   --text-link: var(--accent-primary);
   --text-link-hover: var(--accent-secondary);
 
-  /* 边框色 */
-  --border-color: #ebebeb;
-  --border-hover: #d4d4d4;
-  --border-active: #a3a3a3;
-  --border-focus: #000000;
+  /* 边框色 - border 色阶 */
+  --border-color: #dad9d4;    /* border-300 */
+  --border-hover: #cdcabf;    /* border-400 */
+  --border-active: #b4b2a7;   /* border-500 */
+  --border-focus: var(--accent-primary);
 
-  /* 强调色 - 纯黑 */
-  --accent-primary: #000000;
-  --accent-secondary: #666666;
-  --accent-tertiary: #333333;
+  /* 强调色 - brand 色阶 */
+  --accent-primary: #c96442;    /* brand-500 */
+  --accent-secondary: #b0562f;  /* brand-600 */
+  --accent-tertiary: #934828;   /* brand-700 */
+  --accent-primary-light: #f4e0d5; /* brand-100 */
 
-  /* 功能色 */
-  --success: #16a34a;
-  --success-light: #f0fdf4;
-  --success-dark: #15803d;
-  --warning: #d97706;
-  --warning-light: #fffbeb;
-  --warning-dark: #b45309;
-  --error: #dc2626;
-  --error-light: #fef2f2;
-  --error-dark: #b91c1c;
-  --info: #000000;
-  --info-light: #f5f5f5;
-  --info-dark: #333333;
+  /* 次级表面 */
+  --secondary-bg: #e9e6dc;     /* secondary */
 
-  /* 主色调色板 - 中性灰 */
-  --primary-50: #fafafa;
-  --primary-100: #f5f5f5;
-  --primary-200: #e5e5e5;
-  --primary-300: #d4d4d4;
-  --primary-400: #a3a3a3;
-  --primary-500: #737373;
-  --primary-600: #525252;
-  --primary-700: #404040;
-  --primary-800: #262626;
-  --primary-900: #000000;
+  /* 功能色 - 调暖 */
+  --success: #788c5d;
+  --success-light: #f0f3ea;
+  --success-dark: #647649;
+  --success-border: rgba(120, 140, 93, 0.25);
+  --warning: #b8860b;
+  --warning-light: #faf6ec;
+  --warning-dark: #9c7209;
+  --warning-border: rgba(184, 134, 11, 0.25);
+  --error: #d64545;
+  --error-light: #fcecea;
+  --error-dark: #b83636;
+  --error-border: rgba(214, 69, 69, 0.25);
+  --info: #5b7b9a;
+  --info-light: #f0f4f8;
+  --info-dark: #4a6883;
+  --info-border: rgba(91, 123, 154, 0.25);
 
-  /* 中性色色板 */
-  --neutral-50: #fafafa;
-  --neutral-100: #f5f5f5;
-  --neutral-200: #e5e5e5;
-  --neutral-300: #d4d4d4;
-  --neutral-400: #a3a3a3;
-  --neutral-500: #737373;
-  --neutral-600: #525252;
-  --neutral-700: #404040;
-  --neutral-800: #262626;
-  --neutral-900: #171717;
+  /* 主色调色板 - terra-cotta 色阶 */
+  --primary-50: #fbf2ed;
+  --primary-100: #f4e0d5;
+  --primary-200: #ebc6b6;
+  --primary-300: #e0a892;
+  --primary-400: #d6866a;
+  --primary-500: #c96442;
+  --primary-600: #b0562f;
+  --primary-700: #934828;
+  --primary-800: #753a22;
+  --primary-900: #582e1d;
 
-  /* 玻璃拟态令牌 - 简化 */
-  --glass-bg: rgba(255, 255, 255, 0.9);
-  --glass-border: rgba(0, 0, 0, 0.08);
-  --glass-blur: blur(12px);
+  /* 中性色色板 - 暖灰 */
+  --neutral-50: #ffffff;
+  --neutral-100: #faf9f5;
+  --neutral-200: #f5f4ef;
+  --neutral-300: #ede9de;
+  --neutral-400: #dad9d4;
+  --neutral-500: #cdcabf;
+  --neutral-600: #b4b2a7;
+  --neutral-700: #9b988c;
+  --neutral-800: #6e6d68;
+  --neutral-900: #3d3929;
+
+  /* 纸质卡片令牌 */
+  --surface-card: #f5f4ef;     /* card = bg-200 */
+  --surface-border: #dad9d4;   /* border = border-300 */
+  --glass-bg: #f5f4ef;
+  --glass-border: #dad9d4;
+  --glass-blur: none;
   --glass-reflection: none;
+
+  /* Sidebar 专用令牌 */
+  --sidebar-bg: #f5f4ee;
+  --sidebar-foreground: #3d3d3a;
+  --sidebar-border: #ebebeb;
+  --sidebar-accent: #e9e6dc;
+  --sidebar-accent-foreground: #343434;
+  --sidebar-primary: #c96442;
 }
 
 /* ============================================
-   深色主题 - 极简黑
+   深色主题 - Claude 温暖深色
+   精确值来自 colors_and_type.css .dark
    ============================================ */
 .dark-theme {
-  /* 背景色 */
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-elevated: #141414;
-  --bg-hover: #1f1f1f;
-  --bg-active: #292929;
-  --bg-disabled: #111111;
-  --bg-overlay: rgba(0, 0, 0, 0.7);
+  /* 背景色 - bg 色阶（温暖深灰，非纯黑） */
+  --bg-primary: #262624;      /* bg-100 */
+  --bg-secondary: #2c2c2b;    /* bg-200 card */
+  --bg-elevated: #30302e;     /* bg-300 muted */
+  --bg-hover: #3e3e38;        /* bg-400 */
+  --bg-active: #4a4a43;       /* bg-500 */
+  --bg-disabled: #2c2c2b;     /* bg-200 */
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+  --bg-popover: #30302e;      /* bg-300 */
 
-  /* 文字色 */
-  --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #71717a;
-  --text-disabled: #52525b;
-  --text-inverse: #000000;
+  /* 文字色 - text 色阶 */
+  --text-primary: #f1f1ef;    /* text-800 foreground */
+  --text-secondary: #b7b5a9;  /* text-500 muted-foreground */
+  --text-tertiary: #908e84;   /* text-400 */
+  --text-disabled: #6e6d68;   /* text-300 */
+  --muted-foreground: #b7b5a9; /* text-500 = muted-foreground */
+  --text-inverse: #141413;    /* primary-foreground */
   --text-link: var(--accent-primary);
   --text-link-hover: var(--accent-secondary);
 
-  /* 边框色 */
-  --border-color: #27272a;
-  --border-hover: #3f3f46;
-  --border-active: #52525b;
-  --border-focus: #ffffff;
+  /* 边框色 - border 色阶 */
+  --border-color: #3e3e38;    /* border-300 */
+  --border-hover: #4a4a43;    /* border-400 */
+  --border-active: #52514a;   /* border-500 */
+  --border-focus: var(--accent-primary);
 
-  /* 强调色 - 纯白 */
-  --accent-primary: #ffffff;
-  --accent-secondary: #a1a1aa;
-  --accent-tertiary: #d4d4d8;
+  /* 强调色 - brand 色阶（亮） */
+  --accent-primary: #d97757;    /* brand-500 */
+  --accent-secondary: #e08d6f;  /* brand-600 */
+  --accent-tertiary: #e8a98f;   /* brand-700 */
+  --accent-primary-light: #4d3528; /* brand-100 dark */
 
-  /* 功能色 */
-  --success: #22c55e;
-  --success-light: #052e16;
-  --success-dark: #16a34a;
-  --warning: #f59e0b;
-  --warning-light: #1c1917;
-  --warning-dark: #d97706;
+  /* 次级表面 */
+  --secondary-bg: #faf9f5;     /* secondary = text-900 */
+
+  /* 功能色 - 深色调暖 */
+  --success: #8ca06f;
+  --success-light: #232a1c;
+  --success-dark: #647649;
+  --success-border: rgba(140, 160, 111, 0.25);
+  --warning: #d4a033;
+  --warning-light: #2a2410;
+  --warning-dark: #b8860b;
+  --warning-border: rgba(212, 160, 51, 0.25);
   --error: #ef4444;
-  --error-light: #1c0000;
-  --error-dark: #dc2626;
-  --info: #ffffff;
-  --info-light: #141414;
-  --info-dark: #a1a1aa;
+  --error-light: #3a1f1f;
+  --error-dark: #b83636;
+  --error-border: rgba(239, 68, 68, 0.25);
+  --info: #7b9bb8;
+  --info-light: #18202a;
+  --info-dark: #5b7b9a;
+  --info-border: rgba(123, 155, 184, 0.25);
 
-  /* 主色调色板 - 中性灰 */
-  --primary-50: #0a0a0a;
-  --primary-100: #141414;
-  --primary-200: #27272a;
-  --primary-300: #3f3f46;
-  --primary-400: #52525b;
-  --primary-500: #71717a;
-  --primary-600: #a1a1aa;
-  --primary-700: #d4d4d8;
-  --primary-800: #e4e4e7;
-  --primary-900: #ffffff;
+  /* 主色调色板 - terra-cotta 亮色阶 */
+  --primary-50: #3a2a22;
+  --primary-100: #4d3528;
+  --primary-200: #6b4533;
+  --primary-300: #8a5740;
+  --primary-400: #b0683f;
+  --primary-500: #d97757;
+  --primary-600: #e08d6f;
+  --primary-700: #e8a98f;
+  --primary-800: #f0c6b3;
+  --primary-900: #f8e3d8;
 
-  /* 中性色色板 */
-  --neutral-50: #0a0a0a;
-  --neutral-100: #141414;
-  --neutral-200: #27272a;
-  --neutral-300: #3f3f46;
-  --neutral-400: #52525b;
-  --neutral-500: #71717a;
-  --neutral-600: #a1a1aa;
-  --neutral-700: #d4d4d8;
-  --neutral-800: #e4e4e7;
-  --neutral-900: #f4f4f5;
+  /* 中性色色板 - 暖深灰 */
+  --neutral-50: #1b1b19;
+  --neutral-100: #262624;
+  --neutral-200: #2c2c2b;
+  --neutral-300: #30302e;
+  --neutral-400: #3e3e38;
+  --neutral-500: #4a4a43;
+  --neutral-600: #52514a;
+  --neutral-700: #6e6d68;
+  --neutral-800: #908e84;
+  --neutral-900: #b7b5a9;
 
-  /* 阴影重写 - 深色模式 */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.7), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
-  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
-  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  /* 阴影 - Claude 深色模式与浅色模式保持一致（官方源文件 .dark 节值相同） */
+  --shadow-2xs: 0 1px 3px 0px rgba(0, 0, 0, 0.05);
+  --shadow-xs: 0 1px 3px 0px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 1px 3px 0px rgba(0, 0, 0, 0.1), 0 8px 10px -1px rgba(0, 0, 0, 0.1);
+  --shadow-2xl: 0 1px 3px 0px rgba(0, 0, 0, 0.25);
+  --shadow-glass: var(--shadow-md);
 
-  /* 玻璃拟态令牌 - 深色简化 */
-  --glass-bg: rgba(10, 10, 10, 0.9);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-blur: blur(12px);
+  /* 纸质卡片令牌 - 深色 */
+  --surface-card: #2c2c2b;    /* card = bg-200 */
+  --surface-border: #3e3e38;  /* border = border-300 */
+  --glass-bg: #2c2c2b;
+  --glass-border: #3e3e38;
+  --glass-blur: none;
   --glass-reflection: none;
+
+  /* Sidebar 专用令牌 - 精确值来自 colors_and_type.css .dark */
+  --sidebar-bg: #1f1e1d;
+  --sidebar-foreground: #c3c0b6;
+  --sidebar-border: #ebebeb;     /* 官方 .dark --sidebar-border */
+  --sidebar-accent: #0f0f0e;
+  --sidebar-accent-foreground: #c3c0b6;
+  --sidebar-primary: #343434;    /* 官方 .dark --sidebar-primary */
 }

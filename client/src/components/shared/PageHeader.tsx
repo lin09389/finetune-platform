@@ -1,7 +1,7 @@
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { Space, Tag, Tooltip } from 'antd';
 import React from 'react';
-import glassStyles from './GlassCard.module.css';
+import GlassCard from './GlassCard';
 import styles from './PageHeader.module.css';
 
 export interface PageHeaderProps {
@@ -31,7 +31,7 @@ export default function PageHeader({
   style,
 }: PageHeaderProps) {
   return (
-    <div className={`${glassStyles.glassCard} ${styles.headerCard} ${className}`} style={style}>
+    <GlassCard className={`${styles.headerCard} ${className}`} style={style} noHover>
       <div className={styles.left}>
         <h1 className={styles.title}>
           {icon}
@@ -57,6 +57,6 @@ export default function PageHeader({
           {primaryAction}
         </Space>
       </div>
-    </div>
+    </GlassCard>
   );
 }

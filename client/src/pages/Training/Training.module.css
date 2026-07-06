@@ -31,7 +31,6 @@
   position: relative;
   z-index: 10;
   flex-shrink: 0;
-  backdrop-filter: blur(12px);
 }
 
 .headerBar::after {
@@ -185,8 +184,7 @@
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--border-color);
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
+  background: var(--bg-secondary);
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

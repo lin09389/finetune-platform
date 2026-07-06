@@ -1,16 +1,14 @@
 .toolbarContainer {
   position: fixed;
   transform: translate(-50%, -100%);
-  background: rgba(15, 17, 21, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: var(--bg-popover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  box-shadow: var(--shadow-lg);
   z-index: 9999;
 }
 
@@ -20,7 +18,7 @@
   color: var(--text-secondary);
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,13 +28,13 @@
 }
 
 .toolBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--accent-neon-cyan);
+  background: var(--bg-hover);
+  color: var(--accent-primary);
 }
 
 .divider {
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-color);
   margin: 0 4px;
 }

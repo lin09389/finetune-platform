@@ -66,35 +66,6 @@
   position: relative;
 }
 
-/* 让渐变的 conic-gradient 动起来，增加科技感 */
-@keyframes spin-gradient {
-  0% {
-    transform: scale(1.5) rotate(0deg);
-  }
-  100% {
-    transform: scale(1.5) rotate(360deg);
-  }
-}
-
-.ant-progress-circle-gradient foreignObject > div > div:last-child {
-  transform-origin: center;
-  animation: spin-gradient 4s linear infinite;
-}
-
-/* 为进度条增加呼吸发光效果 */
-@keyframes progress-glow {
-  0%, 100% {
-    filter: drop-shadow(0 0 2px var(--accent-secondary));
-  }
-  50% {
-    filter: drop-shadow(0 0 8px var(--accent-primary));
-  }
-}
-
-.ant-progress-circle-gradient {
-  animation: progress-glow 3s ease-in-out infinite;
-}
-
 .ant-progress-circle .ant-progress-text {
   position: absolute;
   top: 50%;

@@ -1,113 +1,67 @@
+/* ============================================
+   GlassCard — Claude paper card
+   Quiet, warm, editorial. Subtle border + gentle shadow.
+   No spotlights, no glass reflections.
+   ============================================ */
+
 .glassCard {
   position: relative;
   border-radius: var(--radius-lg);
-  border: none;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.02),
-    0 4px 12px rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--surface-border, var(--border-color));
+  background: var(--surface-card, var(--bg-secondary));
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   width: 100%;
-  will-change: transform, box-shadow;
-}
-
-.glassCard::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.1) 100%);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  z-index: 1;
 }
 
 :global(.dark-theme) .glassCard {
-  background: rgba(20, 20, 20, 0.6);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  background: var(--surface-card, var(--bg-secondary));
+  box-shadow: var(--shadow-sm);
 }
 
-:global(.dark-theme) .glassCard::before {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.02) 100%);
-}
-
-/* intensity variants */
+/* intensity variants — quiet elevation levels */
 .intensity-low {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-xs);
 }
+
 .intensity-medium {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(24px);
+  background: var(--surface-card, var(--bg-secondary));
+  box-shadow: var(--shadow-sm);
 }
+
 .intensity-high {
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(40px);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
 }
 
 :global(.dark-theme) .intensity-low {
-  background: rgba(20, 20, 20, 0.85);
-}
-:global(.dark-theme) .intensity-medium {
-  background: rgba(20, 20, 20, 0.6);
-}
-:global(.dark-theme) .intensity-high {
-  background: rgba(20, 20, 20, 0.3);
+  background: var(--bg-secondary);
 }
 
+:global(.dark-theme) .intensity-medium {
+  background: var(--surface-card, var(--bg-secondary));
+}
+
+:global(.dark-theme) .intensity-high {
+  background: var(--bg-elevated);
+}
+
+/* hover — gentle, quiet lift */
 .glassCard:hover {
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.06),
-    0 4px 16px rgba(99, 102, 241, 0.05);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
 }
 
 :global(.dark-theme) .glassCard:hover {
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.4),
-    0 4px 16px rgba(129, 140, 248, 0.08);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
 }
 
 .glassCard:active {
   transition-duration: 0.1s;
-}
-
-.reflection {
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(
-    to right,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  transform: skewX(-20deg);
-  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-  z-index: 1;
-}
-
-:global(.dark-theme) .reflection {
-  background: linear-gradient(
-    to right,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-}
-
-.glassCard:hover .reflection {
-  left: 200%;
-  transition-duration: 0.8s;
 }
 
 .content {
@@ -115,24 +69,4 @@
   padding: var(--space-6);
   height: 100%;
   z-index: 2;
-}
-
-.spotlight {
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  pointer-events: none;
-  transition: opacity 0.3s;
-  z-index: 0;
-}
-
-.spotlightBorder {
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  pointer-events: none;
-  transition: opacity 0.3s;
-  z-index: 1;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='black' stroke-width='2'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='black' stroke-width='2'/%3E%3C/svg%3E");
 }

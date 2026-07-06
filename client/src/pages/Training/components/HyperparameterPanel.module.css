@@ -190,12 +190,12 @@
 }
 
 .deepInput :global(.ant-input-number):hover {
-  border-color: rgba(0, 255, 194, 0.3) !important;
+  border-color: rgba(201, 100, 66, 0.3) !important;
 }
 
 .deepInput :global(.ant-input-number-focused) {
-  border-color: rgba(0, 255, 194, 0.4) !important;
-  box-shadow: 0 0 0 2px rgba(0, 255, 194, 0.06) !important;
+  border-color: rgba(201, 100, 66, 0.4) !important;
+  box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.06) !important;
 }
 
 /* Direct InputNumber styling (not nested) */
@@ -238,7 +238,7 @@
 }
 
 .deepSlider :global(.ant-slider-handle):hover {
-  box-shadow: 0 0 14px rgba(0, 255, 194, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.15) !important;
   transform: scale(1.15) !important;
 }
 
@@ -292,7 +292,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 60%, rgba(0, 255, 194, 0.02) 100%);
+  background: linear-gradient(90deg, transparent 60%, rgba(201, 100, 66, 0.02) 100%);
   pointer-events: none;
 }
 
@@ -392,7 +392,6 @@
 .btnPrimary:not(:disabled):hover {
   background: var(--accent-primary-hover);
   border-color: var(--accent-primary-hover);
-  transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(59, 130, 246, 0.25);
 }
 

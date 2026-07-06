@@ -32,7 +32,7 @@
   flex-direction: column;
   justify-content: space-between;
   border: 1px solid var(--border-color);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   padding: var(--space-5);
   height: 100%;
 }
@@ -77,7 +77,7 @@
 }
 
 .statCard:hover .platformIconWrapper {
-  transform: scale(1.05) translateY(-5px);
+  transform: scale(1.05);
 }
 
 .platformName {

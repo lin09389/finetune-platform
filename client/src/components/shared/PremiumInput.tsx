@@ -23,7 +23,6 @@ const PremiumInput = forwardRef<HTMLInputElement, PremiumInputProps>(
             {...props}
           />
           {suffix && <span className={styles.suffix}>{suffix}</span>}
-          <div className={styles.focusRing} />
         </div>
         <AnimatePresence>
           {error && (

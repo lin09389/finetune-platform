@@ -229,8 +229,8 @@ export default function DatasetManager() {
   };
 
   const getDatasetStripeColor = (format: string) => {
-    if (format === 'jsonl') return 'var(--accent-neon-cyan, #00FFC2)';
-    if (format === 'json') return 'var(--accent-neon-purple, #9D00FF)';
+    if (format === 'jsonl') return 'var(--accent-primary)';
+    if (format === 'json') return 'var(--accent-primary)';
     return 'var(--accent-primary, #6366f1)';
   };
 
@@ -379,16 +379,16 @@ export default function DatasetManager() {
               style={{
                 marginBottom: 16,
                 padding: '12px 16px',
-                background: 'rgba(0, 255, 194, 0.05)',
+                background: 'rgba(201, 100, 66, 0.05)',
                 borderRadius: 8,
-                border: '1px solid rgba(0, 255, 194, 0.2)',
+                border: '1px solid rgba(201, 100, 66, 0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
               }}
             >
               <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>样本总数：</strong>
-              <span style={{ color: 'var(--accent-neon-cyan)', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+              <span style={{ color: 'var(--accent-primary)', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                 {previewData.total_samples}
               </span>
             </div>

@@ -303,9 +303,9 @@ const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string;
                 fontSize: 11,
                 fontWeight: 600,
                 fontFamily: 'var(--font-mono)',
-                background: isActive ? 'rgba(0,255,194,0.15)' : isCompleted ? 'rgba(255,255,255,0.06)' : 'transparent',
-                color: isActive ? '#00FFC2' : isCompleted ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)',
-                border: `1px solid ${isActive ? 'rgba(0,255,194,0.3)' : isCompleted ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'}`,
+                background: isActive ? 'rgba(201,100,66,0.15)' : isCompleted ? 'rgba(255,255,255,0.06)' : 'transparent',
+                color: isActive ? 'var(--accent-primary)' : isCompleted ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)',
+                border: `1px solid ${isActive ? 'rgba(201,100,66,0.3)' : isCompleted ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'}`,
                 transition: 'all 0.3s ease',
                 whiteSpace: 'nowrap',
               }}
@@ -316,7 +316,7 @@ const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string;
               )}
             </div>
             {index < PHASE_ORDER.length - 1 && (
-              <div style={{ width: 12, height: 1, background: isCompleted ? 'rgba(0,255,194,0.3)' : 'rgba(255,255,255,0.08)' }} />
+              <div style={{ width: 12, height: 1, background: isCompleted ? 'rgba(201,100,66,0.3)' : 'rgba(255,255,255,0.08)' }} />
             )}
           </React.Fragment>
         );
@@ -539,11 +539,11 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: '#00FFC2',
-                boxShadow: '0 0 6px #00FFC2',
+                background: 'var(--accent-primary)',
+                boxShadow: '0 0 6px var(--accent-primary)',
                 animation: 'pulse 1.5s ease-in-out infinite',
               }} />
-              已等待 <span style={{ color: '#00FFC2', fontWeight: 600 }}>{elapsedLabel}</span>
+              已等待 <span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{elapsedLabel}</span>
               &nbsp;· 模型首次加载通常需要 1–5 分钟
             </div>
           )}
@@ -551,7 +551,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
           {/* 队列位置 */}
           {status === 'queued' && progress?.queuePosition && (
             <div style={{ textAlign: 'center', marginTop: 8 }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#00FFC2', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
                 #{progress.queuePosition}
               </div>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
@@ -805,7 +805,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                   yAxisId="right"
                   orientation="right"
                   stroke="transparent"
-                  tick={{ fill: 'rgba(0, 255, 194, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  tick={{ fill: 'rgba(201, 100, 66, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <RechartsTooltip
                   contentStyle={{
@@ -827,9 +827,9 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 />
                 <Line
                   yAxisId="right" type="monotone" dataKey="lr"
-                  stroke="#00FFC2" strokeWidth={1.5} dot={false}
+                  stroke="#c96442" strokeWidth={1.5} dot={false}
                   strokeDasharray="4 4"
-                  activeDot={{ r: 4, fill: '#00FFC2', stroke: 'rgba(0,255,194,0.3)', strokeWidth: 6 }}
+                  activeDot={{ r: 4, fill: '#c96442', stroke: 'rgba(201,100,66,0.3)', strokeWidth: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>

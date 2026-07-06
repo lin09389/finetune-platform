@@ -64,15 +64,15 @@ export const transitions = {
  * 通用变体预设 (Variants)
  */
 export const pageVariants: Variants = {
-  initial: { opacity: 0, y: 10 },
+  initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0, transition: transitions.smooth },
-  exit: { opacity: 0, y: -10, transition: transitions.fast },
+  exit: { opacity: 0, y: -6, transition: transitions.fast },
 };
 
 export const buttonVariants: Variants = {
   initial: { scale: 1 },
-  hover: { scale: 1.02, y: -1, transition: springs.snappy },
-  tap: { scale: 0.96, y: 0, transition: springs.tap },
+  hover: { scale: 1.01, y: -1, transition: springs.snappy },
+  tap: { scale: 0.99, y: 0, transition: springs.tap },
 };
 
 export const fadeVariants: Variants = {
@@ -88,13 +88,13 @@ export const staggerContainer: Variants = {
   initial: {},
   animate: {
     transition: {
-      staggerChildren: 0.05,
-      delayChildren: 0.1,
+      staggerChildren: 0.03,
+      delayChildren: 0.05,
     },
   },
 };
 
 export const staggerItem: Variants = {
-  initial: { opacity: 0, y: 10 },
+  initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0, transition: transitions.base },
 };

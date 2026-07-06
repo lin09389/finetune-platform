@@ -95,7 +95,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           border-radius: 6px;
           cursor: pointer;
           transition: all 0.2s ease;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-family: var(--font-sans);
         }
 
         .toggle-thinking-btn:hover {

@@ -5,6 +5,7 @@ import {
 import { Avatar, Button, Layout, Space, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -12,9 +13,35 @@ import styles from './HeaderBar.module.css';
 import { NotificationPanel, useNotifications } from './NotificationPanel';
 import ThemeToggle from './ThemeToggle';
 
+const routeTitles: Record<string, string> = {
+  '/dashboard': '仪表盘',
+  '/device': '设备信息',
+  '/models': '模型运行',
+  '/datasets': '数据集',
+  '/training': '模型训练',
+  '/history': '训练历史',
+  '/training-compare': '训练对比',
+  '/agent': 'Agent 工作台',
+  '/chat': 'AI 对话',
+  '/inference': '推理测试',
+  '/evaluation': '评估对比',
+  '/deployment': '部署接入',
+  '/knowledge': '知识库',
+  '/memory': '智能记忆',
+  '/workspace': '工作空间',
+  '/project-context': '项目上下文',
+  '/cloud-api': '云端 API',
+  '/gateway': 'Gateway',
+  '/heartbeat': 'Heartbeat',
+  '/feedback': '用户反馈',
+  '/help': '帮助中心',
+};
+
 const { Header } = Layout;
 
 export default function HeaderBar() {
+  const location = useLocation();
+  const currentTitle = routeTitles[location.pathname] || '';
   const { backendStatus, setDeviceInfo } = useAppStore(useShallow(state => ({
     backendStatus: state.backendStatus,
     setDeviceInfo: state.setDeviceInfo
@@ -66,14 +93,16 @@ export default function HeaderBar() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -10 }}
+      initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
       <Header className={styles.header}>
-        <Space size="middle" align="center">
-          {/* Status badge removed as requested */}
-        </Space>
+        <div className={styles.leftSection}>
+          {currentTitle && (
+            <h2 className={styles.pageTitle}>{currentTitle}</h2>
+          )}
+        </div>
 
         <Space size="middle" align="center">
           <NotificationPanel
@@ -96,7 +125,7 @@ export default function HeaderBar() {
             />
           </Tooltip>
 
-          <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}>
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Avatar
               icon={<UserOutlined />}
               style={{

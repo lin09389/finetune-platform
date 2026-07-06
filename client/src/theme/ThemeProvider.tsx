@@ -81,7 +81,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, defaultT
 
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) {
-      metaThemeColor.setAttribute('content', theme === 'dark' ? '#1a1a1a' : '#faf9f7');
+      metaThemeColor.setAttribute('content', theme === 'dark' ? '#262624' : '#faf9f5');
     }
   }, [theme]);
 

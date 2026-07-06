@@ -46,10 +46,8 @@
 }
 
 .statCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 18px 20px;
   display: flex;
@@ -61,7 +59,6 @@
 }
 
 .statCard:hover {
-  transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
@@ -100,10 +97,8 @@
 
 /* Glass card */
 .glassCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   overflow: hidden;
   margin-bottom: 16px;
@@ -114,7 +109,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .cardTitle {
@@ -147,7 +142,7 @@
 .btnDefault {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
 }
 .btnDefault:hover {
   background: rgba(255, 255, 255, 0.14);
@@ -181,7 +176,7 @@ table.dataTable thead th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 table.dataTable tbody tr {
@@ -233,7 +228,7 @@ table.dataTable tbody td {
 .tagGray {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-muted);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
 }
 
 /* Status dot */
@@ -282,7 +277,7 @@ table.dataTable tbody td {
   color: var(--error);
 }
 .linkBtnDanger:hover {
-  background: rgba(255, 77, 79, 0.1);
+  background: rgba(214, 69, 69, 0.1);
 }
 
 /* Spinner */
@@ -311,8 +306,7 @@ table.dataTable tbody td {
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: var(--bg-overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -321,7 +315,7 @@ table.dataTable tbody td {
 
 .modal {
   background: var(--surface);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   width: 520px;
   max-width: 90vw;
@@ -333,7 +327,7 @@ table.dataTable tbody td {
 
 .modalHeader {
   padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -357,7 +351,7 @@ table.dataTable tbody td {
 
 .modalFooter {
   padding: 14px 24px;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -382,7 +376,7 @@ table.dataTable tbody td {
 .formInput,
 .formSelect {
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
@@ -400,11 +394,11 @@ table.dataTable tbody td {
 
 .codeTextarea {
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-primary);
   outline: none;
   transition: border-color 0.2s;
@@ -419,7 +413,7 @@ table.dataTable tbody td {
 
 .divider {
   border: none;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-color);
   margin: 4px 0;
 }
 
@@ -436,7 +430,7 @@ table.dataTable tbody td {
 
 .schemaPre {
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 11px;

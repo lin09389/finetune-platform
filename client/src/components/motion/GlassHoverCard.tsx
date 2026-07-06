@@ -71,12 +71,12 @@ export const GlassHoverCard = forwardRef<HTMLDivElement, GlassHoverCardProps>(
       if (props.onMouseLeave) props.onMouseLeave(e);
     }
 
-    // 默认悬浮变体：微微上浮并加强阴影
+    // 默认悬浮变体：克制的微上浮
     const hoverVariants = {
       initial: { y: 0, scale: 1 },
       hover: { 
-        y: -4, 
-        scale: 1.01,
+        y: -2, 
+        scale: 1.005,
         transition: springs.gentle 
       },
     };
@@ -91,14 +91,14 @@ export const GlassHoverCard = forwardRef<HTMLDivElement, GlassHoverCardProps>(
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`
-          relative backdrop-blur-glass border border-glass-border 
-          rounded-xl shadow-glass overflow-hidden transition-shadow duration-300
-          hover:shadow-[0_16px_40px_rgba(0,0,0,0.16)]
+          relative border border-surface-border
+          rounded-xl shadow-sm overflow-hidden transition-shadow duration-200
+          hover:shadow-md
           group
           ${className}
         `}
         style={{
-          background: 'var(--glass-bg)',
+          background: 'var(--bg-secondary)',
           willChange: 'transform',
           transformStyle: 'preserve-3d',
           perspective: 1000,
@@ -144,21 +144,9 @@ export const GlassHoverCard = forwardRef<HTMLDivElement, GlassHoverCardProps>(
           />
         )}
 
-        {/* 玻璃拟态杂色层 - 增加磨砂物理噪点质感 */}
-        <div 
-          className="absolute inset-0 pointer-events-none opacity-[0.03] mix-blend-overlay"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`
-          }}
-        />
-        
-        {/* 实际内容层 - 浮出卡片主体产生 3D 浮动感 */}
+        {/* 实际内容层 */}
         <div 
           className="relative z-20 h-full"
-          style={{
-            transform: tilt3D && !shouldReduceMotion ? 'translateZ(25px)' : 'none',
-            transformStyle: 'preserve-3d',
-          }}
         >
           {children}
         </div>

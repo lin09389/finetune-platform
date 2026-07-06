@@ -73,7 +73,7 @@ export default function DeviceInfo() {
   const getPlatformIcon = (platform: string) => {
     switch (platform) {
       case 'cuda':
-        return <ThunderboltOutlined style={{ color: 'var(--accent-neon-cyan, #00d8a5)' }} />;
+        return <ThunderboltOutlined style={{ color: 'var(--accent-primary)' }} />;
       case 'mac':
         return <AppleOutlined style={{ color: 'var(--text-primary)' }} />;
       default:
@@ -248,8 +248,8 @@ export default function DeviceInfo() {
                               ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100)
                               : 0
                           }
-                          color="var(--accent-neon-cyan, #00FFC2)"
-                          glowColor="rgba(0, 255, 194, 0.3)"
+                          color="var(--accent-primary)"
+                          glowColor="rgba(201, 100, 66, 0.3)"
                         >
                           <div className={styles.progressText}>
                             <span className={styles.progressPercent}>
@@ -302,7 +302,7 @@ export default function DeviceInfo() {
                           percent={Math.round(
                             ((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100,
                           )}
-                          color="var(--accent-neon-purple, #9D00FF)"
+                          color="var(--accent-primary)"
                           glowColor="rgba(157, 0, 255, 0.3)"
                         >
                           <div className={styles.progressText}>

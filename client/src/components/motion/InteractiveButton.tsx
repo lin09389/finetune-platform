@@ -88,9 +88,9 @@ export const InteractiveButton = forwardRef<HTMLButtonElement, InteractiveButton
     // 变体样式映射
     const variantStyles: Record<string, string> = {
       primary: 'bg-accent-primary text-white hover:bg-accent-secondary shadow-md',
-      secondary: 'bg-bg-secondary text-text-primary hover:bg-bg-hover border border-glass-border',
+      secondary: 'bg-bg-secondary text-text-primary hover:bg-bg-hover border border-surface-border',
       glass:
-        'bg-bg-elevated backdrop-blur-glass text-text-primary border border-glass-border shadow-glass hover:bg-bg-hover',
+        'bg-bg-elevated text-text-primary border border-surface-border shadow-sm hover:bg-bg-hover',
       ghost: 'bg-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary',
     };
 

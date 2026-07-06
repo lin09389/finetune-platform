@@ -1,5 +1,5 @@
-import { HTMLMotionProps, motion, useMotionTemplate, useMotionValue, useReducedMotion } from 'framer-motion';
-import React, { MouseEvent } from 'react';
+import { HTMLMotionProps, motion, useReducedMotion } from 'framer-motion';
+import React from 'react';
 import styles from './GlassCard.module.css';
 
 interface GlassCardProps extends HTMLMotionProps<'div'> {
@@ -9,6 +9,14 @@ interface GlassCardProps extends HTMLMotionProps<'div'> {
   noHover?: boolean;
 }
 
+/**
+ * GlassCard — Claude-style paper card.
+ *
+ * Claude's cards are quiet and editorial: a warm paper surface with
+ * a subtle border and the gentlest shadow. No mouse-tracking
+ * spotlights, no glass reflections, no flashy hover effects — just
+ * a calm, typeset feel where content leads.
+ */
 const GlassCard: React.FC<GlassCardProps> = ({
   children,
   className = '',
@@ -18,59 +26,20 @@ const GlassCard: React.FC<GlassCardProps> = ({
 }) => {
   const intensityClass = styles[`intensity-${intensity}`];
   const reduceMotion = useReducedMotion();
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-
-  function handleMouseMove({ currentTarget, clientX, clientY }: MouseEvent) {
-    if (noHover) return;
-    const { left, top } = currentTarget.getBoundingClientRect();
-    mouseX.set(clientX - left);
-    mouseY.set(clientY - top);
-  }
 
   return (
     <motion.div
-      className={`${styles.glassCard} ${intensityClass} ${className} group`}
-      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      className={`${styles.glassCard} ${intensityClass} ${className}`}
+      initial={reduceMotion ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={
         !noHover && !reduceMotion
-          ? { y: -6, scale: 1.01, transition: { type: 'spring', stiffness: 300, damping: 20 } }
+          ? { y: -1, transition: { type: 'tween', duration: 0.2, ease: [0.23, 1, 0.32, 1] as const } }
           : undefined
       }
-      transition={reduceMotion ? { duration: 0 } : { duration: 0.4, type: 'spring', stiffness: 200, damping: 20 }}
-      onMouseMove={handleMouseMove}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
       {...props}
     >
-      {!noHover && !reduceMotion && (
-        <>
-          <motion.div
-            className={`${styles.spotlight} transition-opacity duration-300 opacity-0 group-hover:opacity-100`}
-            style={{
-              background: useMotionTemplate`
-                radial-gradient(
-                  600px circle at ${mouseX}px ${mouseY}px,
-                  var(--spotlight-color),
-                  transparent 80%
-                )
-              `,
-            }}
-          />
-          <motion.div
-            className={`${styles.spotlightBorder} transition-opacity duration-300 opacity-0 group-hover:opacity-100`}
-            style={{
-              background: useMotionTemplate`
-                radial-gradient(
-                  400px circle at ${mouseX}px ${mouseY}px,
-                  var(--spotlight-border),
-                  transparent 50%
-                )
-              `,
-            }}
-          />
-        </>
-      )}
-      <div className={styles.reflection} />
       <div className={styles.content}>{children}</div>
     </motion.div>
   );

@@ -74,8 +74,8 @@ const LrDecayVisualizer = () => (
     <svg width="100%" height="32" viewBox="0 0 120 32" preserveAspectRatio="none">
       <defs>
         <linearGradient id="lrGradient" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="rgba(0, 255, 194, 0.6)" />
-          <stop offset="100%" stopColor="rgba(0, 255, 194, 0.05)" />
+          <stop offset="0%" stopColor="rgba(201, 100, 66, 0.6)" />
+          <stop offset="100%" stopColor="rgba(201, 100, 66, 0.05)" />
         </linearGradient>
       </defs>
       <motion.path
@@ -283,16 +283,16 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
                   marginBottom: 4,
                   borderRadius: 4,
                   background: check.status === 'blocked'
-                    ? 'rgba(255, 77, 79, 0.08)'
+                    ? 'rgba(214, 69, 69, 0.08)'
                     : check.status === 'warning'
                       ? 'rgba(250, 173, 20, 0.08)'
-                      : 'rgba(0, 255, 194, 0.05)',
+                      : 'rgba(201, 100, 66, 0.05)',
                   borderLeft: `3px solid ${
                     check.status === 'blocked'
                       ? 'var(--error)'
                       : check.status === 'warning'
                         ? 'var(--warning)'
-                        : 'var(--accent-neon-cyan)'
+                        : 'var(--accent-primary)'
                   }`,
                 }}
               >

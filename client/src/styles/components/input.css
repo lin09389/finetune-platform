@@ -30,7 +30,7 @@
 .ant-input-number-focused,
 .ant-select-focused .ant-select-selector {
   border-color: var(--accent-primary) !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent) !important;
   outline: none;
 }
 
@@ -64,7 +64,7 @@
 .ant-input-number-status-error-focused,
 .ant-select-status-error.ant-select-focused .ant-select-selector {
   border-color: var(--error) !important;
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 15%, transparent) !important;
 }
 
 .ant-input-lg {
@@ -137,8 +137,8 @@
 }
 
 .ant-input-textarea textarea:focus {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.05);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .ant-input-textarea-show-count::after {
@@ -192,7 +192,7 @@
 }
 
 .ant-input-status-error:focus {
-  box-shadow: 0 0 0 3px rgba(196, 92, 72, 0.1) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 12%, transparent) !important;
 }
 
 .ant-input-status-warning {
@@ -200,5 +200,5 @@
 }
 
 .ant-input-status-warning:focus {
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 12%, transparent) !important;
 }

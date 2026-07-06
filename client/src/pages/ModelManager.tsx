@@ -162,8 +162,8 @@ export default function ModelManager() {
   };
 
   const getModelStripeColor = (type: string) => {
-    if (type === 'lora') return 'var(--accent-neon-cyan, #00FFC2)';
-    if (type === 'merged') return 'var(--accent-neon-purple, #9D00FF)';
+    if (type === 'lora') return 'var(--accent-primary)';
+    if (type === 'merged') return 'var(--accent-primary)';
     return 'var(--accent-primary, #6366f1)';
   };
 

@@ -27,11 +27,11 @@ export const messageVariants: Variants = {
 export const buttonVariants: Variants = {
   initial: { scale: 1 },
   hover: {
-    scale: 1.02,
+    scale: 1.01,
     transition: transitions.fast,
   },
   tap: {
-    scale: 0.98,
+    scale: 0.99,
     transition: transitions.fast,
   },
 };
@@ -39,7 +39,7 @@ export const buttonVariants: Variants = {
 export const cardVariants: Variants = {
   initial: {
     opacity: 0,
-    y: 10,
+    y: 6,
   },
   animate: {
     opacity: 1,
@@ -47,8 +47,7 @@ export const cardVariants: Variants = {
     transition: transitions.base,
   },
   hover: {
-    y: -2,
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+    y: -1,
     transition: transitions.fast,
   },
 };
@@ -66,29 +65,29 @@ export const fadeVariants: Variants = {
 };
 
 export const slideVariants: Variants = {
-  initial: { opacity: 0, x: -20 },
+  initial: { opacity: 0, x: -8 },
   animate: {
     opacity: 1,
     x: 0,
-    transition: transitions.slow,
+    transition: transitions.base,
   },
   exit: {
     opacity: 0,
-    x: 20,
+    x: 8,
     transition: transitions.fast,
   },
 };
 
 export const scaleVariants: Variants = {
-  initial: { opacity: 0, scale: 0.9 },
+  initial: { opacity: 0, scale: 0.97 },
   animate: {
     opacity: 1,
     scale: 1,
-    transition: transitions.spring,
+    transition: transitions.base,
   },
   exit: {
     opacity: 0,
-    scale: 0.9,
+    scale: 0.97,
     transition: transitions.fast,
   },
 };
@@ -127,10 +126,10 @@ export const loadingDotsVariants: Variants = {
 export const pulseVariants: Variants = {
   initial: { scale: 1, opacity: 1 },
   animate: {
-    scale: [1, 1.025, 1],
-    opacity: [1, 0.9, 1],
+    scale: [1, 1.01, 1],
+    opacity: [1, 0.95, 1],
     transition: {
-      duration: 2.6,
+      duration: 3,
       repeat: Infinity,
       ease: 'easeInOut',
     },
@@ -164,9 +163,9 @@ export const shimmerVariants: Variants = {
 export const floatVariants: Variants = {
   initial: { y: 0 },
   animate: {
-    y: [-5, 5, -5],
+    y: [-2, 2, -2],
     transition: {
-      duration: 3,
+      duration: 4,
       repeat: Infinity,
       ease: 'easeInOut',
     },
@@ -186,21 +185,17 @@ export const rotateVariants: Variants = {
 };
 
 export const bounceInVariants: Variants = {
-  initial: { opacity: 0, scale: 0.3, y: 50 },
+  initial: { opacity: 0, scale: 0.85, y: 12 },
   animate: {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: {
-      type: 'spring',
-      stiffness: 300,
-      damping: 20,
-    },
+    transition: transitions.base,
   },
   exit: {
     opacity: 0,
-    scale: 0.3,
-    y: 50,
+    scale: 0.95,
+    y: 6,
     transition: transitions.fast,
   },
 };

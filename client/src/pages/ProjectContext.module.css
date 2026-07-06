@@ -77,8 +77,8 @@
 }
 
 .statusBanner.error {
-  background: rgba(255, 77, 79, 0.08);
-  border: 1px solid rgba(255, 77, 79, 0.2);
+  background: rgba(214, 69, 69, 0.08);
+  border: 1px solid rgba(214, 69, 69, 0.2);
   color: var(--error);
 }
 

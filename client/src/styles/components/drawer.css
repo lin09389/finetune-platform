@@ -42,7 +42,6 @@
 /* 遮罩层 */
 .ant-drawer-mask {
   background: var(--bg-overlay);
-  backdrop-filter: blur(4px);
 }
 
 /* 位置变体 */

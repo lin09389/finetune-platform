@@ -53,10 +53,8 @@
 }
 
 .statCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 20px;
   display: flex;
@@ -68,7 +66,6 @@
 }
 
 .statCard:hover {
-  transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
@@ -118,10 +115,8 @@
 
 /* Glass card */
 .glassCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -131,7 +126,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .cardTitle {
@@ -164,7 +159,7 @@
 .btnDefault {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
 }
 
 .btnDefault:hover {
@@ -179,17 +174,16 @@
 
 .btnPrimary:hover {
   background: var(--primary-hover);
-  transform: translateY(-1px);
 }
 
 .btnDanger {
-  background: rgba(255, 77, 79, 0.12);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   color: var(--error);
-  border: 1px solid rgba(255, 77, 79, 0.3);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
 }
 
 .btnDanger:hover {
-  background: rgba(255, 77, 79, 0.2);
+  background: rgba(214, 69, 69, 0.2);
 }
 
 /* Table */
@@ -212,7 +206,7 @@ table.dataTable thead th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 table.dataTable tbody tr {
@@ -270,7 +264,7 @@ table.dataTable tbody td {
 .tagGray {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-muted);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
 }
 
 /* Status dot */
@@ -369,16 +363,14 @@ table.dataTable tbody td {
 }
 
 .iconBtnDanger:hover {
-  background: rgba(255, 77, 79, 0.12);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   color: var(--error);
 }
 
 /* Timeline panel */
 .timelineCard {
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   overflow: hidden;
   height: fit-content;
@@ -405,7 +397,7 @@ table.dataTable tbody td {
   top: 28px;
   bottom: -12px;
   width: 2px;
-  background: var(--glass-border);
+  background: var(--border-color);
 }
 
 .timelineDot {
@@ -468,7 +460,7 @@ table.dataTable tbody td {
   gap: 4px;
   padding: 2px 8px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 11px;
   color: var(--text-secondary);
@@ -495,8 +487,7 @@ table.dataTable tbody td {
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
+  background: var(--bg-overlay);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -505,7 +496,7 @@ table.dataTable tbody td {
 
 .modal {
   background: var(--surface);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   width: 480px;
   max-width: 90vw;
@@ -514,7 +505,7 @@ table.dataTable tbody td {
 
 .modalHeader {
   padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -535,7 +526,7 @@ table.dataTable tbody td {
 
 .modalFooter {
   padding: 16px 24px;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -557,7 +548,7 @@ table.dataTable tbody td {
 .formSelect,
 .formTextarea {
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;

@@ -312,22 +312,22 @@ export default function WorkspaceManager() {
                     <div className={styles.wsMetaRow}>
                       <span
                         style={{
-                          fontSize: 12,
-                          color: 'var(--accent-blue)',
-                          background: 'rgba(22,119,255,0.1)',
-                          padding: '1px 8px',
-                          borderRadius: 4,
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--accent-primary)',
+                          background: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)',
+                          padding: '1px var(--space-2)',
+                          borderRadius: 'var(--radius-xs)',
                         }}
                       >
                         {ws.document_count} 文档
                       </span>
                       <span
                         style={{
-                          fontSize: 12,
-                          color: '#06b6d4',
-                          background: 'rgba(6,182,212,0.1)',
-                          padding: '1px 8px',
-                          borderRadius: 4,
+                          fontSize: 'var(--text-xs)',
+                          color: 'var(--accent-secondary)',
+                          background: 'color-mix(in srgb, var(--accent-secondary) 10%, transparent)',
+                          padding: '1px var(--space-2)',
+                          borderRadius: 'var(--radius-xs)',
                         }}
                       >
                         {ws.vector_count} 向量

@@ -85,7 +85,6 @@
 /* 遮罩层 */
 .ant-modal-mask {
   background: var(--bg-overlay);
-  backdrop-filter: blur(4px);
 }
 
 .ant-modal-wrap {

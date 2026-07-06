@@ -32,8 +32,7 @@ const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
     <motion.button
       type={htmlType}
       className={`${styles.button} ${variantClass} ${sizeClass} ${activeClass} ${className}`}
-      whileHover={{ y: -1, scale: 1.02 }}
-      whileTap={{ y: 1, scale: 0.98, boxShadow: 'var(--shadow-neumorph-in)' }}
+      whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.1, ease: 'easeOut' }}
       disabled={props.disabled || loading}
       {...props}

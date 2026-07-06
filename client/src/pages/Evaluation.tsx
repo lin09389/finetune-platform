@@ -557,8 +557,8 @@ export default function Evaluation() {
       <div style={{
         flex: 1, padding: '12px 16px', borderRadius: 8, whiteSpace: 'pre-wrap',
         fontFamily: 'var(--font-mono)', fontSize: 13, color: type === 'error' ? 'var(--error)' : 'var(--text-primary)',
-        background: type === 'accent' ? 'rgba(0, 255, 194, 0.04)' : type === 'error' ? 'rgba(255, 77, 79, 0.04)' : 'rgba(0, 0, 0, 0.3)',
-        border: type === 'accent' ? '1px solid rgba(0, 255, 194, 0.2)' : type === 'error' ? '1px solid rgba(255, 77, 79, 0.2)' : '1px solid rgba(255, 255, 255, 0.08)'
+        background: type === 'accent' ? 'rgba(201, 100, 66, 0.04)' : type === 'error' ? 'rgba(214, 69, 69, 0.04)' : 'rgba(0, 0, 0, 0.3)',
+        border: type === 'accent' ? '1px solid rgba(201, 100, 66, 0.2)' : type === 'error' ? '1px solid rgba(214, 69, 69, 0.2)' : '1px solid rgba(255, 255, 255, 0.08)'
       }}>
         {text}
       </div>
@@ -664,10 +664,10 @@ export default function Evaluation() {
               <FadeInSection>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 24 }}>
                 <MotionCard className={styles.evaluationCard} style={{ padding: 24 }}>
-                  <div className={styles.neonStripe} style={{ '--stripe-color': 'var(--accent-neon-green, #00FFC2)' } as React.CSSProperties} />
+                  <div className={styles.neonStripe} style={{ '--stripe-color': 'var(--success)' } as React.CSSProperties} />
                   <div className={styles.cardTitle} style={{ justifyContent: 'space-between', marginBottom: 20 }}>
                     <Space>
-                      <CheckCircleOutlined style={{ color: 'var(--accent-neon-green, #00FFC2)', fontSize: 20 }} />
+                      <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: 20 }} />
                       <span style={{ fontSize: 18, fontWeight: 600 }}>{run.run_id}</span>
                       <Tag color="blue" style={{ marginLeft: 8 }}>{getScenarioLabel(run.scenario)}</Tag>
                     {['completed', 'completed_with_warnings'].includes(run.status) && run.adapter_merge && (
@@ -677,7 +677,7 @@ export default function Evaluation() {
                             icon={<CloudUploadOutlined />}
                             onClick={openDeployment}
                             disabled={!deploymentReadiness.ready}
-                            style={{ background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                            style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
                           >
                             创建发布草稿
                           </Button>
@@ -784,13 +784,13 @@ export default function Evaluation() {
                         return (
                             <Col xs={12} md={8} key={key}>
                                 <MotionCard className={styles.evaluationCard} style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
-                                    <div className={styles.neonStripe} style={{ '--stripe-color': 'var(--accent-neon-purple, #9D00FF)' } as React.CSSProperties} />
+                                    <div className={styles.neonStripe} style={{ '--stripe-color': 'var(--accent-primary)' } as React.CSSProperties} />
                                     {isPercentage && typeof value === 'number' ? (
                                         <Progress
                                             type="circle"
                                             percent={Number((value * 100).toFixed(1))}
                                             size={64}
-                                            strokeColor="var(--accent-neon-purple)"
+                                            strokeColor="var(--accent-primary)"
                                             trailColor="rgba(255,255,255,0.05)"
                                         />
                                     ) : null}

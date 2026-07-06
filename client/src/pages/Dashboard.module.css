@@ -7,6 +7,7 @@
 }
 
 .sectionTitle {
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
   margin-bottom: var(--space-4);
@@ -15,8 +16,7 @@
   align-items: center;
   gap: var(--space-2);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  text-shadow: var(--shadow-sm);
+  letter-spacing: 0.14em;
 }
 
 /* ── Bento Grid Layout ── */
@@ -59,24 +59,22 @@
   flex-direction: column;
   justify-content: space-between;
   border: 1px solid var(--border-color);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   padding: var(--space-5);
   height: 100%;
 }
 
 .statValue {
+  font-family: var(--font-display);
   font-size: clamp(1.75rem, 3vw, 2.5rem);
-  font-weight: 800;
+  font-weight: var(--font-bold);
   display: flex;
   align-items: baseline;
   gap: var(--space-1);
-  letter-spacing: -0.04em;
-  line-height: 1;
+  letter-spacing: var(--tracking-tighter);
+  line-height: var(--leading-none);
   margin-top: var(--space-2);
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-primary) 120%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-primary);
 }
 
 .statTotal {
@@ -90,7 +88,7 @@
 .statIcon {
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -100,7 +98,7 @@
 }
 
 .statCard:hover .statIcon {
-  transform: scale(1.1) rotate(5deg);
+  transform: scale(1.05);
 }
 
 /* ── Bento-Device Monitor Styles ── */
@@ -184,10 +182,9 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 16px;
-  background: rgba(255, 255, 255, 0.3);
-  filter: blur(2px);
-  animation: shine 2s infinite linear;
+  width: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  filter: blur(1px);
 }
 
 @keyframes shine {
@@ -214,25 +211,15 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
 }
 
-:global(.light-theme) .serviceItem {
-  background: rgba(0, 0, 0, 0.01);
-  border: 1px solid rgba(0, 0, 0, 0.03);
-}
-
 .serviceItem:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-:global(.light-theme) .serviceItem:hover {
-  background: rgba(0, 0, 0, 0.02);
-  border-color: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
 }
 
 .serviceName {
@@ -265,35 +252,14 @@
 
 .ledIndicator.healthy {
   background: var(--success);
-  box-shadow: 0 0 8px var(--success);
-  animation: pulse-glow-success 2s infinite ease-in-out;
 }
 
 .ledIndicator.warning {
   background: var(--warning);
-  box-shadow: 0 0 8px var(--warning);
-  animation: pulse-glow-warning 2s infinite ease-in-out;
 }
 
 .ledIndicator.error {
   background: var(--error);
-  box-shadow: 0 0 8px var(--error);
-  animation: pulse-glow-error 2s infinite ease-in-out;
-}
-
-@keyframes pulse-glow-success {
-  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 8px var(--success); }
-  50% { transform: scale(1.2); opacity: 0.6; box-shadow: 0 0 12px var(--success); }
-}
-
-@keyframes pulse-glow-warning {
-  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 8px var(--warning); }
-  50% { transform: scale(1.2); opacity: 0.6; box-shadow: 0 0 12px var(--warning); }
-}
-
-@keyframes pulse-glow-error {
-  0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 8px var(--error); }
-  50% { transform: scale(1.2); opacity: 0.6; box-shadow: 0 0 12px var(--error); }
 }
 
 /* ── Asset Status Cards ── */
@@ -319,11 +285,12 @@
 }
 
 .assetMainNumber {
+  font-family: var(--font-display);
   font-size: var(--text-3xl);
-  font-weight: 800;
+  font-weight: var(--font-bold);
   color: var(--text-primary);
   margin-top: var(--space-2);
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 
 .assetActionBtn {
@@ -348,7 +315,7 @@
 /* ── Interactive Pipeline Flow ── */
 .pipelineCard {
   border: 1px solid var(--border-color);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   padding: var(--space-6);
   position: relative;
   overflow: hidden;
@@ -384,9 +351,8 @@
   background-size: 200% 100%;
   transform: translateY(-50%);
   z-index: 2;
-  animation: laser-flow 4s linear infinite;
-  opacity: 0.8;
-  box-shadow: 0 0 12px var(--accent-primary-light);
+  animation: laser-flow 6s linear infinite;
+  opacity: 0.5;
 }
 
 @keyframes laser-flow {
@@ -415,10 +381,6 @@
   transition: all var(--transition-spring);
 }
 
-.pipelineNode:hover {
-  transform: translateY(-4px);
-}
-
 .nodeIndicator {
   width: 44px;
   height: 44px;
@@ -436,18 +398,18 @@
 
 .pipelineNode:hover .nodeIndicator {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 16px var(--accent-primary-light);
+  box-shadow: var(--shadow-sm);
 }
 
 .pipelineNode.nodeReady .nodeIndicator {
   background: var(--success-light);
   border-color: var(--success);
   color: var(--success);
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+  box-shadow: var(--shadow-sm);
 }
 
 .pipelineNode.nodeReady:hover .nodeIndicator {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  box-shadow: var(--shadow-md);
 }
 
 .pipelineNode.nodePending .nodeIndicator {
@@ -462,7 +424,7 @@
   height: 16px;
   border-radius: var(--radius-full);
   background: var(--success);
-  color: white;
+  color: var(--text-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -471,8 +433,9 @@
 }
 
 .nodeTitle {
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
-  font-weight: 700;
+  font-weight: var(--font-bold);
   color: var(--text-primary);
   text-align: center;
 }
@@ -489,21 +452,19 @@
   height: 100%;
   border: 1px solid var(--border-color);
   transition: all var(--transition-base);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   padding: var(--space-5);
 }
 
 .quickActionCard:hover {
   border-color: var(--accent-primary);
-  box-shadow:
-    0 12px 40px rgba(99, 102, 241, 0.15),
-    inset 0 0 20px rgba(99, 102, 241, 0.03);
+  box-shadow: var(--shadow-lg);
 }
 
 .quickActionIcon {
   width: 46px;
   height: 46px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -513,27 +474,29 @@
 }
 
 .quickActionCard:hover .quickActionIcon {
-  transform: scale(1.1);
+  transform: scale(1.05);
 }
 
 .quickActionTitle {
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-weight: var(--font-bold);
   font-size: var(--text-base);
   color: var(--text-primary);
   margin-bottom: var(--space-2);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .quickActionDesc {
   color: var(--text-secondary);
+  font-family: var(--font-reading);
   font-size: var(--text-sm);
-  line-height: 1.6;
+  line-height: var(--leading-normal);
 }
 
 /* ── History Card ── */
 .historyCard {
   border: 1px solid var(--border-color);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   padding: var(--space-6);
 }
 
@@ -550,23 +513,20 @@
 }
 
 .tableWrapper :global(.ant-table-thead > tr > th) {
-  background: rgba(0, 0, 0, 0.01) !important;
+  background: transparent !important;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-tertiary);
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.1em;
-  padding: 12px 16px;
-}
-
-:global(.dark-theme) .tableWrapper :global(.ant-table-thead > tr > th) {
-  background: rgba(255, 255, 255, 0.01) !important;
+  padding: var(--space-3) var(--space-4);
 }
 
 .tableWrapper :global(.ant-table-tbody > tr > td) {
   border-bottom: 1px solid var(--border-color);
-  padding: 14px 16px;
+  padding: var(--space-3-5) var(--space-4);
 }
 
 .tableWrapper :global(.ant-table-tbody > tr:hover > td) {

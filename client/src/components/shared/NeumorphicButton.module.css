@@ -1,12 +1,13 @@
+/* NeumorphicButton — restyled as Claude quiet button */
 .button {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-neumorph-out);
+  box-shadow: var(--shadow-xs);
   cursor: pointer;
   outline: none;
   transition: all var(--transition-fast);
@@ -15,20 +16,6 @@
   color: var(--text-primary);
   overflow: hidden;
   user-select: none;
-  /* GPU 加速与性能优化 */
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  will-change: transform, box-shadow;
-}
-
-.button::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--gradient-button);
-  opacity: 0.5;
-  pointer-events: none;
-  z-index: 0;
 }
 
 .inner {
@@ -64,8 +51,10 @@
 
 /* Variants */
 .variant-primary {
-  background: var(--bg-secondary);
-  color: var(--accent-primary);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-xs);
 }
 
 .variant-secondary {
@@ -75,6 +64,7 @@
 
 .variant-danger {
   background: var(--bg-secondary);
+  border-color: var(--error);
   color: var(--error);
 }
 
@@ -86,19 +76,24 @@
 
 .variant-ghost:hover {
   background: var(--bg-hover);
-  box-shadow: var(--shadow-sm);
 }
 
-/* States */
+/* States — Claude quiet hover */
 .button:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md), var(--shadow-neumorph-out);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-hover);
+}
+
+.variant-primary:hover {
+  background: var(--accent-secondary);
+  border-color: var(--accent-secondary);
+  box-shadow: var(--shadow-sm);
 }
 
 .button:active,
 .active {
-  box-shadow: var(--shadow-neumorph-in);
-  transform: translateY(1px) scale(0.98);
+  box-shadow: var(--shadow-xs);
+  transform: scale(0.98);
 }
 
 .button:disabled {
