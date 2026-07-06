@@ -57,6 +57,8 @@ const KNOWN_EVENT_TYPES = new Set([
   'node_recovery_rejected',
   'loop_guard_triggered',
   'trajectory_guard_blocked',
+  'context_preparing',
+  'context_ready',
   // Historical events remain readable after the execution-plan migration.
   'task_plan_created',
   'part_created',

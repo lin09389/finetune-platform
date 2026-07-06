@@ -36,6 +36,8 @@ const REFRESH_EVENT_TYPES = new Set([
   'node_recovery_completed',
   'node_recovery_failed',
   'loop_guard_triggered',
+  'context_preparing',
+  'context_ready',
 ]);
 
 function errorMessage(error: unknown): string {

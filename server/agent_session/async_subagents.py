@@ -297,6 +297,7 @@ class AsyncSubagentService:
                     notify_event=self.notify_event,
                     model_call=self.model_call,
                     async_subagent_service=None,
+                    interrupt_session=self.interrupt_session,
                 )
                 result = await child_runner.run_prompt(child_session_id, description)
                 fresh = self.repository.get_subtask(task_id)

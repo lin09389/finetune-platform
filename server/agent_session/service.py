@@ -69,6 +69,7 @@ class AgentSessionService:
             notify_event=self.event_service._notify_event,
             model_call=self.model_call,
             async_subagent_service=self.async_subagent_service,
+            interrupt_session=self.background_manager.interrupt_session,
         )
         self.workspace_view_service = AgentWorkspaceViewService(self)
         self.state_machine = AgentSessionStateMachine(self.repository)
@@ -227,11 +228,16 @@ class AgentSessionService:
     def approve_permission(self, part_id: str, approved: bool) -> AgentSessionResponse:
         return self.approval_service.approve_permission(part_id, approved)
 
-    async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        return await self.approval_service.approve_permission_async(part_id, approved)
+    async def approve_permission_async(
+        self,
+        part_id: str,
+        approved: bool,
+        background_tasks: Any,
+    ) -> AgentSessionResponse:
+        return await self.approval_service.approve_permission_async(part_id, approved, background_tasks)
 
-    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
-        return await self.approval_service.decide_permission_async(part_id, decisions)
+    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]], background_tasks: Any) -> AgentSessionResponse:
+        return await self.approval_service.decide_permission_async(part_id, decisions, background_tasks)
 
     def start_permission_resume_background(
         self,

@@ -26,6 +26,9 @@ class AgentSessionStateMachine:
         session = self._require_session(session_id)
         next_metadata = ensure_session_state(dict(metadata if metadata is not None else session.get("metadata") or {}))
         next_metadata = set_phase(next_metadata, "running")
+        # 重新开始执行时清除中断标志，否则 prompt() 会因 interrupt_requested=True 静默返回。
+        next_metadata["interrupt_requested"] = False
+        next_metadata["interrupt_recorded"] = False
         next_metadata = sync_execution_plan_status(next_metadata, "running")
         return self.repository.update_session(session_id, status="running", metadata=next_metadata, **updates)
 

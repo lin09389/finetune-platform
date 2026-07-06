@@ -215,12 +215,51 @@ class BackgroundTaskManagerService:
             )
             return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(result))
 
+        preparing_part = repository.add_part(
+            session_id,
+            "text",
+            status="running",
+            title="正在准备上下文",
+            content="正在检索项目上下文与记忆…",
+            payload={"role": "assistant", "source": "context_preparing"},
+        )
+        self.service.event_service._event(
+            session_id,
+            "context_preparing",
+            "正在检索项目上下文与记忆…",
+            {
+                "session_id": session_id,
+                "part_id": preparing_part.get("id"),
+                "part_type": "text",
+                "status": "running",
+                "summary": "正在检索项目上下文与记忆…",
+                "part": preparing_part,
+            },
+        )
         context_pack = await build_deepagents_context_pack(
             goal=request.content,
             active_context=request.active_context,
             explicit_context=request.explicit_context,
             project_path=session.get("project_path"),
             session_id=session_id,
+        )
+        repository.update_part(
+            preparing_part["id"],
+            status="completed",
+            title="上下文已就绪",
+            content="项目上下文与记忆检索完成，正在调用模型…",
+        )
+        self.service.event_service._event(
+            session_id,
+            "context_ready",
+            "项目上下文与记忆检索完成，正在调用模型…",
+            {
+                "session_id": session_id,
+                "part_id": preparing_part.get("id"),
+                "part_type": "text",
+                "status": "completed",
+                "summary": "项目上下文与记忆检索完成，正在调用模型…",
+            },
         )
         prompt_content = context_pack.prompt
         if context_pack.has_files:
@@ -301,6 +340,7 @@ class BackgroundTaskManagerService:
             session = self.service.repository.get_session(session_id)
             if session and str(session.get("status") or "") not in self.service.TERMINAL_STATUSES:
                 self.interrupt_session(session_id, "Agent 后台任务已取消。")
+            raise
         except Exception as exc:
             try:
                 if self._is_active_prompt(session_id, prompt_id):

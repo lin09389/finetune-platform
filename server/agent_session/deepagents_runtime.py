@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -215,12 +215,14 @@ class DeepAgentsSessionRunner:
         notify_event: Any,
         model_call: Any = None,
         async_subagent_service: AsyncSubagentService | None = None,
+        interrupt_session: Callable[..., Any] | None = None,
     ):
         self.repository = repository
         self.notify_event = notify_event
         self.model_call = model_call
         self.agent_registry = AgentRegistry()
         self.async_subagent_service = async_subagent_service
+        self.interrupt_session = interrupt_session
         self._checkpointer = None
         self._checkpointer_context = None
         self._checkpointer_loop = None
@@ -544,6 +546,7 @@ class DeepAgentsSessionRunner:
                 self.repository,
                 self.notify_event,
                 model_call=self.model_call,
+                interrupt_session=self.interrupt_session,
             )
         self.async_subagent_service.set_model_call(self.model_call)
         return self.async_subagent_service

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shutil
 import sqlite3
@@ -12,6 +13,7 @@ from agent_session.agent_registry import AgentRegistry
 from agent_session.async_subagents import AsyncSubagentService
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.events import AgentSessionEventBus
 from agent_session.execution_context import AgentDefinition
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
@@ -932,7 +934,11 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
         assert permission.payload["tool"] == "edit_file"
         assert target.read_text(encoding="utf-8") == "hello\n"
 
-        completed = asyncio.run(service.approve_permission_async(permission.id, True))
+        bg = BackgroundTasks()
+        running = asyncio.run(service.approve_permission_async(permission.id, True, bg))
+        for bg_task in bg.tasks:
+            asyncio.run(bg_task.func(*bg_task.args, **bg_task.kwargs))
+        completed = service.get_session(session.id)
 
         assert completed.status == "completed"
         assert target.read_text(encoding="utf-8") == "hi\n"
@@ -1035,7 +1041,11 @@ def test_agent_session_permission_background_resume_failure_is_recorded(tmp_path
         raise RuntimeError("resume exploded")
 
     service.deepagents_runner.resume = failing_resume
-    queued = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+    bg = BackgroundTasks()
+    queued = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}], bg))
+    for bg_task in bg.tasks:
+        asyncio.run(bg_task.func(*bg_task.args, **bg_task.kwargs))
+    queued = service.get_session(session.id)
     assert queued.status == "needs_manual_review"
 
     failed = service.get_session(session.id)
@@ -1498,6 +1508,7 @@ def test_agent_session_hitl_decision_validation_accepts_edit_and_respond(tmp_pat
         },
     )
 
+    bg = BackgroundTasks()
     result = asyncio.run(
         service.decide_permission_async(
             part["id"],
@@ -1505,6 +1516,7 @@ def test_agent_session_hitl_decision_validation_accepts_edit_and_respond(tmp_pat
                 {"type": "edit", "edited_action": {"name": "edit_file", "args": {"file_path": "/b.py"}}},
                 {"type": "respond", "message": "Blue."},
             ],
+            bg,
         )
     )
 
@@ -1531,11 +1543,13 @@ def test_agent_session_hitl_decision_cannot_be_recorded_twice(tmp_path: Path):
         },
     )
 
-    first = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+    bg1 = BackgroundTasks()
+    first = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}], bg1))
     assert first.status == "running"
 
     with pytest.raises(ValueError, match="not pending"):
-        asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+        bg2 = BackgroundTasks()
+        asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}], bg2))
 
 
 @pytest.mark.asyncio
@@ -1570,7 +1584,8 @@ async def test_agent_session_interrupt_cancels_running_prompt_task(tmp_path: Pat
 
     interrupted = service.interrupt_session(session.id)
     await asyncio.wait_for(cancelled.wait(), timeout=2)
-    await asyncio.wait_for(task, timeout=2)
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2)
 
     assert interrupted.status == "interrupted"
     current = service.get_session(session.id)
@@ -1615,7 +1630,8 @@ async def test_agent_session_interrupt_keeps_permission_resume_interrupted(tmp_p
 
     interrupted = service.interrupt_session(session.id)
     await asyncio.wait_for(cancelled.wait(), timeout=2)
-    await asyncio.wait_for(task, timeout=2)
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2)
 
     assert interrupted.status == "interrupted"
     current = service.get_session(session.id)
@@ -1645,10 +1661,12 @@ def test_agent_session_hitl_decision_validation_rejects_bad_batches(tmp_path: Pa
     )
 
     with pytest.raises(ValueError, match="require a message"):
-        asyncio.run(service.decide_permission_async(part["id"], [{"type": "respond"}]))
+        bg = BackgroundTasks()
+        asyncio.run(service.decide_permission_async(part["id"], [{"type": "respond"}], bg))
 
     with pytest.raises(ValueError, match="Expected 1 HITL decision"):
-        asyncio.run(service.decide_permission_async(part["id"], [{"type": "respond", "message": "A"}, {"type": "respond", "message": "B"}]))
+        bg = BackgroundTasks()
+        asyncio.run(service.decide_permission_async(part["id"], [{"type": "respond", "message": "A"}, {"type": "respond", "message": "B"}], bg))
 
 
 def test_agent_session_response_includes_deepagents_ui_state(tmp_path: Path):
@@ -1856,3 +1874,197 @@ def test_agent_session_ui_state_marks_legacy_actions_read_only(tmp_path: Path):
     assert items[command["id"]]["legacy"] is True
     assert ui_state["pending_permission"] is None
     assert result.metadata["diagnostics"]["latest_action"] is None
+
+
+@pytest.mark.asyncio
+async def test_decide_permission_async_returns_immediately_resume_in_background(tmp_path: Path):
+    """spec 7.1: HTTP 请求立即返回，resume 在后台 task 执行"""
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="bg resume", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, provider=None, model=None, metadata={"runtime": "deepagents"})
+    service.model_call = lambda *args, **kwargs: None
+    part = service.repository.add_part(
+        session.id,
+        "permission",
+        status="pending",
+        title="Confirm",
+        content="Confirm",
+        payload={
+            "official_hitl": True,
+            "action_requests": [{"name": "edit_file", "args": {"file_path": "/a.py"}}],
+            "actions": [{"name": "edit_file", "args": {"file_path": "/a.py"}, "allowed_decisions": ["approve", "reject"]}],
+        },
+    )
+
+    resume_called = asyncio.Event()
+    original_resume = service.deepagents_runner.resume
+
+    async def tracking_resume(session_id, decision):
+        resume_called.set()
+        return await original_resume(session_id, decision)
+
+    service.deepagents_runner.resume = tracking_resume
+
+    bg = BackgroundTasks()
+    result = await service.decide_permission_async(part["id"], [{"type": "approve"}], bg)
+
+    # 立即返回，status 为 running，resume 尚未执行
+    assert result.status == "running"
+    assert not resume_called.is_set()
+    assert len(bg.tasks) == 1
+
+    # 手动驱动 BackgroundTasks 执行 resume
+    for bg_task in bg.tasks:
+        await bg_task.func(*bg_task.args, **bg_task.kwargs)
+    assert resume_called.is_set()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_resume_rejected_when_task_running(tmp_path: Path):
+    """spec 7.2: 已有 resume 在跑时第二个请求被拒绝"""
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="concurrent", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, provider=None, model=None, metadata={"runtime": "deepagents"})
+    service.model_call = lambda *args, **kwargs: None
+    part = service.repository.add_part(
+        session.id,
+        "permission",
+        status="pending",
+        title="Confirm",
+        content="Confirm",
+        payload={
+            "official_hitl": True,
+            "action_requests": [{"name": "edit_file", "args": {"file_path": "/a.py"}}],
+            "actions": [{"name": "edit_file", "args": {"file_path": "/a.py"}, "allowed_decisions": ["approve", "reject"]}],
+        },
+    )
+
+    # 模拟一个正在运行的 task 占用 _prompt_tasks 槽位
+    fake_loop = asyncio.get_running_loop()
+    fake_task = asyncio.ensure_future(asyncio.sleep(100))
+    service.background_manager._prompt_tasks[session.id] = (fake_loop, fake_task)
+    try:
+        bg = BackgroundTasks()
+        await service.decide_permission_async(part["id"], [{"type": "approve"}], bg)
+        assert len(bg.tasks) == 1
+        # resume 在 BackgroundTasks 中，手动驱动时应抛 RuntimeError
+        with pytest.raises(RuntimeError, match="Agent 任务正在执行中"):
+            for bg_task in bg.tasks:
+                await bg_task.func(*bg_task.args, **bg_task.kwargs)
+    finally:
+        fake_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await fake_task
+        service.background_manager._prompt_tasks.pop(session.id, None)
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_background_re_raises_cancelled_error(tmp_path: Path):
+    """spec 7.3: _run_prompt_background 被 cancel 后 re-raise CancelledError"""
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="cancel raise", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={
+            "runtime": "deepagents",
+            "active_prompt_id": "prompt-cancel",
+            "background_run": True,
+        },
+    )
+
+    # 让 service.prompt 阻塞，模拟长耗时操作
+    async def slow_prompt(*args, **kwargs):
+        await asyncio.sleep(100)
+
+    service.prompt = slow_prompt
+
+    bg_task = asyncio.ensure_future(
+        service.background_manager._run_prompt_background(
+            session.id,
+            AgentPromptRequest(content="test"),
+            "prompt-cancel",
+        )
+    )
+    await asyncio.sleep(0.05)  # 让 task 开始
+    bg_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await bg_task
+
+
+@pytest.mark.asyncio
+async def test_resume_permission_background_re_raises_cancelled_error(tmp_path: Path):
+    """spec 7.4: _resume_permission_background 被 cancel 后 re-raise CancelledError"""
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="resume cancel", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={"runtime": "deepagents"},
+    )
+
+    async def slow_resume(*args, **kwargs):
+        await asyncio.sleep(100)
+
+    service.deepagents_runner.resume = slow_resume
+
+    bg_task = asyncio.ensure_future(
+        service.approval_service._resume_permission_background(session.id, {"approved": True})
+    )
+    await asyncio.sleep(0.05)
+    bg_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await bg_task
+
+
+def test_subagent_runner_lazy_service_has_interrupt_session_callback(tmp_path: Path):
+    """spec 7.5: 子 runner 懒创建的 AsyncSubagentService 持有 interrupt_session 回调"""
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    assert service.deepagents_runner.interrupt_session is not None
+    assert service.deepagents_runner.interrupt_session == service.background_manager.interrupt_session
+
+    # 触发懒创建
+    sub_service = service.deepagents_runner._async_subagent_service()
+    assert sub_service.interrupt_session is not None
+    assert sub_service.interrupt_session == service.background_manager.interrupt_session
+
+
+@pytest.mark.asyncio
+async def test_event_bus_notify_thread_safe_under_concurrent_calls():
+    """spec 7.6: notify 在多线程并发调用下不损坏队列"""
+    import threading
+
+    bus = AgentSessionEventBus()
+    session_id = f"session-thread-safe-{uuid.uuid4().hex}"
+    queue = bus.subscribe(session_id)
+
+    # 并发从多个线程 notify
+    def notify_batch(start, count):
+        for i in range(start, start + count):
+            bus.notify(session_id, {"seq": i})
+
+    threads = [threading.Thread(target=notify_batch, args=(i * 250, 250)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # 通知结束信号
+    bus.notify(session_id, {"seq": 999})
+
+    # 消费所有事件
+    received = []
+    while True:
+        try:
+            event = await asyncio.wait_for(queue.get(), timeout=1)
+            received.append(event)
+            if event.get("seq") == 999:
+                break
+        except asyncio.TimeoutError:
+            break
+
+    bus.unsubscribe(session_id, queue)
+
+    # 验证接收到的 events seq 无重复（队列未损坏）
+    seqs = [e.get("seq") for e in received if e.get("seq") != 999]
+    assert len(seqs) == len(set(seqs)), "duplicate events detected - queue corrupted"

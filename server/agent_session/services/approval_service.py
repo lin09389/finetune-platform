@@ -26,8 +26,17 @@ class ApprovalService:
             raise ValueError("Agent part not found")
         return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
 
-    async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        return await self.decide_permission_async(part_id, [{"type": "approve" if approved else "reject"}])
+    async def approve_permission_async(
+        self,
+        part_id: str,
+        approved: bool,
+        background_tasks: BackgroundTasks,
+    ) -> AgentSessionResponse:
+        return await self.decide_permission_async(
+            part_id,
+            [{"type": "approve" if approved else "reject"}],
+            background_tasks,
+        )
 
     def _record_permission_decision(self, part_id: str, decisions: list[dict[str, Any]]) -> tuple[AgentSessionResponse, dict[str, Any] | None]:
         part = self.service.repository.get_part(part_id)
@@ -70,8 +79,9 @@ class ApprovalService:
         if current_task is not None:
             with self.service.background_manager._prompt_tasks_lock:
                 existing = self.service.background_manager._prompt_tasks.get(session_id)
-                if existing is None or existing[1].done():
-                    self.service.background_manager._prompt_tasks[session_id] = (loop, current_task)
+                if existing is not None and not existing[1].done():
+                    raise RuntimeError("Agent 任务正在执行中，无法启动新的恢复")
+                self.service.background_manager._prompt_tasks[session_id] = (loop, current_task)
         try:
             self.service.model_call_coordinator._sync_async_service_model_call()
             await self.service.deepagents_runner.resume(session_id, decision)
@@ -81,6 +91,7 @@ class ApprovalService:
             session = self.service.repository.get_session(session_id)
             if session and str(session.get("status") or "") not in self.service.TERMINAL_STATUSES:
                 self.service.background_manager.interrupt_session(session_id, "权限审批后的 Agent 恢复执行已取消。")
+            raise
         except Exception as exc:
             try:
                 self.service.background_manager.record_prompt_failure(session_id, exc)
@@ -92,11 +103,10 @@ class ApprovalService:
                 if record and record[1] is current_task:
                     self.service.background_manager._prompt_tasks.pop(session_id, None)
 
-    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
+    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]], background_tasks: BackgroundTasks) -> AgentSessionResponse:
         response, decision = await run_sync(self._record_permission_decision, part_id, decisions)
         if decision is not None and self._can_resume_permission(response):
-            await self._resume_permission_background(response.id, decision)
-            return self.service.lifecycle.get_session(response.id)
+            background_tasks.add_task(self._resume_permission_background, response.id, decision)
         return response
 
     def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:

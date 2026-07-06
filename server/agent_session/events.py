@@ -34,18 +34,15 @@ class AgentSessionEventBus:
     def notify(self, session_id: str, event: dict[str, Any]) -> None:
         with self._lock:
             queues = list(self._queues.get(session_id, []))
-
-        dead: list[asyncio.Queue[dict[str, Any]]] = []
-        for queue in queues:
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                logger.warning("agent_session event queue full for session %s, dropping event", session_id)
-            except Exception:
-                dead.append(queue)
-
-        if dead:
-            with self._lock:
+            dead: list[asyncio.Queue[dict[str, Any]]] = []
+            for queue in queues:
+                try:
+                    queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    logger.warning("agent_session event queue full for session %s, dropping event", session_id)
+                except Exception:
+                    dead.append(queue)
+            if dead:
                 active = self._queues.get(session_id)
                 if active:
                     for queue in dead:
