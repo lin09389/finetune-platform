@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 import urllib3
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -360,22 +361,16 @@ async def search_modelscope_models(request: ModelSearchRequest) -> list[ModelInf
         logger.error(f"搜索 ModelScope SDK 失败，尝试 HTTP 兜底：{e}", exc_info=True)
 
     try:
-        import requests
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         api_url = "https://modelscope.cn/api/v1/models/"
-        session = requests.Session()
-        session.trust_env = False
-        response = session.put(
-            api_url,
-            json={
-                "Path": request.query.strip(),
-                "PageNumber": 1,
-                "PageSize": request.limit,
-            },
-            verify=False,
-            timeout=30,
-        )
+        async with httpx.AsyncClient(trust_env=False, timeout=30.0) as client:
+            response = await client.put(
+                api_url,
+                json={
+                    "Path": request.query.strip(),
+                    "PageNumber": 1,
+                    "PageSize": request.limit,
+                },
+            )
         if response.status_code == 200:
             payload = response.json()
             models = payload.get("Data", {}).get("Models") or []
@@ -389,24 +384,19 @@ async def search_modelscope_models(request: ModelSearchRequest) -> list[ModelInf
 async def search_huggingface_models(request: ModelSearchRequest) -> list[ModelInfo]:
     """搜索 HuggingFace 模型（备用）"""
     try:
-        import requests
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
         endpoint = settings.hf_endpoint
         api_url = f"{endpoint}/api/models"
 
-        response = requests.get(
-            api_url,
-            params={
-                "search": request.query,
-                "limit": request.limit,
-                "sort": "downloads",
-                "direction": "-1"
-            },
-            verify=False,
-            timeout=30
-        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                api_url,
+                params={
+                    "search": request.query,
+                    "limit": request.limit,
+                    "sort": "downloads",
+                    "direction": "-1"
+                },
+            )
 
         if response.status_code != 200:
             raise Exception(f"HuggingFace API 错误：{response.status_code}")
@@ -806,10 +796,6 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
 @router.get("/network/status")
 async def get_network_status():
     """检查网络连接状态。"""
-    import requests
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
     results = {}
 
     mirrors = {
@@ -818,18 +804,20 @@ async def get_network_status():
         "hf-mirror.com": "https://hf-mirror.com",
     }
 
-    for name, url in mirrors.items():
-        try:
-            resp = requests.get(f"{url}/api/v1/models?PageSize=1" if "modelscope" in url else f"{url}/api/models?limit=1", timeout=5, verify=False)
-            results[name] = {
-                "status": "ok" if resp.status_code == 200 else f"error:{resp.status_code}",
-                "latency": resp.elapsed.total_seconds()
-            }
-        except Exception as e:
-            results[name] = {
-                "status": "failed",
-                "error": str(e)[:50]
-            }
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for name, url in mirrors.items():
+            try:
+                check_url = f"{url}/api/v1/models?PageSize=1" if "modelscope" in url else f"{url}/api/models?limit=1"
+                resp = await client.get(check_url)
+                results[name] = {
+                    "status": "ok" if resp.status_code == 200 else f"error:{resp.status_code}",
+                    "latency": resp.elapsed.total_seconds()
+                }
+            except Exception as e:
+                results[name] = {
+                    "status": "failed",
+                    "error": str(e)[:50]
+                }
 
     proxy_status = {
         "http_proxy": settings.http_proxy or "未设置",
