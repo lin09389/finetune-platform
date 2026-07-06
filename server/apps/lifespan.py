@@ -43,6 +43,33 @@ def _initialize_storage() -> None:
         logger.info("SQLite storage initialized, JSON data migration skipped on startup")
 
 
+def _cleanup_tmp_residue() -> None:
+    """启动时清理中断上传留下的临时目录残留。
+
+    只清理已知安全的命名前缀（multipart-finalize / compact-finalize），
+    避免误删活跃的 dev server 或诊断目录。启动时不会有活跃上传，可安全删除。
+    """
+    import shutil
+
+    tmp_dir = settings.base_dir / "tmp"
+    if not tmp_dir.is_dir():
+        return
+    prefixes = ("agent-multipart-finalize-", "compact-finalize-")
+    removed = 0
+    for entry in tmp_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        name = entry.name
+        if name == "agent-multipart-finalize" or any(name.startswith(p) for p in prefixes):
+            try:
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 1
+            except Exception as exc:
+                logger.debug("Failed to clean tmp entry %s: %s", name, exc)
+    if removed:
+        logger.info("Cleaned %d stale tmp residue directories", removed)
+
+
 async def _initialize_agent_services() -> None:
     try:
         from api.agent_sessions import get_agent_session_service
@@ -235,6 +262,7 @@ def create_lifespan(profile: ApplicationProfile) -> Callable:
         logger.info("Initializing %s application...", profile.value)
         _warn_about_auth_configuration()
         _initialize_storage()
+        _cleanup_tmp_residue()
 
         grpc_server = None
         if profile.includes_finetune:
