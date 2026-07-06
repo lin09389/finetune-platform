@@ -30,6 +30,11 @@ class SessionLifecycleService:
         self.service = service
 
     def _default_project_path(self) -> str:
+        env_path = settings.agent_default_project_path
+        if env_path:
+            candidate = Path(env_path)
+            if candidate.exists() and candidate.is_dir():
+                return str(candidate.resolve())
         base_dir = settings.base_dir.resolve()
         workspace = base_dir.parent if base_dir.name == "server" else base_dir
         return str(workspace)

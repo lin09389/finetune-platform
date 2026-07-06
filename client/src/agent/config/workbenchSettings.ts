@@ -8,7 +8,7 @@ export interface AgentWorkbenchSettings {
 const STORAGE_KEY = 'finetune.agent-workbench.settings.v1';
 
 export const DEFAULT_WORKBENCH_SETTINGS: AgentWorkbenchSettings = {
-  projectPath: '',
+  projectPath: ((import.meta as any).env?.VITE_AGENT_DEFAULT_PROJECT_PATH || '') as string,
   autonomyMode: 'safe_auto',
 };
 
@@ -22,7 +22,7 @@ export function readAgentWorkbenchSettings(
       ? parsed.autonomyMode as AgentWorkbenchSettings['autonomyMode']
       : DEFAULT_WORKBENCH_SETTINGS.autonomyMode;
     return {
-      projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : '',
+      projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : DEFAULT_WORKBENCH_SETTINGS.projectPath,
       autonomyMode,
     };
   } catch {

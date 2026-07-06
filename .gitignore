@@ -43,6 +43,11 @@ yarn-error.log*
 .claude/
 .trae/
 
+# Tool artifacts (code-gen / analysis tools)
+.qoder/
+finetune-claude/
+.codex-*
+
 # OS
 .DS_Store
 Thumbs.db

@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     agent_session_langgraph_enabled: bool = Field(default=True, description="是否启用 agent_session LangGraph 主路径")
     agent_cloud_model_timeout_seconds: int = Field(default=180, ge=10, le=900, description="Agent 云端模型请求超时（秒）")
     agent_cloud_model_max_retries: int = Field(default=2, ge=0, le=10, description="Agent 云端模型请求最大重试次数")
+    agent_default_project_path: str | None = Field(
+        default=None,
+        description="Agent 默认项目路径（本地开发可设为绝对路径；未设置则自动推断到仓库根目录）",
+    )
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
     intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")
