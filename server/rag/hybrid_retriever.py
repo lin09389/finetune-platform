@@ -202,6 +202,17 @@ class HybridRetriever:
         """设置嵌入器"""
         self.embedder = embedder
 
+    def set_weights(self, vector_weight: float, keyword_weight: float):
+        """
+        设置向量检索与关键词检索的融合权重
+
+        Args:
+            vector_weight: 向量检索权重
+            keyword_weight: 关键词检索权重
+        """
+        self.vector_weight = vector_weight
+        self.keyword_weight = keyword_weight
+
     def add_documents(
         self,
         documents: list[str],

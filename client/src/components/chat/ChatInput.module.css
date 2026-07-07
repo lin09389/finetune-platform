@@ -21,8 +21,6 @@
   display: flex;
   align-items: flex-end;
   background: var(--bg-elevated);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
   border-radius: 20px;
   padding: 6px 8px 6px 14px;
@@ -357,7 +355,6 @@
 }
 
 .sendBtnCircle:active:not([disabled]) {
-  transform: scale(0.95);
 }
 
 .sendBtnCircle[disabled] {

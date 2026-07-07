@@ -218,7 +218,7 @@ export default function Sidebar() {
         <motion.div
           className={styles.logoIcon}
           onClick={() => navigate('/dashboard')}
-          whileTap={{ scale: 0.97 }}
+          whileTap={{ opacity: 0.85 }}
         >
           <img src="/favicon.svg" alt="Logo" style={{ width: 24, height: 24 }} />
         </motion.div>
@@ -303,8 +303,7 @@ export default function Sidebar() {
                       animate="show"
                       className={`${styles.menuItem} ${isActive ? styles.menuItemActive : ''}`}
                       onClick={() => navigate(item.key)}
-                      whileHover={{ x: 2 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileTap={{ opacity: 0.85 }}
                       style={{
                         justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                       }}
@@ -346,7 +345,7 @@ export default function Sidebar() {
       <motion.div
         className={styles.collapseBtn}
         onClick={toggleSidebar}
-        whileTap={{ scale: 0.98 }}
+        whileTap={{ opacity: 0.85 }}
         style={{
           justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
         }}

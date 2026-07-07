@@ -156,7 +156,6 @@
 }
 
 .menuItem:hover .menuIcon {
-  transform: scale(1.05);
 }
 
 .menuLabel {

@@ -32,7 +32,7 @@ const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
     <motion.button
       type={htmlType}
       className={`${styles.button} ${variantClass} ${sizeClass} ${activeClass} ${className}`}
-      whileTap={{ scale: 0.98 }}
+      whileTap={{ opacity: 0.85 }}
       transition={{ duration: 0.1, ease: 'easeOut' }}
       disabled={props.disabled || loading}
       {...props}

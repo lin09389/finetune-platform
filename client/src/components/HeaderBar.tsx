@@ -125,7 +125,7 @@ export default function HeaderBar() {
             />
           </Tooltip>
 
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <div>
             <Avatar
               icon={<UserOutlined />}
               style={{
@@ -135,7 +135,7 @@ export default function HeaderBar() {
                 boxShadow: 'var(--shadow-sm)',
               }}
             />
-          </motion.div>
+          </div>
         </Space>
       </Header>
     </motion.div>

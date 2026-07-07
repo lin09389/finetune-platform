@@ -214,8 +214,8 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
         }
       >
         <motion.div
-          whileHover={{ scale: disabled ? 1 : 1.05 }}
-          whileTap={{ scale: disabled ? 1 : 0.95 }}
+          whileHover={{ opacity: disabled ? 1 : 0.9 }}
+          whileTap={{ opacity: disabled ? 1 : 0.85 }}
         >
           <Button
             type={status === 'listening' ? 'primary' : 'text'}

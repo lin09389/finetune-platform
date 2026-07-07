@@ -323,7 +323,7 @@ const NavItem: React.FC<{
   onClick: () => void;
 }> = memo(({ item, isActive, onClick }) => (
   <motion.div
-    whileTap={{ scale: 0.98 }}
+    whileTap={{ opacity: 0.85 }}
     onClick={onClick}
     style={{
       display: 'flex',
@@ -405,7 +405,7 @@ export const MobileBottomNav: React.FC = () => {
         return (
           <motion.div
             key={item.key}
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ opacity: 0.85 }}
             onClick={() => navigate(item.key)}
             style={{
               display: 'flex',

@@ -4,9 +4,8 @@
   height: 100%;
   padding: 18px;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  background: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
-  backdrop-filter: blur(12px);
 }
 
 .panelInner {

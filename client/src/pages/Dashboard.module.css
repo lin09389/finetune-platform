@@ -98,7 +98,6 @@
 }
 
 .statCard:hover .statIcon {
-  transform: scale(1.05);
 }
 
 /* ── Bento-Device Monitor Styles ── */
@@ -474,7 +473,6 @@
 }
 
 .quickActionCard:hover .quickActionIcon {
-  transform: scale(1.05);
 }
 
 .quickActionTitle {

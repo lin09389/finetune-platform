@@ -86,8 +86,8 @@ export function MotionItem({
       style={style}
       variants={variantMap[variant]}
       onClick={onClick}
-      whileHover={onClick ? { scale: 1.01 } : undefined}
-      whileTap={onClick ? { scale: 0.99 } : undefined}
+      whileHover={onClick ? { opacity: 0.95 } : undefined}
+      whileTap={onClick ? { opacity: 0.85 } : undefined}
     >
       {children}
     </m.div>
@@ -124,9 +124,9 @@ export function MotionCard({ children, className, style, onClick, lift = false, 
       variants={itemVariants}
       onClick={onClick}
       whileHover={
-        lift ? { y: -3, boxShadow: 'var(--shadow-lg)' } : { borderColor: 'var(--border-hover)' }
+        lift ? { boxShadow: 'var(--shadow-md)' } : { borderColor: 'var(--border-hover)' }
       }
-      whileTap={onClick ? { scale: 0.99 } : undefined}
+      whileTap={onClick ? { opacity: 0.85 } : undefined}
       transition={{ duration: 0.15 }}
     >
       {children}
@@ -263,9 +263,9 @@ export function MotionButton({ children, className, style, onClick, disabled }: 
       className={className}
       style={style}
       onClick={onClick}
-      whileHover={{ scale: 1.03 }}
-      whileTap={{ scale: 0.96 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+      whileHover={{ opacity: 0.95 }}
+      whileTap={{ opacity: 0.85 }}
+      transition={{ duration: 0.15 }}
     >
       {children}
     </m.div>

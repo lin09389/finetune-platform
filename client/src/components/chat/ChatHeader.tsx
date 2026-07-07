@@ -74,7 +74,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     >
       <div className={styles.headerLeft}>
         <Space size={8}>
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <div>
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -83,10 +83,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             >
               新对话
             </Button>
-          </motion.div>
+          </div>
 
           {!isMobile && (
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <div>
               <Button
                 icon={<HistoryOutlined />}
                 onClick={onOpenHistory}
@@ -94,7 +94,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
               >
                 历史
               </Button>
-            </motion.div>
+            </div>
           )}
         </Space>
 
@@ -111,13 +111,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         <Space wrap>
           {isMobile && onOpenContextPanel && (
             <Tooltip title="打开对话设置">
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <div>
                 <Button
                   icon={<SettingOutlined />}
                   onClick={onOpenContextPanel}
                   className={styles.actionButton}
                 />
-              </motion.div>
+              </div>
             </Tooltip>
           )}
 
@@ -164,9 +164,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
               ],
             }}
           >
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <div>
               <Button icon={<MoreOutlined />} className={styles.actionButton} />
-            </motion.div>
+            </div>
           </Dropdown>
         </Space>
       </div>

@@ -56,7 +56,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
   if (variant === 'compact') {
     return (
       <Tooltip title="停止生成">
-        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+        <div>
           <Button
             danger
             type="primary"
@@ -67,7 +67,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
               borderRadius: 8,
             }}
           />
-        </motion.div>
+        </div>
       </Tooltip>
     );
   }
@@ -98,7 +98,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
           cancelText={hasPartialContent ? '直接停止' : '取消'}
           okButtonProps={{ danger: true }}
         >
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <div>
             <Button
               danger
               type="primary"
@@ -114,7 +114,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
             >
               停止生成
             </Button>
-          </motion.div>
+          </div>
         </Popconfirm>
       </motion.div>
     );
@@ -130,8 +130,8 @@ export const StopButton: React.FC<StopButtonProps> = ({
       style={{ display: 'inline-flex', gap: 8 }}
     >
       <motion.div
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
+        whileHover={{ opacity: 0.9 }}
+        whileTap={{ opacity: 0.85 }}
         animate={{
           boxShadow: pulseAnimation
             ? '0 0 0 0 rgba(214, 69, 69, 0.4)'
