@@ -108,6 +108,15 @@ export function selectConnectionLabel(state: AgentRuntimeState): string {
 }
 
 export function selectWorkspaceStatus(state: AgentRuntimeState): string {
+  const metadata = state.session?.metadata || {};
+  const failureKind = typeof metadata.failure_kind === 'string' ? metadata.failure_kind : '';
+  const nextAction = typeof metadata.next_action === 'string' ? metadata.next_action : '';
+  if (state.session?.status === 'needs_manual_review' || state.session?.status === 'failed') {
+    if (failureKind === 'configuration_error' || nextAction === 'configure_model') return '需要配置模型';
+    if (failureKind === 'process_restart') return '进程重启后已停止，可重新运行';
+    if (failureKind === 'user_interrupted') return '已中断';
+    if (failureKind === 'runtime_error') return '运行失败，需复核';
+  }
   const status =
     state.workspace?.status_text.current_phase ||
     state.session?.metadata?.state?.current_phase ||

@@ -15,7 +15,7 @@ import {
   readPersistedAgentRuntime,
 } from '../agent/runtime/sessionPersistence';
 import { useAgentWorkbench } from '../agent/runtime/useAgentWorkbench';
-import { selectTimeline } from '../agent/selectors/workbenchSelectors';
+import { selectTimeline, selectWorkspaceStatus } from '../agent/selectors/workbenchSelectors';
 import { FLOW_NAMES, createFlowScenario } from '../agent/testing/agentFlowScenarios';
 import { projectLegacyFixture, projectNewRuntime } from '../agent/testing/canonicalProjection';
 import type { AgentTransport } from '../agent/transport/agentTransport';
@@ -250,6 +250,38 @@ describe('Agent protocol and runtime', () => {
     const duplicate = agentRuntimeReducer(first, { type: 'stream_event', event });
     expect(first.session?.parts).toHaveLength(1);
     expect(duplicate).toBe(first);
+  });
+
+  it('ignores stream events from a stale session', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session,
+    });
+    const next = agentRuntimeReducer(loaded, {
+      type: 'stream_event',
+      event: { ...event, id: 'stale-event', session_id: 'ags_other' },
+    });
+
+    expect(next.session).toEqual(session);
+    expect(next.lastEventId).toBe('');
+    expect(next.diagnostics.events[0]?.detail).toContain('ignored stale event');
+  });
+
+  it('explains manual review states using failure metadata', () => {
+    const failed = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        status: 'needs_manual_review',
+        metadata: {
+          ...session.metadata,
+          failure_kind: 'process_restart',
+          next_action: 'rerun_prompt',
+        },
+      },
+    });
+
+    expect(selectWorkspaceStatus(failed)).toBe('进程重启后已停止，可重新运行');
   });
 
   it('treats streamed model content as an authoritative snapshot when present', () => {

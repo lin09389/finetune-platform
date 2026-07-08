@@ -217,6 +217,19 @@ export function agentRuntimeReducer(
         error: null,
       };
     case 'stream_event': {
+      const activeSessionId = state.session?.id || state.activeSessionId;
+      if (activeSessionId && action.event.session_id !== activeSessionId) {
+        return {
+          ...state,
+          diagnostics: recordDiagnostic(state.diagnostics, {
+            sessionId: activeSessionId,
+            type: 'unknown_event',
+            detail: `ignored stale event for ${action.event.session_id}`,
+            occurredAt: action.event.created_at,
+            id: action.event.id,
+          }),
+        };
+      }
       if (state.seenEventIds.includes(action.event.id)) return state;
       const seenEventIds = [...state.seenEventIds, action.event.id].slice(-MAX_SEEN_EVENTS);
       const session = applyEventToSession(state.session, action.event);

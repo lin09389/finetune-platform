@@ -34,6 +34,18 @@ const statusLabels: Record<string, string> = {
   needs_manual_review: '需复核',
 };
 
+function sessionStatusLabel(session: AgentRuntimeState['session']): string {
+  const metadata = session?.metadata || {};
+  const failureKind = typeof metadata.failure_kind === 'string' ? metadata.failure_kind : '';
+  const nextAction = typeof metadata.next_action === 'string' ? metadata.next_action : '';
+  if (session?.status === 'needs_manual_review' || session?.status === 'failed') {
+    if (failureKind === 'configuration_error' || nextAction === 'configure_model') return '需配置模型';
+    if (failureKind === 'process_restart') return '可重新运行';
+    if (failureKind === 'runtime_error') return '运行失败';
+  }
+  return statusLabels[session?.status || 'idle'] || session?.status || '待命';
+}
+
 function basename(path?: string | null): string {
   if (!path) return '默认工作区';
   const segments = path.replace(/\\/g, '/').split('/').filter(Boolean);
@@ -65,7 +77,7 @@ export default function AgentEnvironmentRail({
     || 'master';
   const provider = session?.provider || runtimePolicy?.provider || '本地';
   const model = session?.model || runtimePolicy?.model || '自动';
-  const status = statusLabels[session?.status || 'idle'] || session?.status || '待命';
+  const status = sessionStatusLabel(session);
   const mounts = workspace?.vfs_mounts || workspace?.runtime?.vfs_mounts || runtimePolicy?.vfs_mounts || [];
   const enabledTools = runtimePolicy?.tools?.allow_all_builtin
     ? '内置工具'

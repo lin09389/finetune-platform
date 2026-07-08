@@ -49,6 +49,21 @@ export class AgentCommandFailure extends Error {
   }
 }
 
+function agentErrorMessage(error: unknown): string {
+  const response = (error as { response?: { data?: unknown } })?.response;
+  const data = response?.data;
+  if (data && typeof data === 'object') {
+    const detail = (data as { detail?: unknown }).detail;
+    if (detail && typeof detail === 'object') {
+      const message = (detail as { message?: unknown }).message;
+      const nextAction = (detail as { next_action?: unknown }).next_action;
+      if (typeof message === 'string' && nextAction === 'configure_model') return message;
+    }
+    if (typeof detail === 'string') return detail;
+  }
+  return '任务提交失败，会话已保留，可直接重试。';
+}
+
 export function agentCommandKey(command: AgentCommand): string {
   switch (command.type) {
     case 'submit':
@@ -200,7 +215,7 @@ export class AgentCommandExecutor {
         refreshSessionId: prompted.id,
       };
     } catch (error) {
-      throw new AgentCommandFailure('任务提交失败，会话已保留，可直接重试。', {
+      throw new AgentCommandFailure(agentErrorMessage(error), {
         cause: error,
         partialSession: session,
       });

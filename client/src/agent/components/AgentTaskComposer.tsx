@@ -27,7 +27,7 @@ export default function AgentTaskComposer({
   const [agentId, setAgentId] = useState('build');
   const [submissionFailed, setSubmissionFailed] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const isRunning = Boolean(session && ['running', 'verifying', 'repairing'].includes(session.status));
+  const isRunning = Boolean(session && ['running', 'verifying', 'repairing', 'waiting_permission', 'waiting_approval'].includes(session.status));
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
