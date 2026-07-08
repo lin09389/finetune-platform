@@ -155,8 +155,8 @@ class EventBroadcastService:
         metadata["latest_summary"] = diagnostics.get("latest_summary")
         state = dict(metadata.get("state") or {})
         metadata["latest_error"] = diagnostics.get("latest_error") or metadata.get("latest_error") or state.get("latest_error")
-        metadata["stop_reason"] = diagnostics.get("stop_reason")
-        metadata["next_action"] = diagnostics.get("next_action")
+        metadata["stop_reason"] = diagnostics.get("stop_reason") or metadata.get("stop_reason")
+        metadata["next_action"] = metadata.get("next_action") or diagnostics.get("next_action")
         hydrated["metadata"] = metadata
         hydrated["preferences"] = preferences.model_dump()
         hydrated["parts"] = parts

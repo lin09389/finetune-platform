@@ -61,14 +61,13 @@ class SessionLifecycleService:
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
         project_path = self._validate_project_path(request.project_path)
         agent = self._require_direct_agent(request.agent_id)
-        provider, model = self._resolve_session_model_defaults(agent.id, request.provider, request.model)
+        provider, model, model_configured = self.resolve_session_model_availability(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
         metadata: dict[str, Any] = {
             "autonomy_mode": request.autonomy_mode or "safe_auto",
             **default_deepagents_permission_metadata(),
             "enabled_skill_sources": enabled_skill_sources,
-            "model_configured": bool(request.provider and request.model)
-            or self._has_saved_cloud_model(provider, model),
+            "model_configured": model_configured,
         }
         if user_id:
             metadata["user_id"] = user_id
@@ -107,6 +106,16 @@ class SessionLifecycleService:
                 return saved_provider, saved_model
         agent = self.service.agent_registry.get(agent_id)
         return provider or (agent.default_provider if agent else None), model or (agent.default_model if agent else None)
+
+    def resolve_session_model_availability(
+        self,
+        agent_id: str,
+        provider: str | None,
+        model: str | None,
+    ) -> tuple[str | None, str | None, bool]:
+        resolved_provider, resolved_model = self._resolve_session_model_defaults(agent_id, provider, model)
+        configured = bool(self.service.model_call is not None) or self._has_saved_cloud_model(resolved_provider, resolved_model)
+        return resolved_provider, resolved_model, configured
 
     def _saved_cloud_provider_model(self, provider: str | None = None) -> tuple[str | None, str | None]:
         providers = [provider] if provider else list(SAVED_CLOUD_PROVIDER_PRIORITY)

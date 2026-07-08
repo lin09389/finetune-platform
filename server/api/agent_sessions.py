@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_session.diagnostics import AgentFrontendDiagnosticsRepository
+from agent_session.errors import AgentConfigurationError
 from agent_session.models import (
     AgentApprovalResponse,
     AgentAsyncTaskCancelRequest,
@@ -287,6 +288,15 @@ async def prompt_agent_session(
     await _require_accessible_session(service, session_id, current_user)
     try:
         return await service.start_prompt_detached(session_id, request)
+    except AgentConfigurationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": str(exc),
+                "failure_kind": exc.failure_kind,
+                "next_action": "configure_model",
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

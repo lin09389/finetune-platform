@@ -13,6 +13,7 @@ from agent_session.agent_registry import AgentRegistry
 from agent_session.async_subagents import AsyncSubagentService
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.errors import AgentConfigurationError
 from agent_session.events import AgentSessionEventBus
 from agent_session.execution_context import AgentDefinition
 from agent_session.failure_guard import AgentLoopGuardTriggered
@@ -935,7 +936,7 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
         assert target.read_text(encoding="utf-8") == "hello\n"
 
         bg = BackgroundTasks()
-        running = asyncio.run(service.approve_permission_async(permission.id, True, bg))
+        asyncio.run(service.approve_permission_async(permission.id, True, bg))
         for bg_task in bg.tasks:
             asyncio.run(bg_task.func(*bg_task.args, **bg_task.kwargs))
         completed = service.get_session(session.id)
@@ -1101,6 +1102,41 @@ def test_agent_session_prompt_persists_user_message_part(tmp_path: Path):
     prompt_event = service.repository.list_events(session.id)[-1]
     assert prompt_event["event_type"] == "prompt_queued"
     assert prompt_event["payload"]["part_id"] == user_parts[0].id
+
+
+def test_agent_session_prompt_requires_configured_model_before_user_part(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setattr("agent_session.services.session_lifecycle.secure_storage.get", lambda _key: None)
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="missing model", project_path=str(Path.cwd())))
+
+    with pytest.raises(AgentConfigurationError, match="Agent 模型未配置"):
+        service.start_prompt_background(session.id, AgentPromptRequest(content="run"), BackgroundTasks())
+
+    stored = service.get_session(session.id)
+    assert stored.status == "idle"
+    assert stored.metadata["failure_kind"] == "configuration_error"
+    assert stored.metadata["next_action"] == "configure_model"
+    assert stored.parts == []
+    assert service.repository.list_events(session.id) == []
+
+
+def test_agent_session_prompt_start_is_idempotent_while_running(tmp_path: Path):
+    service = AgentSessionService(
+        AgentSessionRepository(str(tmp_path / "agents.db")),
+        model_call=lambda _messages: "done",
+    )
+    session = service.create_session(AgentSessionCreate(title="dedupe", project_path=str(Path.cwd())))
+
+    first = service.start_prompt_background(session.id, AgentPromptRequest(content="first"), BackgroundTasks())
+    first_prompt_id = first.metadata["active_prompt_id"]
+    second = service.start_prompt_background(session.id, AgentPromptRequest(content="second"), BackgroundTasks())
+
+    assert second.status == "running"
+    assert second.metadata["active_prompt_id"] == first_prompt_id
+    user_parts = [part for part in service.repository.list_parts(session.id) if (part.get("payload") or {}).get("role") == "user"]
+    assert len(user_parts) == 1
+    assert user_parts[0]["content"] == "first"
+    assert service.repository.list_events(session.id)[-1]["event_type"] == "prompt_already_running"
 
 
 def test_agent_session_stale_background_prompt_is_ignored(tmp_path: Path):
@@ -1882,7 +1918,7 @@ async def test_decide_permission_async_returns_immediately_resume_in_background(
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="bg resume", project_path=str(Path.cwd())))
     service.repository.update_session(session.id, provider=None, model=None, metadata={"runtime": "deepagents"})
-    service.model_call = lambda *args, **kwargs: None
+    service.model_call = lambda *_args, **_kwargs: None
     part = service.repository.add_part(
         session.id,
         "permission",
@@ -1925,7 +1961,7 @@ async def test_concurrent_resume_rejected_when_task_running(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="concurrent", project_path=str(Path.cwd())))
     service.repository.update_session(session.id, provider=None, model=None, metadata={"runtime": "deepagents"})
-    service.model_call = lambda *args, **kwargs: None
+    service.model_call = lambda *_args, **_kwargs: None
     part = service.repository.add_part(
         session.id,
         "permission",
@@ -2027,6 +2063,25 @@ def test_subagent_runner_lazy_service_has_interrupt_session_callback(tmp_path: P
     sub_service = service.deepagents_runner._async_subagent_service()
     assert sub_service.interrupt_session is not None
     assert sub_service.interrupt_session == service.background_manager.interrupt_session
+
+
+@pytest.mark.asyncio
+async def test_event_bus_notify_from_worker_thread_wakes_subscriber_loop():
+    import threading
+
+    bus = AgentSessionEventBus()
+    session_id = f"session-cross-thread-{uuid.uuid4().hex}"
+    queue = bus.subscribe(session_id)
+    event = {"id": "event-1", "event_type": "part_delta", "session_id": session_id}
+
+    thread = threading.Thread(target=lambda: bus.notify(session_id, event))
+    thread.start()
+    thread.join()
+
+    received = await asyncio.wait_for(queue.get(), timeout=1)
+    bus.unsubscribe(session_id, queue)
+
+    assert received == event
 
 
 @pytest.mark.asyncio

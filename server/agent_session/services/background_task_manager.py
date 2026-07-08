@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks
 
+from agent_session.errors import AgentConfigurationError
 from agent_session.execution_plan import build_initial_execution_plan
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentPromptRequest, AgentSessionResponse
@@ -30,6 +31,16 @@ class BackgroundTaskManagerService:
         self.service = service
         self._prompt_tasks: dict[str, PromptTaskRecord] = {}
         self._prompt_tasks_lock = threading.Lock()
+        self._session_start_locks: dict[str, threading.Lock] = {}
+        self._session_start_locks_lock = threading.Lock()
+
+    def _session_start_lock(self, session_id: str) -> threading.Lock:
+        with self._session_start_locks_lock:
+            lock = self._session_start_locks.get(session_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._session_start_locks[session_id] = lock
+            return lock
 
     def start_prompt_background(
         self,
@@ -38,54 +49,60 @@ class BackgroundTaskManagerService:
         background_tasks: BackgroundTasks | None,
     ) -> AgentSessionResponse:
         repository = self.service.repository
-        session = repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
+        with self._session_start_lock(session_id):
+            session = repository.get_session(session_id)
+            if not session:
+                raise ValueError("Agent session not found")
 
-        if str(session.get("status") or "") in self.service.ACTIVE_STATUSES:
-            repository.add_event(
-                session_id,
-                "prompt_already_running",
-                "Agent 正在处理当前任务，未重复启动。",
-                {"session_id": session_id, "status": session.get("status"), "summary": "Agent 正在处理当前任务，未重复启动。"},
-            )
-            return self.service.lifecycle.get_session(session_id)
+            if str(session.get("status") or "") in self.service.ACTIVE_STATUSES or self._has_running_prompt_task(session_id):
+                repository.add_event(
+                    session_id,
+                    "prompt_already_running",
+                    "Agent 正在处理当前任务，未重复启动。",
+                    {"session_id": session_id, "status": session.get("status"), "summary": "Agent 正在处理当前任务，未重复启动。"},
+                )
+                return self.service.lifecycle.get_session(session_id)
 
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        prompt_id = f"agprompt_{uuid.uuid4().hex}"
-        now = datetime.now().isoformat()
-        metadata["active_prompt_id"] = prompt_id
-        metadata["background_run"] = True
-        metadata["last_prompt_started_at"] = now
-        metadata["current_goal"] = request.content
-        user_part = repository.add_part(
-            session_id,
-            "text",
-            status="completed",
-            title="我的消息",
-            content=request.content,
-            payload={"role": "user", "source": "prompt", "prompt_id": prompt_id},
-        )
-        effective_provider, effective_model = self.service.lifecycle._resolve_session_model_defaults(
-            str(session.get("agent_id") or "build"),
-            request.provider or session.get("provider"),
-            request.model or session.get("model"),
-        )
-        model_configured = bool(
-            metadata.get("model_configured")
-            or (request.provider and request.model)
-            or self.service.lifecycle._has_saved_cloud_model(effective_provider, effective_model)
-        )
-        metadata["model_configured"] = model_configured
-        if effective_provider != session.get("provider") or effective_model != session.get("model"):
-            session = repository.update_session(
-                session_id,
-                provider=effective_provider,
-                model=effective_model,
-                metadata=metadata,
-            )
-        if self.service.model_call is None and (not model_configured or not (effective_provider and effective_model)):
+            metadata = ensure_session_state(dict(session.get("metadata") or {}))
+            prompt_id = f"agprompt_{uuid.uuid4().hex}"
+            now = datetime.now().isoformat()
             agent_id = str(session.get("agent_id") or "build")
+            effective_provider, effective_model, model_configured = self.service.lifecycle.resolve_session_model_availability(
+                agent_id,
+                request.provider or session.get("provider"),
+                request.model or session.get("model"),
+            )
+            metadata["model_configured"] = model_configured
+            metadata["failure_kind"] = None
+            metadata["next_action"] = None
+            if effective_provider != session.get("provider") or effective_model != session.get("model"):
+                session = repository.update_session(
+                    session_id,
+                    provider=effective_provider,
+                    model=effective_model,
+                    metadata=metadata,
+                )
+            if self.service.model_call is None and (not model_configured or not (effective_provider and effective_model)):
+                metadata["failure_kind"] = "configuration_error"
+                metadata["next_action"] = "configure_model"
+                metadata["background_run"] = False
+                metadata["active_prompt_id"] = None
+                metadata["latest_error"] = "Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"
+                repository.update_session(session_id, metadata=metadata)
+                raise AgentConfigurationError(metadata["latest_error"])
+
+            metadata["active_prompt_id"] = prompt_id
+            metadata["background_run"] = True
+            metadata["last_prompt_started_at"] = now
+            metadata["current_goal"] = request.content
+            user_part = repository.add_part(
+                session_id,
+                "text",
+                status="completed",
+                title="我的消息",
+                content=request.content,
+                payload={"role": "user", "source": "prompt", "prompt_id": prompt_id},
+            )
             policy = build_agent_runtime_policy(
                 agent=self.service.agent_registry.get(agent_id),
                 agent_id=agent_id,
@@ -104,64 +121,35 @@ class BackgroundTaskManagerService:
                 goal=request.content,
                 status="running",
             )
-            metadata["active_prompt_id"] = None
-            metadata["background_run"] = False
-            metadata["last_prompt_started_at"] = now
-            metadata["current_goal"] = request.content
-            session = repository.update_session(session_id, metadata=metadata)
-            result = self.record_prompt_failure(
+            if request.active_context or request.explicit_context:
+                metadata["deep_context"] = {
+                    "active_context": request.active_context,
+                    "explicit_context": request.explicit_context,
+                }
+            session = self.service.state_machine.mark_running(
                 session_id,
-                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
+                provider=effective_provider,
+                model=effective_model,
+                metadata=metadata,
             )
-            return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(result))
-        agent_id = str(session.get("agent_id") or "build")
-        policy = build_agent_runtime_policy(
-            agent=self.service.agent_registry.get(agent_id),
-            agent_id=agent_id,
-            project_path=session.get("project_path"),
-            metadata=metadata,
-            provider=effective_provider,
-            model=effective_model,
-            runtime_kind="agent_session",
-            thread_id=f"agent_session:{session_id}:deepagents",
-            checkpointer=True,
-            agent_registry=self.service.agent_registry,
-        )
-        metadata["execution_plan"] = build_initial_execution_plan(
-            session={**session, "provider": effective_provider, "model": effective_model},
-            policy=policy,
-            goal=request.content,
-            status="running",
-        )
-        if request.active_context or request.explicit_context:
-            metadata["deep_context"] = {
-                "active_context": request.active_context,
-                "explicit_context": request.explicit_context,
-            }
-        session = self.service.state_machine.mark_running(
-            session_id,
-            provider=effective_provider,
-            model=effective_model,
-            metadata=metadata,
-        )
-        self.service.event_service._event(
-            session_id,
-            "prompt_queued",
-            "Agent 已进入后台执行。",
-            {
-                "session_id": session_id,
-                "active_prompt_id": prompt_id,
-                "status": "running",
-                "summary": "Agent 已进入后台执行。",
-                "part_id": user_part.get("id"),
-                "part_type": "text",
-                "part": user_part,
-            },
-        )
-        if background_tasks is not None:
-            background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
-        session["parts"] = repository.list_parts(session_id)
-        return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(session))
+            self.service.event_service._event(
+                session_id,
+                "prompt_queued",
+                "Agent 已进入后台执行。",
+                {
+                    "session_id": session_id,
+                    "active_prompt_id": prompt_id,
+                    "status": "running",
+                    "summary": "Agent 已进入后台执行。",
+                    "part_id": user_part.get("id"),
+                    "part_type": "text",
+                    "part": user_part,
+                },
+            )
+            if background_tasks is not None:
+                background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
+            session["parts"] = repository.list_parts(session_id)
+            return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(session))
 
     async def start_prompt_detached(
         self,
@@ -208,12 +196,16 @@ class BackgroundTaskManagerService:
             session = repository.get_session(session_id) or session
 
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if self.service.model_call is None and not (session.get("provider") and session.get("model")):
-            result = self.record_prompt_failure(
-                session_id,
-                RuntimeError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"),
-            )
-            return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(result))
+        provider, model, configured = self.service.lifecycle.resolve_session_model_availability(
+            str(session.get("agent_id") or "build"),
+            session.get("provider"),
+            session.get("model"),
+        )
+        if self.service.model_call is None and (not configured or not (provider and model)):
+            raise AgentConfigurationError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。")
+        if provider != session.get("provider") or model != session.get("model"):
+            repository.update_session(session_id, provider=provider, model=model, metadata=metadata)
+            session = repository.get_session(session_id) or session
 
         preparing_part = repository.add_part(
             session_id,
@@ -384,20 +376,31 @@ class BackgroundTaskManagerService:
                     payload=payload,
                 )
 
-        self.service.state_machine.mark_interrupted(session_id, reason=message)
+        metadata = ensure_session_state(dict((repository.get_session(session_id) or session).get("metadata") or {}))
+        metadata["failure_kind"] = "user_interrupted"
+        metadata["next_action"] = "rerun_prompt"
+        metadata["recoverable"] = True
+        self.service.state_machine.mark_interrupted(session_id, reason=message, metadata=metadata)
         repository.add_part(
             session_id,
             "summary",
             status="completed",
             title="已中断",
             content=f"{message} 已停止继续调用模型和工具，当前 transcript 已保留。",
-            payload={"summary": message, "interrupted": True},
+            payload={"summary": message, "interrupted": True, "failure_kind": "user_interrupted", "next_action": "rerun_prompt"},
         )
         repository.add_event(
             session_id,
             "session_interrupted",
             message,
-            {"session_id": session_id, "status": "interrupted", "summary": message, "interrupted": True},
+            {
+                "session_id": session_id,
+                "status": "interrupted",
+                "summary": message,
+                "interrupted": True,
+                "failure_kind": "user_interrupted",
+                "next_action": "rerun_prompt",
+            },
         )
         return self.service.lifecycle.get_session(session_id)
 
@@ -424,7 +427,7 @@ class BackgroundTaskManagerService:
         if not session:
             raise ValueError("Agent session not found")
         message = f"模型调用失败或内部错误，已停止且没有继续执行动作。错误：{str(exc)[:600]}"
-        metadata = ensure_failed_metadata(session, message)
+        metadata = ensure_failed_metadata(session, message, failure_kind="runtime_error", next_action="manual_review", recoverable=True)
         summary = repository.add_part(
             session_id,
             "summary",
@@ -442,10 +445,12 @@ class BackgroundTaskManagerService:
                 "session_id": session_id,
                 "part_id": summary.get("id"),
                 "part_type": "summary",
-                "status": "completed",
+                "status": "needs_manual_review",
                 "summary": message,
                 "error": str(exc)[:1200],
                 "fallback": False,
+                "failure_kind": "runtime_error",
+                "next_action": "manual_review",
             },
         )
         result = repository.get_session(session_id) or session
@@ -470,7 +475,7 @@ class BackgroundTaskManagerService:
                     "Agent 后台任务失败，且标准失败记录也失败。"
                     f"原始错误：{str(original_exc)[:500]}；记录错误：{str(failure_exc)[:500]}"
                 )
-                metadata = ensure_failed_metadata(session, message)
+                metadata = ensure_failed_metadata(session, message, failure_kind="runtime_error", next_action="manual_review", recoverable=True)
                 self.service.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
                 event = self.service.repository.add_event(
                     session_id,
@@ -483,6 +488,8 @@ class BackgroundTaskManagerService:
                         "error": message,
                         "fallback": True,
                         "record_failure_error": str(failure_exc)[:1000],
+                        "failure_kind": "runtime_error",
+                        "next_action": "manual_review",
                     },
                 )
                 self.service.event_service._notify_event(session_id, event)

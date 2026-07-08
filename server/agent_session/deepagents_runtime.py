@@ -6,6 +6,7 @@ import logging
 import os
 import uuid
 from collections.abc import Callable, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -223,13 +224,11 @@ class DeepAgentsSessionRunner:
         self.agent_registry = AgentRegistry()
         self.async_subagent_service = async_subagent_service
         self.interrupt_session = interrupt_session
-        self._checkpointer = None
-        self._checkpointer_context = None
-        self._checkpointer_loop = None
+        self._compat_checkpointer_contexts: list[Any] = []
         self.state_machine = AgentSessionStateMachine(repository)
 
     async def run_prompt(self, session_id: str, prompt: str, *, context_files: dict[str, str] | None = None) -> dict[str, Any]:
-        try:
+        async with self._open_checkpointer() as checkpointer:
             session = self.repository.get_session(session_id)
             if not session:
                 raise ValueError("Agent session not found")
@@ -238,7 +237,7 @@ class DeepAgentsSessionRunner:
             trajectory_store = TrajectoryStateStore(self.repository, self.notify_event, session_id)
             if policy["enabled"]:
                 trajectory_store.begin_run()
-            graph = await self._build_graph(session, prompt)
+            graph = await self._build_graph(session, prompt, checkpointer=checkpointer)
             config = self._graph_config(session)
             mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
             mapper.session_started()
@@ -276,16 +275,14 @@ class DeepAgentsSessionRunner:
             mapper.complete_summary(summary)
             self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
-        finally:
-            await self._close_checkpointer()
 
     async def resume(self, session_id: str, decision: dict[str, Any]) -> dict[str, Any]:
-        try:
+        async with self._open_checkpointer() as checkpointer:
             session = self.repository.get_session(session_id)
             if not session:
                 raise ValueError("Agent session not found")
             prompt = str((session.get("metadata") or {}).get("current_goal") or "继续执行。")
-            graph = await self._build_graph(session, prompt)
+            graph = await self._build_graph(session, prompt, checkpointer=checkpointer)
             mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
             config = self._graph_config(session)
             last_summary = ""
@@ -319,10 +316,8 @@ class DeepAgentsSessionRunner:
             mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
             self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
-        finally:
-            await self._close_checkpointer()
 
-    async def _build_graph(self, session: dict[str, Any], prompt: str) -> Any:
+    async def _build_graph(self, session: dict[str, Any], prompt: str, *, checkpointer: Any | None = None) -> Any:
         _load_create_deep_agent()
         session_id = str(session.get("id"))
         project_path = str(session.get("project_path") or Path.cwd())
@@ -351,6 +346,8 @@ class DeepAgentsSessionRunner:
             project_path=project_path,
             agent=agent,
         )
+        if checkpointer is None:
+            checkpointer = await self._get_checkpointer()
         contract = AgentRuntimeContract.for_agent_session(
             session=session,
             goal=prompt,
@@ -362,7 +359,7 @@ class DeepAgentsSessionRunner:
                 *permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
             ],
             subagents=self._subagents_for_agent(agent_id, model, metadata),
-            checkpointer=await self._get_checkpointer(),
+            checkpointer=checkpointer,
         )
         return build_deep_agent_runtime(contract)
 
@@ -633,23 +630,38 @@ class DeepAgentsSessionRunner:
 
         return async_subagent_prompt(self.agent_registry, agent)
 
-    async def _get_checkpointer(self) -> Any:
-        loop = asyncio.get_running_loop()
-        if self._checkpointer is None or self._checkpointer_loop is not loop:
-            if self._checkpointer_context is not None:
-                try:
-                    await self._checkpointer_context.__aexit__(None, None, None)
-                except Exception:
-                    logger.debug("Failed to close stale DeepAgents checkpointer", exc_info=True)
-            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    @asynccontextmanager
+    async def _open_checkpointer(self) -> Any:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-            self._checkpointer_context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
-            self._checkpointer = await self._checkpointer_context.__aenter__()
-            await self._configure_checkpointer_sqlite(self._checkpointer)
-            self._checkpointer_loop = loop
-            if hasattr(self._checkpointer, "setup"):
-                await self._checkpointer.setup()
-        return self._checkpointer
+        context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
+        checkpointer = await context.__aenter__()
+        try:
+            await self._configure_checkpointer_sqlite(checkpointer)
+            if hasattr(checkpointer, "setup"):
+                await checkpointer.setup()
+            yield checkpointer
+        finally:
+            try:
+                await context.__aexit__(None, None, None)
+            except Exception:
+                logger.debug("Failed to close DeepAgents checkpointer", exc_info=True)
+
+    async def _get_checkpointer(self) -> Any:
+        """Compatibility helper for tests that call _build_graph directly.
+
+        Production prompt/resume paths use _open_checkpointer so every run owns
+        and closes its checkpointer in the current event loop.
+        """
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
+        checkpointer = await context.__aenter__()
+        self._compat_checkpointer_contexts.append(context)
+        await self._configure_checkpointer_sqlite(checkpointer)
+        if hasattr(checkpointer, "setup"):
+            await checkpointer.setup()
+        return checkpointer
 
     async def _configure_checkpointer_sqlite(self, checkpointer: Any) -> None:
         conn = getattr(checkpointer, "conn", None)
@@ -667,13 +679,12 @@ class DeepAgentsSessionRunner:
             logger.warning("Failed to configure DeepAgents checkpoint SQLite pragmas", exc_info=True)
 
     async def _close_checkpointer(self) -> None:
-        if self._checkpointer_context is not None:
+        while self._compat_checkpointer_contexts:
+            context = self._compat_checkpointer_contexts.pop()
             try:
-                await self._checkpointer_context.__aexit__(None, None, None)
+                await context.__aexit__(None, None, None)
             except Exception:
                 logger.debug("Failed to close DeepAgents checkpointer", exc_info=True)
-            self._checkpointer_context = None
-            self._checkpointer = None
 
     def _with_parts(self, session_id: str) -> dict[str, Any]:
         session = self.repository.get_session(session_id) or {}

@@ -75,12 +75,12 @@ async def _initialize_agent_services() -> None:
         from api.agent_sessions import get_agent_session_service
 
         service = get_agent_session_service()
-        recovered_sessions = service.recover_active_sessions_after_restart()
-        if recovered_sessions.get("recovered") or recovered_sessions.get("failed"):
-            logger.info("Agent session restart recovery complete: %s", recovered_sessions)
         recovered = await service.recover_async_subtasks()
         if recovered.get("scheduled") or recovered.get("synchronized"):
             logger.info("Async subagent recovery complete: %s", recovered)
+        recovered_sessions = service.recover_active_sessions_after_restart()
+        if recovered_sessions.get("recovered") or recovered_sessions.get("failed"):
+            logger.info("Agent session restart recovery complete: %s", recovered_sessions)
     except Exception as exc:
         logger.warning("Agent session recovery failed: %s", exc)
 

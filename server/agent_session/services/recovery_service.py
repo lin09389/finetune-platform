@@ -128,6 +128,9 @@ class RecoveryService:
             session_id = str(session.get("id") or "")
             if not session_id:
                 continue
+            metadata = dict(session.get("metadata") or {})
+            if metadata.get("async_subagent") or metadata.get("async_task_id"):
+                continue
             try:
                 self._mark_session_lost_after_restart(session)
                 recovered += 1
@@ -312,15 +315,30 @@ class RecoveryService:
             current = repository.get_session(session_id) or session
             if str(current.get("status") or "") not in self.service.ACTIVE_STATUSES:
                 return
-            metadata = ensure_failed_metadata(current, message)
+            metadata = ensure_failed_metadata(
+                current,
+                message,
+                failure_kind="process_restart",
+                next_action="rerun_prompt",
+                recoverable=True,
+            )
             metadata["recovered_after_restart"] = True
+            metadata["failure_kind"] = "process_restart"
+            metadata["next_action"] = "rerun_prompt"
+            metadata["recoverable"] = True
             summary = repository.add_part(
                 session_id,
                 "summary",
                 status="completed",
                 title="执行已中断",
                 content=message,
-                payload={"summary": message, "fallback": True, "recovered_after_restart": True},
+                payload={
+                    "summary": message,
+                    "fallback": True,
+                    "recovered_after_restart": True,
+                    "failure_kind": "process_restart",
+                    "next_action": "rerun_prompt",
+                },
             )
             self.service.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
             event = repository.add_event(
@@ -336,6 +354,8 @@ class RecoveryService:
                     "error": message,
                     "fallback": True,
                     "recovered_after_restart": True,
+                    "failure_kind": "process_restart",
+                    "next_action": "rerun_prompt",
                 },
             )
             self.service.event_service._notify_event(session_id, event)
