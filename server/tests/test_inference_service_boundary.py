@@ -160,6 +160,32 @@ def test_control_proxy_preserves_sse_frames(monkeypatch):
     assert response.text.endswith("data: [DONE]\n\n")
 
 
+@pytest.mark.asyncio
+async def test_service_gateway_status_endpoints_degrade_when_native_service_is_offline():
+    from core.inference_gateway import ServiceInferenceGateway
+
+    class UnavailableClient:
+        async def request(self, *_args, **_kwargs):
+            raise InferenceServiceUnavailable("native service down")
+
+        async def get_json(self, *_args, **_kwargs):
+            raise InferenceServiceUnavailable("native service down")
+
+    gateway = ServiceInferenceGateway()
+    gateway._client = UnavailableClient()
+
+    backends = await gateway.list_backends()
+    performance = await gateway.get_performance_stats()
+    recommendations = await gateway.get_performance_recommendations()
+
+    assert backends["backends"] == []
+    assert backends["service"]["available"] is False
+    assert performance["inference"] == {}
+    assert performance["service"]["code"] == "inference_service_unavailable"
+    assert recommendations["recommendations"] == []
+    assert recommendations["service"]["available"] is False
+
+
 def test_control_proxy_uses_opt_in_cloud_fallback(monkeypatch):
     proxy = importlib.import_module("api.inference_proxy")
 

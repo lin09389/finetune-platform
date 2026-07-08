@@ -13,6 +13,7 @@ branching on ``inference_execution_mode`` directly.
 from __future__ import annotations
 
 import asyncio
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -277,6 +278,18 @@ class ServiceInferenceGateway(InferenceGateway):
 
         self._client = get_inference_service_client()
 
+    @staticmethod
+    def _json_response(response) -> Any:
+        return json.loads(response.content)
+
+    @staticmethod
+    def _unavailable_status(exc: Exception) -> dict[str, Any]:
+        return {
+            "available": False,
+            "code": getattr(exc, "code", "inference_service_unavailable"),
+            "message": str(exc) or "Local inference service unavailable",
+        }
+
     async def chat_completions(self, request, raw_request=None) -> Any:
         import json as _json
 
@@ -290,26 +303,35 @@ class ServiceInferenceGateway(InferenceGateway):
             content=body.encode("utf-8"),
             headers=headers,
         )
-        return response.json()
+        return self._json_response(response)
 
     async def list_models(self, backend: str | None = None) -> Any:
         params = {}
         if backend:
             params["backend"] = backend
         response = await self._client.request("GET", "/inference/models", params=params)
-        return response.json()
+        return self._json_response(response)
 
     async def openai_list_models(self) -> Any:
         response = await self._client.request("GET", "/v1/models")
-        return response.json()
+        return self._json_response(response)
 
     async def list_backends(self) -> Any:
-        response = await self._client.request("GET", "/inference/backends")
-        return response.json()
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
+        try:
+            response = await self._client.request("GET", "/inference/backends")
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "current": None,
+                "backends": [],
+                "service": self._unavailable_status(exc),
+            }
 
     async def ollama_status(self) -> Any:
         response = await self._client.request("GET", "/inference/ollama/status")
-        return response.json()
+        return self._json_response(response)
 
     async def generate(self, request) -> Any:
         import json as _json
@@ -321,7 +343,7 @@ class ServiceInferenceGateway(InferenceGateway):
             content=body.encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        return response.json()
+        return self._json_response(response)
 
     async def generate_stream(self, request) -> Any:
         import json as _json
@@ -351,7 +373,7 @@ class ServiceInferenceGateway(InferenceGateway):
             content=body.encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        return response.json()
+        return self._json_response(response)
 
     async def chat_stream(self, request) -> Any:
         import json as _json
@@ -381,13 +403,32 @@ class ServiceInferenceGateway(InferenceGateway):
         return _json.loads(response.content)
 
     async def get_performance_stats(self, model_id: str | None = None) -> Any:
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
         params = {}
         if model_id:
             params["model_id"] = model_id
-        return await self._client.get_json("/inference/performance", params=params)
+        try:
+            return await self._client.get_json("/inference/performance", params=params)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "inference": {},
+                "streaming": {},
+                "service": self._unavailable_status(exc),
+            }
 
     async def get_performance_recommendations(self) -> Any:
-        return await self._client.get_json("/inference/performance/recommendations")
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
+        try:
+            return await self._client.get_json("/inference/performance/recommendations")
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "recommendations": [],
+                "device_info": {},
+                "hardware_profile": {},
+                "service": self._unavailable_status(exc),
+            }
 
     async def clear_performance_history(self) -> Any:
         import json as _json
