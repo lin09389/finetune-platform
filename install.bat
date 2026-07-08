@@ -56,8 +56,8 @@ if errorlevel 1 (
 )
 
 cd /d "%~dp0"
-echo   使用 uv sync --frozen --extra dev
-uv sync --frozen --extra dev
+echo   使用 uv sync --frozen --extra all --extra dev
+uv sync --frozen --extra all --extra dev
 if errorlevel 1 (
     echo   uv 安装失败，回退到 pip 兼容安装...
     cd /d "%~dp0server"
@@ -89,6 +89,6 @@ echo      cd server ^&^& uvicorn main:app --reload
 echo      cd client ^&^& npm run dev
 echo.
 echo 提示: 后端依赖以 pyproject.toml + uv.lock 为准:
-echo   uv sync --frozen --extra dev
+echo   uv sync --frozen --extra all --extra dev
 echo.
 pause

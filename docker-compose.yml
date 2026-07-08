@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        UV_EXTRAS: "--extra agent --extra rag --extra cua --extra modelhub --extra model-ops"
     container_name: finetune-api
     ports:
       - "8010:8010"
@@ -49,7 +51,9 @@ services:
   training-worker:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gpu
+      args:
+        UV_EXTRAS: "--extra training --extra gpu"
     container_name: finetune-training-worker
     command: ["python", "-m", "server.training_worker"]
     environment:
@@ -74,7 +78,9 @@ services:
   inference-service:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gpu
+      args:
+        UV_EXTRAS: "--extra inference"
     container_name: finetune-inference-service
     command: ["python", "-m", "server.inference_server"]
     environment:

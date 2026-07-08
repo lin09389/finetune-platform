@@ -26,8 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml uv.lock ./
 
+# GPU execution image dependency profile.
+#
+# Compose overrides this per execution unit:
+# - training-worker: --extra training --extra gpu
+# - inference-service: --extra inference
+ARG UV_EXTRAS="--extra training --extra gpu"
+
 RUN pip install --no-cache-dir uv \
-    && uv sync --frozen --no-dev --extra gpu
+    && uv sync --frozen --no-dev --no-install-project $UV_EXTRAS
 
 COPY server/ ./server/
 

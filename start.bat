@@ -38,8 +38,8 @@ cd /d "%~dp0"
 set "USE_UV=0"
 where uv >nul 2>&1
 if not errorlevel 1 (
-    echo [INFO] 使用 uv sync --frozen 检查后端依赖
-    uv sync --frozen
+    echo [INFO] 使用 uv sync --frozen --extra all 检查后端依赖
+    uv sync --frozen --extra all
     if errorlevel 1 (
         echo [错误] uv 依赖同步失败
         pause
@@ -85,7 +85,7 @@ echo.
 REM 启动后端
 echo [本地推理服务] 启动中...
 if "%USE_UV%"=="1" (
-    start "Finetune - 推理服务" /d "%~dp0" cmd /k uv run python -m server.inference_server
+    start "Finetune - 推理服务" /d "%~dp0" cmd /k uv run --extra all python -m server.inference_server
 ) else if exist "%~dp0.venv\Scripts\python.exe" (
     start "Finetune - 推理服务" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m inference_server
 ) else (
@@ -94,7 +94,7 @@ if "%USE_UV%"=="1" (
 
 echo [训练 Worker] 启动中...
 if "%USE_UV%"=="1" (
-    start "Finetune - 训练 Worker" /d "%~dp0" cmd /k uv run python -m server.training_worker
+    start "Finetune - 训练 Worker" /d "%~dp0" cmd /k uv run --extra all python -m server.training_worker
 ) else if exist "%~dp0.venv\Scripts\python.exe" (
     start "Finetune - 训练 Worker" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m training_worker
 ) else (
@@ -104,7 +104,7 @@ if "%USE_UV%"=="1" (
 REM 启动后端
 echo [后端] 启动中...
 if "%USE_UV%"=="1" (
-    start "Finetune - 后端" /d "%~dp0" cmd /k uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+    start "Finetune - 后端" /d "%~dp0" cmd /k uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 ) else if exist "%~dp0.venv\Scripts\python.exe" (
     start "Finetune - 后端" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8010
 ) else (

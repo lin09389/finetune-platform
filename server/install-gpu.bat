@@ -26,10 +26,10 @@ if errorlevel 1 (
 )
 
 echo.
-echo [2/4] 同步项目依赖（含 GPU extra）...
-uv sync --frozen --extra gpu
+echo [2/4] 同步项目依赖（含训练与 GPU extra）...
+uv sync --frozen --extra training --extra gpu
 if errorlevel 1 (
-    echo [错误] uv sync --extra gpu 失败
+    echo [错误] uv sync --extra training --extra gpu 失败
     pause
     exit /b 1
 )

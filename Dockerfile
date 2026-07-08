@@ -35,9 +35,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 复制依赖文件
 COPY pyproject.toml uv.lock ./
 
+# API/control-plane image dependency profile.
+#
+# The default keeps the public API feature-compatible with the current
+# combined app: Agent + local Knowledge/RAG + experimental CUA + model hub and
+# model-ops routes. It deliberately does not install worker-only datasets,
+# llama.cpp, gRPC tools, or bitsandbytes. Local RAG/model-ops still pull PyTorch;
+# use remote providers before expecting a Torch-free API image.
+ARG UV_EXTRAS="--extra agent --extra rag --extra cua --extra modelhub --extra model-ops"
+
 # 安装 uv 并同步依赖（使用国内 PyPI 镜像，--no-binary :none: 可换 wheel）
 RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ uv \
-    && uv sync --frozen --no-dev --no-install-project
+    && uv sync --frozen --no-dev --no-install-project $UV_EXTRAS
 
 # 复制服务器代码
 COPY server/ ./server/

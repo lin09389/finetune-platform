@@ -209,12 +209,16 @@ npm run test:runtime
 ### 依赖管理
 
 ```bash
-uv sync
+uv sync --extra all --extra dev
 uv lock
-uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.txt
+uv export --extra all --no-dev --no-hashes --format requirements-txt -o server/requirements.txt
+uv export --extra agent --extra rag --extra cua --extra modelhub --extra model-ops --no-dev --no-hashes --format requirements-txt -o server/requirements-api.txt
+uv export --extra training --extra gpu --no-dev --no-hashes --format requirements-txt -o server/requirements-training.txt
+uv export --extra inference --no-dev --no-hashes --format requirements-txt -o server/requirements-inference.txt
 ```
 
-`server/requirements.txt` 由 `uv export` 生成，不建议手工编辑。
+`server/requirements*.txt` 由 `uv export` 生成，不建议手工编辑。依赖分组与镜像拆分见
+`docs/dependency-profiles.md`。
 
 ## 主要页面
 

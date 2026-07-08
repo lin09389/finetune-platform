@@ -7,15 +7,15 @@ echo 启动后端服务...
 cd /d "%~dp0"
 where uv >nul 2>&1
 if not errorlevel 1 (
-    uv sync --frozen
+    uv sync --frozen --extra all
     if errorlevel 1 (
         echo [错误] uv 依赖同步失败
         pause
         exit /b 1
     )
-    start "Finetune - 推理服务" /d "%~dp0" cmd /k uv run python -m server.inference_server
-    start "Finetune - 训练 Worker" /d "%~dp0" cmd /k uv run python -m server.training_worker
-    uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010 --log-level debug
+    start "Finetune - 推理服务" /d "%~dp0" cmd /k uv run --extra all python -m server.inference_server
+    start "Finetune - 训练 Worker" /d "%~dp0" cmd /k uv run --extra all python -m server.training_worker
+    uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 8010 --log-level debug
 ) else (
     cd /d "%~dp0server"
     if exist "%~dp0.venv\Scripts\python.exe" (
