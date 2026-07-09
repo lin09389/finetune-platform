@@ -290,31 +290,72 @@ class ServiceInferenceGateway(InferenceGateway):
             "message": str(exc) or "Local inference service unavailable",
         }
 
+    def _degraded_generation_result(self, exc: Exception) -> dict[str, Any]:
+        """Controlled degrade payload when the remote inference service is down/timed out.
+
+        Mirrors list_backends unavailability handling: never let the exception cascade
+        to a bare 500. Callers may map this to HTTP 503/504.
+        """
+        status = self._unavailable_status(exc)
+        http_status = 504 if status.get("code") == "inference_timeout" else 503
+        return {
+            "error": {
+                "code": status["code"],
+                "message": status["message"],
+                "type": "service_unavailable",
+            },
+            "service": status,
+            "finish_reason": "error",
+            "_http_status": http_status,
+        }
+
     async def chat_completions(self, request, raw_request=None) -> Any:
         import json as _json
+
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
 
         body = _json.dumps(request.model_dump() if hasattr(request, "model_dump") else dict(request))
         headers = {"Content-Type": "application/json"}
         if raw_request is not None:
             headers["X-Backend"] = raw_request.headers.get("X-Backend") or ""
-        response = await self._client.request(
-            "POST",
-            "/v1/chat/completions",
-            content=body.encode("utf-8"),
-            headers=headers,
-        )
-        return self._json_response(response)
+        try:
+            response = await self._client.request(
+                "POST",
+                "/v1/chat/completions",
+                content=body.encode("utf-8"),
+                headers=headers,
+            )
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return self._degraded_generation_result(exc)
 
     async def list_models(self, backend: str | None = None) -> Any:
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
         params = {}
         if backend:
             params["backend"] = backend
-        response = await self._client.request("GET", "/inference/models", params=params)
-        return self._json_response(response)
+        try:
+            response = await self._client.request("GET", "/inference/models", params=params)
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "models": [],
+                "service": self._unavailable_status(exc),
+            }
 
     async def openai_list_models(self) -> Any:
-        response = await self._client.request("GET", "/v1/models")
-        return self._json_response(response)
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
+        try:
+            response = await self._client.request("GET", "/v1/models")
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "object": "list",
+                "data": [],
+                "service": self._unavailable_status(exc),
+            }
 
     async def list_backends(self) -> Any:
         from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
@@ -330,68 +371,104 @@ class ServiceInferenceGateway(InferenceGateway):
             }
 
     async def ollama_status(self) -> Any:
-        response = await self._client.request("GET", "/inference/ollama/status")
-        return self._json_response(response)
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
+        try:
+            response = await self._client.request("GET", "/inference/ollama/status")
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return {
+                "status": "unavailable",
+                "service": self._unavailable_status(exc),
+            }
 
     async def generate(self, request) -> Any:
         import json as _json
 
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
         body = _json.dumps(request.model_dump() if hasattr(request, "model_dump") else dict(request))
-        response = await self._client.request(
-            "POST",
-            "/inference/generate",
-            content=body.encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        return self._json_response(response)
+        try:
+            response = await self._client.request(
+                "POST",
+                "/inference/generate",
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return self._degraded_generation_result(exc)
 
     async def generate_stream(self, request) -> Any:
         import json as _json
 
-        from fastapi.responses import StreamingResponse
+        from fastapi.responses import JSONResponse, StreamingResponse
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
 
         body = _json.dumps(request.model_dump() if hasattr(request, "model_dump") else dict(request))
-        response = await self._client.open_stream(
-            "POST",
-            "/inference/generate/stream",
-            content=body.encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        return StreamingResponse(
-            response.aiter_raw(),
-            status_code=response.status_code,
-            headers={k: v for k, v in response.headers.items() if k.lower() in {"content-type"}},
-        )
+        try:
+            response = await self._client.open_stream(
+                "POST",
+                "/inference/generate/stream",
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            return StreamingResponse(
+                response.aiter_raw(),
+                status_code=response.status_code,
+                headers={k: v for k, v in response.headers.items() if k.lower() in {"content-type"}},
+            )
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            payload = self._degraded_generation_result(exc)
+            return JSONResponse(
+                status_code=int(payload["_http_status"]),
+                content={"error": payload["error"], "service": payload["service"]},
+                headers={"Retry-After": "5"},
+            )
 
     async def chat(self, request) -> Any:
         import json as _json
 
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
+
         body = _json.dumps(request.model_dump() if hasattr(request, "model_dump") else dict(request))
-        response = await self._client.request(
-            "POST",
-            "/inference/chat",
-            content=body.encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        return self._json_response(response)
+        try:
+            response = await self._client.request(
+                "POST",
+                "/inference/chat",
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            return self._json_response(response)
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            return self._degraded_generation_result(exc)
 
     async def chat_stream(self, request) -> Any:
         import json as _json
 
-        from fastapi.responses import StreamingResponse
+        from fastapi.responses import JSONResponse, StreamingResponse
+        from inference_provider.client import InferenceServiceTimeout, InferenceServiceUnavailable
 
         body = _json.dumps(request.model_dump() if hasattr(request, "model_dump") else dict(request))
-        response = await self._client.open_stream(
-            "POST",
-            "/inference/chat/stream",
-            content=body.encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        return StreamingResponse(
-            response.aiter_raw(),
-            status_code=response.status_code,
-            headers={k: v for k, v in response.headers.items() if k.lower() in {"content-type"}},
-        )
+        try:
+            response = await self._client.open_stream(
+                "POST",
+                "/inference/chat/stream",
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            return StreamingResponse(
+                response.aiter_raw(),
+                status_code=response.status_code,
+                headers={k: v for k, v in response.headers.items() if k.lower() in {"content-type"}},
+            )
+        except (InferenceServiceTimeout, InferenceServiceUnavailable) as exc:
+            payload = self._degraded_generation_result(exc)
+            return JSONResponse(
+                status_code=int(payload["_http_status"]),
+                content={"error": payload["error"], "service": payload["service"]},
+                headers={"Retry-After": "5"},
+            )
 
     async def get_cache_status(self) -> Any:
         return await self._client.get_json("/inference/cache/status")

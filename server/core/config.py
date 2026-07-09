@@ -4,7 +4,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HF_MIRRORS = {
@@ -131,7 +131,26 @@ class Settings(BaseSettings):
     inference_service_url: str = Field(default="http://127.0.0.1:8020")
     inference_service_host: str = Field(default="127.0.0.1")
     inference_service_port: int = Field(default=8020, ge=1, le=65535)
-    inference_internal_api_key: str = Field(default="finetune-local-inference-dev-key")
+    inference_internal_api_key: str = Field(
+        default="finetune-local-inference-dev-key",
+        description="Internal key shared by control plane and inference_server",
+    )
+    allow_local_agent_auth: bool = Field(
+        default=False,
+        description="Explicit opt-in for local agent auth fallback (ALLOW_LOCAL_AGENT_AUTH)",
+    )
+    gpu_coordination: bool = Field(
+        default=True,
+        description="Cross-process GPU train/infer coordination (GPU_COORDINATION)",
+    )
+    enable_experimental_capabilities: bool = Field(
+        default=True,
+        description=(
+            "Register experimental routers (CUA/MCP/Gateway/Heartbeat/OCR). "
+            "Production/staging default OFF unless ENABLE_EXPERIMENTAL_CAPABILITIES "
+            "is explicitly true."
+        ),
+    )
     inference_service_connect_timeout_seconds: float = Field(default=3.0, ge=0.1, le=60)
     inference_service_read_timeout_seconds: float = Field(default=180.0, ge=1, le=3600)
     inference_service_max_retries: int = Field(default=2, ge=0, le=10)
@@ -183,20 +202,43 @@ class Settings(BaseSettings):
         description="允许的文件类型"
     )
 
-    @field_validator('environment', mode='after')
-    @classmethod
-    def validate_environment_security(cls, v, info):
-        if v == 'production':
-            enable_auth = info.data.get('enable_auth', True)
-            if not enable_auth:
-                raise ValueError("生产环境必须启用认证 (ENABLE_AUTH=true)")
-            jwt_secret = info.data.get('jwt_secret_key')
-            if not jwt_secret:
-                raise ValueError("生产环境必须设置 JWT_SECRET_KEY")
-            origins = info.data.get('allowed_origins')
+    @model_validator(mode="after")
+    def validate_environment_security(self):
+        """Fail-closed security baseline for production/staging (all fields available)."""
+        import os
+
+        v = self.environment
+        if v in ("production", "staging"):
+            if not self.enable_auth:
+                raise ValueError(f"{v} 环境必须启用认证 (ENABLE_AUTH=true)")
+            if not self.jwt_secret_key:
+                raise ValueError(f"{v} 环境必须设置 JWT_SECRET_KEY")
+            origins = self.allowed_origins
             if isinstance(origins, list) and "*" in origins:
-                raise ValueError("生产环境不允许 CORS 通配符 (ALLOWED_ORIGINS=*)")
-        return v
+                raise ValueError(f"{v} 环境不允许 CORS 通配符 (ALLOWED_ORIGINS=*)")
+            if self.inference_internal_api_key == "finetune-local-inference-dev-key":
+                raise ValueError(
+                    f"{v} 环境禁止使用默认 INFERENCE_INTERNAL_API_KEY "
+                    "(finetune-local-inference-dev-key)"
+                )
+            # Production-safe default: experimental off unless explicitly opted in.
+            # NOTE: We intentionally read the raw env var here rather than
+            # ``self.enable_experimental_capabilities``. The field defaults to True
+            # (so dev/test get experimental routes), so we cannot distinguish a
+            # deliberate production opt-in from the default by field value alone.
+            # In production/staging the env var ENABLE_EXPERIMENTAL_CAPABILITIES
+            # is the single source of truth — a value set only via config file
+            # will NOT enable experimental routes in production. This is the
+            # safe, fail-closed behavior.
+            raw_exp = os.environ.get("ENABLE_EXPERIMENTAL_CAPABILITIES")
+            if raw_exp is None or str(raw_exp).strip().lower() not in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
+                object.__setattr__(self, "enable_experimental_capabilities", False)
+        return self
 
     @field_validator('allowed_origins', mode='before')
     @classmethod

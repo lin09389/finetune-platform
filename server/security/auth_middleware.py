@@ -3,10 +3,21 @@ FastAPI 安全中间件 - 速率限制和 JWT 认证
 
 功能：
 - 速率限制中间件
-- JWT 认证中间件
-- 组合安全中间件
+- JWT 认证中间件（legacy class form — not registered by apps.factory）
+- 组合安全中间件（legacy class form — not registered by apps.factory）
+
+Live authentication path
+------------------------
+``server.apps.factory.authentication_middleware`` is the **only** middleware
+registered on application startup. Prefer that path for production behavior.
+
+The ``JWTAuthMiddleware`` / ``SecurityMiddleware`` classes below are retained
+for optional dependency-injection style usage and legacy imports. Do not
+register them alongside the factory middleware unless you intentionally want
+a second, different error contract (HTTPException vs JSONResponse).
 """
 import logging
+import warnings
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -19,6 +30,21 @@ from .rate_limiter import RateLimiter, get_rate_limiter
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
+
+_LEGACY_AUTH_MW_WARNED = False
+
+
+def _warn_legacy_auth_middleware(name: str) -> None:
+    global _LEGACY_AUTH_MW_WARNED
+    if _LEGACY_AUTH_MW_WARNED:
+        return
+    _LEGACY_AUTH_MW_WARNED = True
+    warnings.warn(
+        f"{name} is a legacy auth middleware path. "
+        "The live chain is apps.factory.authentication_middleware.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -103,7 +129,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
-    """JWT 认证中间件"""
+    """Legacy JWT auth middleware (class form).
+
+    Not registered by ``apps.factory`` — live path is
+    ``apps.factory.authentication_middleware``. Prefer Depends-based
+    ``get_current_user`` / ``require_roles`` for route-level auth.
+    """
 
     def __init__(
         self,
@@ -114,6 +145,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         exclude_prefixes: set[str] | None = None,
         required_role: Role | None = None
     ):
+        _warn_legacy_auth_middleware("JWTAuthMiddleware")
         super().__init__(app)
         self.auth = auth or get_jwt_auth()
         self.enabled = enabled
@@ -121,7 +153,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.exclude_prefixes = exclude_prefixes or {'/docs', '/redoc', '/openapi.json', '/static'}
         self.required_role = required_role
 
-        logger.info(f"JWT 认证中间件已{'启用' if enabled else '禁用'}")
+        logger.info(f"JWT 认证中间件已{'启用' if enabled else '禁用'} (legacy class path)")
 
     async def dispatch(self, request: Request, call_next):
         if not self.enabled:
@@ -179,7 +211,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
-    """组合安全中间件"""
+    """Legacy combined security middleware (class form).
+
+    Not registered by ``apps.factory``. Live chain uses function-style
+    ``authentication_middleware`` in factory.py.
+    """
 
     def __init__(
         self,
@@ -192,6 +228,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         rate_limit_whitelist_ips: set[str] | None = None,
         required_role: Role | None = None
     ):
+        _warn_legacy_auth_middleware("SecurityMiddleware")
         super().__init__(app)
         self.enabled = enabled
         self.rate_limit_enabled = rate_limit_enabled
@@ -280,3 +317,31 @@ def require_roles(*roles: Role):
                 return current_user
         raise HTTPException(403, detail="权限不足")
     return role_checker
+
+
+async def require_cua_admin(
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
+) -> TokenPayload | None:
+    """CUA host-control gate: ADMIN+ when auth is enabled; no anonymous control.
+
+    When ENABLE_AUTH=false (local/test), dependency allows the request through so
+    non-auth test suites remain usable — production always has ENABLE_AUTH=true.
+    DEBUG never bypasses role checks while auth is on.
+    """
+    from core.config import get_settings
+
+    if not get_settings().enable_auth:
+        return current_user
+    if current_user is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "missing_authorization", "message": "CUA requires authentication"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    auth = get_jwt_auth()
+    if not auth.has_role(current_user, Role.ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "insufficient_role", "message": "CUA requires administrator role"},
+        )
+    return current_user

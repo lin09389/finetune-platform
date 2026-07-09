@@ -66,6 +66,7 @@ _PUBLIC_PATHS = {
     "/",
     "/health",
     "/api/info",
+    "/experimental/status",
     "/openapi.json",
     "/docs",
     "/redoc",
@@ -146,9 +147,17 @@ def _cors_response_headers_for_request(request: Request) -> dict[str, str]:
 
 
 def _allows_local_agent_auth_fallback(path: str) -> bool:
-    return settings.environment == "development" and path.startswith(
-        _LOCAL_AGENT_AUTH_FALLBACK_PREFIXES
-    )
+    """Skip bearer auth for agent routes only under explicit local opt-in.
+
+    Production/staging never allow this (even if ALLOW_LOCAL_AGENT_AUTH is set).
+    Non-production requires ALLOW_LOCAL_AGENT_AUTH=true — bare development alone
+    is not enough when ENABLE_AUTH=true.
+    """
+    from security.runtime_policy import allow_local_agent_auth
+
+    if not allow_local_agent_auth(settings):
+        return False
+    return path.startswith(_LOCAL_AGENT_AUTH_FALLBACK_PREFIXES)
 
 
 def _authentication_error_response(request: Request, message: str) -> JSONResponse:
@@ -341,6 +350,10 @@ async def _health_payload(include_accelerator: bool) -> dict:
 
 
 async def api_info():
+    """Capability tiers and mounts are registry-driven (apps.capability_registry)."""
+    from apps.capability_registry import build_info_capability_payload
+
+    tier_payload = build_info_capability_payload(settings)
     return {
         "name": "Finetune Platform API",
         "version": "2.1.0",
@@ -352,26 +365,9 @@ async def api_info():
             "Chat sessions and knowledge retrieval",
             "Workspace and local AI tooling",
         ],
-        "capability_tiers": {
-            "ga": [
-                "device",
-                "models",
-                "datasets",
-                "training",
-                "inference",
-                "chat_sessions",
-                "knowledge_base",
-            ],
-            "beta": ["project_context", "memory", "model_center", "workspace"],
-            "experimental": [
-                "cua",
-                "heartbeat",
-                "mcp",
-                "gateway",
-                "ocr_fallbacks",
-                "action_recorder",
-            ],
-        },
+        "capability_tiers": tier_payload["capability_tiers"],
+        "experimental_enabled": tier_payload["experimental_enabled"],
+        "experimental_capabilities": tier_payload["experimental_capabilities"],
         "training_runtime": {
             "execution_mode": settings.training_execution_mode,
             "queue": "sqlite" if settings.training_execution_mode == "worker" else "in_process",
@@ -383,28 +379,42 @@ async def api_info():
             "worker_command": "uv run python -m server.inference_server",
             "cloud_fallback_enabled": settings.inference_cloud_fallback_enabled,
         },
-        "endpoints": {
-            "device": "/device",
-            "models": "/models",
-            "datasets": "/datasets",
-            "training": "/training",
-            "inference": "/inference",
-            "chat": "/chat/sessions",
-            "knowledge": "/knowledge",
-            "runtime": "/runtime/bootstrap",
-            "memory": "/memory",
-            "workspace": "/workspace",
-            "context": "/context",
-            "model_center": "/model-center",
-            "experimental": {
-                "cua": "/cua",
-                "mcp": "/mcp",
-                "gateway": "/gateway",
-                "heartbeat": "/heartbeat",
-                "ocr": "/ocr",
-            },
-        },
+        "endpoints": tier_payload["endpoints"],
     }
+
+
+async def experimental_status():
+    """Experimental readiness — independent of core /health."""
+    from apps.capability_registry import experimental_status_payload
+
+    return experimental_status_payload(settings)
+
+
+async def experimental_isolation_middleware(request: Request, call_next):
+    """Contain experimental-path failures so they do not surface as unhandled GA crashes.
+
+    Only wraps ``/experimental/*`` (and logs tier context). Legacy experimental
+    aliases still run through normal handlers + existing auth.
+    """
+    path = request.url.path.rstrip("/") or "/"
+    if not path.startswith("/experimental"):
+        return await call_next(request)
+    try:
+        return await call_next(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Experimental route failure path=%s: %s", path, exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "experimental_unavailable",
+                "tier": "experimental",
+                "detail": "Experimental capability failed; core GA endpoints are unaffected.",
+                "path": path,
+            },
+            headers={"X-Capability-Tier": "experimental"},
+        )
 
 
 async def custom_api_error_handler(request: Request, exc):
@@ -469,6 +479,7 @@ def _register_common_behavior(app: FastAPI, profile: ApplicationProfile) -> None
         ],
     )
     app.middleware("http")(authentication_middleware)
+    app.middleware("http")(experimental_isolation_middleware)
     app.middleware("http")(trace_middleware)
     app.middleware("http")(security_middleware)
     app.middleware("http")(logging_middleware)
@@ -483,6 +494,12 @@ def _register_common_behavior(app: FastAPI, profile: ApplicationProfile) -> None
         profile_health = agent_health_check
     app.add_api_route("/health", profile_health, methods=["GET"], name="health_check")
     app.add_api_route("/api/info", api_info, methods=["GET"])
+    app.add_api_route(
+        "/experimental/status",
+        experimental_status,
+        methods=["GET"],
+        tags=["Experimental"],
+    )
 
     from api.errors import APIError
 

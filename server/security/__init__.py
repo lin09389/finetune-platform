@@ -16,6 +16,7 @@ from .auth_middleware import (
     RateLimitMiddleware,
     get_current_user,
     get_current_user_optional,
+    require_cua_admin,
     require_roles,
 )
 from .auth_middleware import SecurityMiddleware as AuthSecurityMiddleware
@@ -56,4 +57,5 @@ __all__ = [
     "get_current_user",
     "get_current_user_optional",
     "require_roles",
+    "require_cua_admin",
 ]

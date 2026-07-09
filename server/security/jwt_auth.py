@@ -174,11 +174,10 @@ class JWTAuth:
         issuer: str = "finetune-platform",
         db_path: str = "data/app.db",
     ):
-        self.secret_key = secret_key or os.environ.get('JWT_SECRET_KEY')
+        from security.runtime_policy import require_configured_jwt_secret
 
-        if not self.secret_key:
-            self.secret_key = secrets.token_hex(32)
-            logger.warning("使用自动生成的 JWT 密钥，生产环境请设置 JWT_SECRET_KEY 环境变量")
+        # Fail-closed: never silently mint a random secret (multi-worker inconsistency).
+        self.secret_key = require_configured_jwt_secret(secret_key, source="JWTAuth")
 
         self.algorithm = algorithm
         self.access_token_expire = timedelta(minutes=access_token_expire_minutes)
@@ -453,6 +452,12 @@ def get_jwt_auth() -> JWTAuth:
             )
         )
     return _jwt_auth
+
+
+def reset_jwt_auth() -> None:
+    """Clear process-wide JWTAuth singleton (tests / secret rotation)."""
+    global _jwt_auth
+    _jwt_auth = None
 
 
 def init_jwt_auth(

@@ -18,18 +18,34 @@ logger = logging.getLogger("finetune-platform")
 
 
 def _warn_about_auth_configuration() -> None:
+    from security.runtime_policy import (
+        assert_inference_internal_key_safe,
+        is_production_environment,
+        require_configured_jwt_secret,
+    )
+
     if not settings.enable_auth:
+        if is_production_environment(settings):
+            raise RuntimeError(
+                "SECURITY: Authentication cannot be disabled in production/staging "
+                "(ENABLE_AUTH=false is forbidden)."
+            )
         logger.warning(
             "SECURITY: Authentication is DISABLED (enable_auth=false). "
             "This should NEVER be used in production. "
             "Set ENABLE_AUTH=true and JWT_SECRET_KEY for production deployments."
         )
-    if not settings.jwt_secret_key and settings.enable_auth:
-        logger.warning(
-            "SECURITY: JWT secret key is auto-generated. "
-            "Tokens will be invalidated on restart. "
-            "Set JWT_SECRET_KEY environment variable for persistent authentication."
+    if settings.enable_auth:
+        # Fail-closed: align JWTAuth init with settings (no silent random secret).
+        require_configured_jwt_secret(
+            settings.jwt_secret_key or __import__("os").environ.get("JWT_SECRET_KEY"),
+            settings=settings,
+            source="lifespan",
         )
+    try:
+        assert_inference_internal_key_safe(settings)
+    except RuntimeError:
+        raise
 
 
 def _initialize_storage() -> None:
@@ -228,6 +244,46 @@ async def _shutdown_agent_services() -> None:
         logger.info("Async subagent tasks shutdown complete")
     except Exception as exc:
         logger.warning("Async subagent shutdown failed: %s", exc)
+
+    try:
+        from api.chat.session import close_session_manager
+
+        close_session_manager()
+        logger.info("Chat session manager shutdown complete")
+    except Exception as exc:
+        logger.warning("Chat session manager shutdown failed: %s", exc)
+
+    try:
+        from context.service import close_context_service
+
+        close_context_service()
+        logger.info("Project context service shutdown complete")
+    except Exception as exc:
+        logger.warning("Project context service shutdown failed: %s", exc)
+
+    try:
+        from rag.embedder import close_embedder
+
+        close_embedder()
+        logger.info("RAG embedder shutdown complete")
+    except Exception as exc:
+        logger.warning("RAG embedder shutdown failed: %s", exc)
+
+    try:
+        from rag.vector_store import close_vector_store
+
+        close_vector_store()
+        logger.info("RAG vector store shutdown complete")
+    except Exception as exc:
+        logger.warning("RAG vector store shutdown failed: %s", exc)
+
+    try:
+        from memory.memory_service import close_memory_service
+
+        close_memory_service()
+        logger.info("Memory service shutdown complete")
+    except Exception as exc:
+        logger.warning("Memory service shutdown failed: %s", exc)
 
 
 async def _shutdown_shared_services() -> None:

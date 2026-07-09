@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import uuid
+import weakref
 from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -43,6 +44,10 @@ from .trajectory import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Tracks live runner instances so test fixtures can close compat checkpointer
+# contexts created via _get_checkpointer() without each test having to do it.
+_RUNNER_INSTANCES: "weakref.WeakSet[DeepAgentsSessionRunner]" = weakref.WeakSet()
 
 DEEPAGENTS_BUILTIN_TOOLS = frozenset(
     {
@@ -226,6 +231,7 @@ class DeepAgentsSessionRunner:
         self.interrupt_session = interrupt_session
         self._compat_checkpointer_contexts: list[Any] = []
         self.state_machine = AgentSessionStateMachine(repository)
+        _RUNNER_INSTANCES.add(self)
 
     async def run_prompt(self, session_id: str, prompt: str, *, context_files: dict[str, str] | None = None) -> dict[str, Any]:
         async with self._open_checkpointer() as checkpointer:
@@ -685,6 +691,15 @@ class DeepAgentsSessionRunner:
                 await context.__aexit__(None, None, None)
             except Exception:
                 logger.debug("Failed to close DeepAgents checkpointer", exc_info=True)
+
+    async def aclose(self) -> None:
+        """Close any compat checkpointer contexts held by this runner.
+
+        Tests that construct a runner directly (and reach ``_get_checkpointer``)
+        should ensure this is called in teardown. The shared autouse fixture in
+        the runtime test modules calls it for all live runners automatically.
+        """
+        await self._close_checkpointer()
 
     def _with_parts(self, session_id: str) -> dict[str, Any]:
         session = self.repository.get_session(session_id) or {}

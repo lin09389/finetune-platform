@@ -1,5 +1,8 @@
 """
 CUA (Computer Use Agent) API 路由
+
+Host control surface (mouse/keyboard/window/screenshot/OCR/record). All routes
+require administrator role when ENABLE_AUTH is true (Phase-0 security).
 """
 import base64
 import io
@@ -7,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from PIL import Image
 from pydantic import BaseModel, Field
 
@@ -37,10 +40,15 @@ from cua.recorder import (
 from cua.safety import get_safety_controller
 from cua.screen import ScreenCapture
 from cua.window import get_window_manager
+from security.auth_middleware import require_cua_admin
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/cua", tags=["CUA - Computer Use Agent"])
+router = APIRouter(
+    prefix="/cua",
+    tags=["CUA - Computer Use Agent"],
+    dependencies=[Depends(require_cua_admin)],
+)
 
 _screenshot_result: ScreenshotResult | None = None
 _last_screenshot_base64: str | None = None

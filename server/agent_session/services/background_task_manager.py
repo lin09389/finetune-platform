@@ -346,6 +346,10 @@ class BackgroundTaskManagerService:
                 record = self._prompt_tasks.get(session_id)
                 if record and record[1] is current_task:
                     self._prompt_tasks.pop(session_id, None)
+            # Release the per-session start lock once the prompt task is done so
+            # the _session_start_locks dict doesn't grow unbounded over many sessions.
+            with self._session_start_locks_lock:
+                self._session_start_locks.pop(session_id, None)
 
     def _is_active_prompt(self, session_id: str, prompt_id: str) -> bool:
         session = self.service.repository.get_session(session_id)

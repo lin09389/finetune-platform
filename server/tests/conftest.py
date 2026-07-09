@@ -10,6 +10,12 @@ os.environ.setdefault("ENABLE_AUTH", "false")
 os.environ.setdefault("ENVIRONMENT", "development")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
 os.environ.setdefault("ALLOWED_ORIGINS", "*")
+# Explicit local agent auth opt-in for optional-auth desktop tests (not production).
+os.environ.setdefault("ALLOW_LOCAL_AGENT_AUTH", "true")
+# Stable non-default key for service-mode inference tests.
+os.environ.setdefault("INFERENCE_INTERNAL_API_KEY", "test-internal-inference-key")
+# Development tests expect experimental routes (CUA/MCP/…) registered.
+os.environ.setdefault("ENABLE_EXPERIMENTAL_CAPABILITIES", "true")
 # Align default test execution mode with production defaults.
 # Tests now run against the worker/service boundary by default, using
 # Test Doubles for the GPU worker and the inference service process.
@@ -76,6 +82,36 @@ def _reset_global_singletons():
     reset_training_job_repositories_for_tests()
     reset_training_context()
     StateManager._instance = None
+
+
+@_pytest.fixture(autouse=True)
+def _close_deepagents_runners():
+    """Close compat checkpointer contexts created by DeepAgentsSessionRunner.
+
+    Tests that build a runner directly and reach ``_get_checkpointer`` (the
+    compatibility helper) would otherwise leak aiosqlite connections. This runs
+    after every test, drains the live-runner WeakSet, and closes any pending
+    contexts on a fresh event loop (safe whether or not the test used asyncio).
+    """
+    yield
+    import asyncio as _asyncio
+
+    try:
+        from agent_session.deepagents_runtime import _RUNNER_INSTANCES
+    except Exception:
+        return
+    runners = list(_RUNNER_INSTANCES)
+    if not runners:
+        return
+    loop = _asyncio.new_event_loop()
+    try:
+        for runner in runners:
+            try:
+                loop.run_until_complete(runner.aclose())
+            except Exception:
+                pass
+    finally:
+        loop.close()
 
 
 @_pytest.fixture
