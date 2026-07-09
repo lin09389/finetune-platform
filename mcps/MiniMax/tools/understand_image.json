@@ -1,0 +1,22 @@
+{
+  "name": "understand_image",
+  "description": "\n    \n    You MUST use this tool whenever you need to analyze, describe, or extract information from an image,\n    including when you get an image from user input or any task-related image.\n\n    An LLM-powered vision tool that can analyze and interpret image content from local files or URLs based on your instructions.\n    Only JPEG, PNG, and WebP formats are supported. Other formats (e.g. PDF, GIF, PSD, SVG) are not supported.\n\n    Args:\n        prompt (str): A text prompt describing what you want to analyze or extract from the image.\n        image_source (str): The location of the image to analyze.\n            Accepts:\n            - HTTP/HTTPS URL: \"https://example.com/image.jpg\"\n            - Local file path:\n                - Relative path: \"images/photo.png\"\n                - Absolute path: \"/Users/username/Documents/image.jpg\"\n            IMPORTANT: If the file path starts with an @ symbol, you MUST strip the @ prefix before passing it to this function.\n            For example:\n                - \"@Documents/photo.jpg\" → \"Documents/photo.jpg\"\n                - \"@/Users/username/image.png\" → \"/Users/username/image.png\"\n            Supported formats: JPEG, PNG, WebP\n        \n    Returns:\n        A text description of the image analysis result.\n    ",
+  "inputSchema": {
+    "properties": {
+      "prompt": {
+        "title": "Prompt",
+        "type": "string"
+      },
+      "image_source": {
+        "title": "Image Source",
+        "type": "string"
+      }
+    },
+    "required": [
+      "prompt",
+      "image_source"
+    ],
+    "title": "understand_imageArguments",
+    "type": "object"
+  }
+}

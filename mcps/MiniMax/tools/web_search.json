@@ -1,0 +1,17 @@
+{
+  "name": "web_search",
+  "description": "\n    \n    You MUST use this tool whenever you need to search for real-time or external information on the web.\n    \n    A web search API that works just like Google Search.\n    \n    Args:\n        query (str): The search query. Aim for 3-5 keywords for best results. For time-sensitive topics, include the current date (e.g. `latest iPhone 2025`).\n        \n    Search Strategy:\n        - If no useful results are returned, try rephrasing your query with different keywords.\n        \n    Returns:\n        A JSON object containing the search results, structured as follows:\n        {\n            \"organic\": [\n                {\n                    \"title\": \"string - The title of the search result\",\n                    \"link\": \"string - The URL link to the result\",\n                    \"snippet\": \"string - A brief description or excerpt\",\n                    \"date\": \"string - The date of the result\"\n                }\n            ],\n            \"related_searches\": [\n                {\n                    \"query\": \"string - A related search query suggestion\"\n                }\n            ],\n            \"base_resp\": {\n                \"status_code\": \"int - Response status code\",\n                \"status_msg\": \"string - Response status message\"\n            }\n        }\n    ",
+  "inputSchema": {
+    "properties": {
+      "query": {
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "title": "web_searchArguments",
+    "type": "object"
+  }
+}
