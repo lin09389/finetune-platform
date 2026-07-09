@@ -634,6 +634,21 @@ class ContextService:
 _service_instance: ContextService | None = None
 
 
+def close_context_service() -> None:
+    """Clear the process-wide context service singleton on application shutdown."""
+    global _service_instance
+    service = _service_instance
+    _service_instance = None
+    if service is None:
+        return
+    close = getattr(service, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def get_context_service(embedder=None, vector_store=None) -> ContextService:
     """获取上下文服务实例"""
     global _service_instance
@@ -648,6 +663,8 @@ def get_context_service(embedder=None, vector_store=None) -> ContextService:
 def reset_context_service(embedder=None, vector_store=None) -> ContextService:
     """重置上下文服务实例"""
     global _service_instance
+    if _service_instance is not None:
+        close_context_service()
     _service_instance = ContextService(
         embedder=embedder,
         vector_store=vector_store

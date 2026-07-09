@@ -285,6 +285,34 @@ class VectorStore:
         return list(doc_ids)
 
 
+    def close(self) -> None:
+        """Best-effort release of ChromaDB client handles for clean process shutdown.
+
+        Chroma PersistentClient does not always expose a public ``close()``; we
+        drop local references so Windows file locks are more likely to release on
+        restart. Residual OS-level locks remain a library limitation.
+        """
+        self._collections.clear()
+        client = self._client
+        self._client = None
+        if client is None:
+            return
+        for method_name in ("close", "stop", "reset"):
+            method = getattr(client, method_name, None)
+            if not callable(method) or method_name == "reset":
+                continue
+            try:
+                method()
+                break
+            except Exception as exc:
+                logger.debug("VectorStore client %s failed: %s", method_name, exc)
+        try:
+            # Drop strong refs so GC can finalize the PersistentClient.
+            del client
+        except Exception:
+            pass
+
+
 _store_instance: VectorStore | None = None
 
 
@@ -300,5 +328,21 @@ def get_vector_store(db_path: str | None = None) -> VectorStore:
 def reset_vector_store(db_path: str) -> VectorStore:
     """重置向量存储"""
     global _store_instance
+    if _store_instance is not None:
+        try:
+            _store_instance.close()
+        except Exception as exc:
+            logger.debug("reset_vector_store close failed: %s", exc)
     _store_instance = VectorStore(db_path)
     return _store_instance
+
+
+def close_vector_store() -> None:
+    """Close and clear the process-wide vector store singleton."""
+    global _store_instance
+    if _store_instance is not None:
+        try:
+            _store_instance.close()
+        except Exception as exc:
+            logger.debug("close_vector_store failed: %s", exc)
+        _store_instance = None

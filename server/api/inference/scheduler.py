@@ -159,6 +159,29 @@ class ModelScheduler:
         backend: BackendType | None = None,
         **kwargs,
     ) -> bool:
+        # Refuse new loads while training holds the cross-process GPU lease.
+        # Claim only when actually loading; release when last model unloads or load fails idle.
+        try:
+            from core.gpu_coordination import (
+                GpuCoordinationError,
+                assert_inference_gpu_available,
+                claim_inference_gpu,
+                release_inference_gpu,
+            )
+
+            assert_inference_gpu_available()
+        except GpuCoordinationError as exc:
+            logger.warning("Inference load refused by GPU coordination: %s", exc)
+            return False
+        except Exception as exc:
+            logger.debug("GPU coordination check skipped: %s", exc)
+
+            def claim_inference_gpu(*_a, **_k):  # type: ignore[misc]
+                return None
+
+            def release_inference_gpu(*_a, **_k):  # type: ignore[misc]
+                return None
+
         model_backend = self._resolve_backend_type(backend)
         now = datetime.now()
 
@@ -236,11 +259,16 @@ class ModelScheduler:
 
         backend_instance = await self.get_backend(model_backend.value)
         load_started_at = datetime.now()
+        claimed = False
         try:
+            claim_inference_gpu(owner=f"inference:{model_name}")
+            claimed = True
             logger.info(f"开始加载模型: {model_name} (后端: {model_backend.value})")
             success = await backend_instance.load_model(model_path, runtime_policy=runtime_policy, **kwargs)
             if not success:
                 model_info.status = ModelStatus.ERROR
+                if claimed and not self._loaded_models:
+                    release_inference_gpu(owner=f"inference:{model_name}")
                 return False
 
             model_info.status = ModelStatus.LOADED
@@ -274,6 +302,11 @@ class ModelScheduler:
             model_info.status = ModelStatus.ERROR
             model_info.metadata["error"] = str(exc)
             logger.error(f"模型加载失败: {model_name}, {exc}")
+            if claimed and not self._loaded_models:
+                try:
+                    release_inference_gpu(owner=f"inference:{model_name}")
+                except Exception:
+                    pass
             return False
 
     async def load_model(
@@ -393,6 +426,15 @@ class ModelScheduler:
             self._stats["total_unloads"] += 1
             logger.info(f"模型已卸载: {model_name}")
 
+            # Release cross-process inference lease when GPU is idle again.
+            if not self._loaded_models:
+                try:
+                    from core.gpu_coordination import release_inference_gpu
+
+                    release_inference_gpu()
+                except Exception as lease_exc:
+                    logger.debug("GPU inference lease release skipped: %s", lease_exc)
+
             return True
 
         except Exception as e:
@@ -474,6 +516,10 @@ class ModelScheduler:
     async def shutdown(self):
         """关闭调度器并清理所有后端资源"""
         logger.info("Shutting down ModelScheduler and cleaning up backends...")
+        try:
+            await self.unload_all()
+        except Exception as e:
+            logger.warning("unload_all during scheduler shutdown failed: %s", e)
         for name, backend in self._backends.items():
             try:
                 if hasattr(backend, "cleanup"):
@@ -485,6 +531,12 @@ class ModelScheduler:
             except Exception as e:
                 logger.error(f"Error cleaning up backend {name}: {e}")
         self._backends.clear()
+        try:
+            from core.gpu_coordination import release_inference_gpu
+
+            release_inference_gpu()
+        except Exception as lease_exc:
+            logger.debug("GPU inference lease release on shutdown skipped: %s", lease_exc)
 
     async def cleanup_idle_models(self):
         """清理空闲模型"""

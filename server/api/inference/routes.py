@@ -1,6 +1,7 @@
 """
 推理模块路由 - 参考 Ollama server/routes.go 设计模式
 """
+import asyncio
 import logging
 import time
 import json
@@ -75,6 +76,7 @@ def _current_backend_name(explicit_backend: str | None) -> str:
 
 
 def _resolve_deployment_target(model_name: str) -> dict[str, Any] | None:
+    """Synchronous deployment-target resolution (SQLite). Prefer the async wrapper on hot paths."""
     try:
         from api.deployment import resolve_deployed_model
 
@@ -82,6 +84,11 @@ def _resolve_deployment_target(model_name: str) -> dict[str, Any] | None:
     except Exception:
         logger.debug("failed to resolve deployment alias %s", model_name, exc_info=True)
         return None
+
+
+async def _resolve_deployment_target_async(model_name: str) -> dict[str, Any] | None:
+    """Offload deployment-target SQLite work so async inference handlers do not block the loop."""
+    return await asyncio.to_thread(_resolve_deployment_target, model_name)
 
 
 def _resource_snapshot() -> dict[str, float]:
@@ -164,8 +171,13 @@ _inference_kv_cache = get_kv_cache(
 )
 
 
-def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> str:
-    deployment_target = _resolve_deployment_target(request.model)
+def _build_generate_cache_key(
+    request: GenerateRequest,
+    backend_name: str,
+    deployment_target: dict[str, Any] | None = None,
+) -> str:
+    if deployment_target is None:
+        deployment_target = _resolve_deployment_target(request.model)
     lora_adapter = (
         deployment_target.get("lora_adapter")
         if deployment_target
@@ -189,8 +201,13 @@ def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> st
     )
 
 
-def _build_chat_cache_key(request: ChatRequest, backend_name: str) -> str:
-    deployment_target = _resolve_deployment_target(request.model)
+def _build_chat_cache_key(
+    request: ChatRequest,
+    backend_name: str,
+    deployment_target: dict[str, Any] | None = None,
+) -> str:
+    if deployment_target is None:
+        deployment_target = _resolve_deployment_target(request.model)
     return get_offline_cache().build_key(
         "chat",
         {
@@ -514,7 +531,7 @@ async def generate(request: GenerateRequest):
     request.prompt = sanitize_input(request.prompt)
 
     scheduler = get_scheduler()
-    deployment_target = _resolve_deployment_target(request.model)
+    deployment_target = await _resolve_deployment_target_async(request.model)
     backend_name = (
         deployment_target.get("backend")
         if deployment_target
@@ -527,7 +544,7 @@ async def generate(request: GenerateRequest):
     )
     leased_model = None
     load_duration_ms = 0.0
-    cache_key = _build_generate_cache_key(request, backend_name)
+    cache_key = _build_generate_cache_key(request, backend_name, deployment_target)
     if _should_use_offline_cache(backend_name, request.options.temperature):
         cached_response = get_offline_cache().get(cache_key)
         if cached_response is not None:
@@ -715,7 +732,7 @@ async def generate_stream(request: GenerateRequest):
     request.prompt = sanitize_input(request.prompt)
 
     scheduler = get_scheduler()
-    deployment_target = _resolve_deployment_target(request.model)
+    deployment_target = await _resolve_deployment_target_async(request.model)
     backend_name = (
         deployment_target.get("backend")
         if deployment_target
@@ -914,7 +931,7 @@ async def chat(request: ChatRequest):
     _inject_system_prompt_message(request, system_prompt)
 
     scheduler = get_scheduler()
-    deployment_target = _resolve_deployment_target(request.model)
+    deployment_target = await _resolve_deployment_target_async(request.model)
     backend_name = (
         deployment_target.get("backend")
         if deployment_target
@@ -1218,7 +1235,7 @@ async def chat_stream(request: ChatRequest):
     )
 
     scheduler = get_scheduler()
-    deployment_target = _resolve_deployment_target(request.model)
+    deployment_target = await _resolve_deployment_target_async(request.model)
     backend_name = (
         deployment_target.get("backend")
         if deployment_target

@@ -8,8 +8,11 @@ registration independent of ``inference_execution_mode``.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 from fastapi import Request as FastAPIRequest
+from fastapi.responses import JSONResponse
 
 from api.inference.openai_schemas import ChatCompletionRequest
 from api.types import BackendSwitchRequest, ChatRequest, GenerateRequest
@@ -17,6 +20,30 @@ from core.inference_gateway import get_inference_gateway
 
 router = APIRouter(tags=["Inference"])
 openai_router = APIRouter(tags=["OpenAI Compatible API"])
+
+
+def _map_service_degrade_response(result: Any) -> Any:
+    """Turn service-mode degrade payloads into controlled HTTP 503/504 responses.
+
+    ServiceInferenceGateway returns a dict with ``service.available is False`` and
+    optional ``_http_status`` instead of letting remote timeouts bubble as 500s.
+    """
+    if not isinstance(result, dict):
+        return result
+    service = result.get("service")
+    if not isinstance(service, dict) or service.get("available") is not False:
+        return result
+    if "error" not in result:
+        return result
+    status_code = int(result.get("_http_status") or (
+        504 if service.get("code") == "inference_timeout" else 503
+    ))
+    body = {k: v for k, v in result.items() if k != "_http_status"}
+    return JSONResponse(
+        status_code=status_code,
+        content=body,
+        headers={"Retry-After": "5"},
+    )
 
 
 @router.get("/models")
@@ -48,7 +75,7 @@ async def ollama_status():
 @router.post("/generate")
 async def generate(request: GenerateRequest):
     """Run a raw generation request through the active inference gateway."""
-    return await get_inference_gateway().generate(request)
+    return _map_service_degrade_response(await get_inference_gateway().generate(request))
 
 
 @router.post("/generate/stream")
@@ -60,7 +87,7 @@ async def generate_stream(request: GenerateRequest):
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """Run a chat request through the active inference gateway."""
-    return await get_inference_gateway().chat(request)
+    return _map_service_degrade_response(await get_inference_gateway().chat(request))
 
 
 @router.post("/chat/stream")
@@ -120,4 +147,6 @@ async def openai_list_models():
 @openai_router.post("/v1/chat/completions")
 async def openai_chat_completions(request: ChatCompletionRequest, raw_request: FastAPIRequest):
     """OpenAI-compatible chat completions endpoint."""
-    return await get_inference_gateway().chat_completions(request, raw_request)
+    return _map_service_degrade_response(
+        await get_inference_gateway().chat_completions(request, raw_request)
+    )

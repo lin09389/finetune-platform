@@ -148,7 +148,10 @@ async def get_agent_session_user(
 ) -> TokenPayload:
     if current_user:
         return current_user
-    if settings.environment == "production":
+    from security.runtime_policy import allow_local_agent_auth, is_production_environment
+
+    # Production/staging hard-closed; non-production needs ALLOW_LOCAL_AGENT_AUTH.
+    if is_production_environment(settings) or not allow_local_agent_auth(settings):
         raise HTTPException(status_code=401, detail="Missing authorization")
     return TokenPayload(
         user_id="desktop-local-user",

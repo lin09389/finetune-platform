@@ -277,6 +277,11 @@ async def preload_embedder():
         raise HTTPException(status_code=500, detail=f"预加载失败：{str(e)}")
 
 
+async def _run_blocking(func, /, *args, **kwargs):
+    """Run sync RAG/service work off the event loop."""
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
 @router.get("/collections/{collection_id}", response_model=CollectionInfo)
 async def get_collection_info(collection_id: str):
     """获取集合信息"""
@@ -284,8 +289,8 @@ async def get_collection_info(collection_id: str):
         from rag.service import get_rag_service
         rag_service = get_rag_service()
 
-        stats = rag_service.get_collection_info(collection_id)
-        documents = rag_service.list_documents(collection_id)
+        stats = await _run_blocking(rag_service.get_collection_info, collection_id)
+        documents = await _run_blocking(rag_service.list_documents, collection_id)
 
         return CollectionInfo(
             name=collection_id,
@@ -312,7 +317,7 @@ async def delete_document(collection_id: str, doc_id: str):
     try:
         from rag.service import get_rag_service
         rag_service = get_rag_service()
-        success = rag_service.delete_document(collection_id, doc_id)
+        success = await _run_blocking(rag_service.delete_document, collection_id, doc_id)
 
         if success:
             return {"message": "删除成功", "doc_id": doc_id}
@@ -332,7 +337,7 @@ async def list_collections():
     try:
         from rag.service import get_rag_service
         rag_service = get_rag_service()
-        collections = rag_service.list_collections()
+        collections = await _run_blocking(rag_service.list_collections)
 
         return {"collections": collections}
 
@@ -353,16 +358,18 @@ async def search_documents(request: SearchRequest):
         from rag.service import get_rag_service
         rag_service = get_rag_service()
 
-        results = rag_service.search(
+        results = await _run_blocking(
+            rag_service.search,
             collection_name=request.collection_id,
             query=request.query,
-            top_k=request.top_k
+            top_k=request.top_k,
         )
 
-        context = rag_service.search_with_context(
+        context = await _run_blocking(
+            rag_service.search_with_context,
             collection_name=request.collection_id,
             query=request.query,
-            top_k=request.top_k
+            top_k=request.top_k,
         )
 
         return {
@@ -381,7 +388,7 @@ async def search_documents(request: SearchRequest):
 async def list_knowledge_bases():
     """列出所有知识库"""
     service = get_knowledge_service()
-    bases = service.list_knowledge_bases()
+    bases = await _run_blocking(service.list_knowledge_bases)
 
     return {
         "bases": [
@@ -403,9 +410,10 @@ async def list_knowledge_bases():
 async def create_knowledge_base(request: CreateKBRequest):
     """创建知识库"""
     service = get_knowledge_service()
-    kb = service.create_knowledge_base(
+    kb = await _run_blocking(
+        service.create_knowledge_base,
         name=request.name,
-        description=request.description
+        description=request.description,
     )
 
     return {
@@ -420,7 +428,7 @@ async def create_knowledge_base(request: CreateKBRequest):
 async def get_knowledge_base(kb_id: str):
     """获取知识库详情"""
     service = get_knowledge_service()
-    kb = service.get_knowledge_base(kb_id)
+    kb = await _run_blocking(service.get_knowledge_base, kb_id)
 
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -440,7 +448,7 @@ async def get_knowledge_base(kb_id: str):
 async def delete_knowledge_base(kb_id: str):
     """删除知识库"""
     service = get_knowledge_service()
-    success = service.delete_knowledge_base(kb_id)
+    success = await _run_blocking(service.delete_knowledge_base, kb_id)
 
     if not success:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -452,7 +460,7 @@ async def delete_knowledge_base(kb_id: str):
 async def list_documents(kb_id: str):
     """列出知识库的文档"""
     service = get_knowledge_service()
-    documents = service.list_documents(kb_id)
+    documents = await _run_blocking(service.list_documents, kb_id)
 
     return {
         "documents": [

@@ -673,5 +673,27 @@ def get_memory_service() -> MemoryService:
 
 def reset_memory_service(root_dir: str | Path = DEFAULT_MEMORY_ROOT, vector_db_path: str | None = None) -> MemoryService:
     global _memory_service
+    if _memory_service is not None:
+        close = getattr(_memory_service, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
     _memory_service = MemoryService(root_dir=root_dir, vector_db_path=vector_db_path)
     return _memory_service
+
+
+def close_memory_service() -> None:
+    """Release the process-wide memory service singleton on shutdown."""
+    global _memory_service
+    service = _memory_service
+    _memory_service = None
+    if service is None:
+        return
+    close = getattr(service, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass

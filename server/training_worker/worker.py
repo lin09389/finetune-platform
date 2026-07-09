@@ -144,6 +144,14 @@ class TrainingWorker:
                 error=error,
             )
         finally:
+            # Safety net: always drop training GPU lease after a job ends
+            # (pipeline cleanup should already release; this covers hard failures).
+            try:
+                from core.gpu_coordination import release_training_gpu
+
+                release_training_gpu()
+            except Exception:
+                pass
             logging.getLogger().removeHandler(durable_log_handler)
             durable_log_handler.close()
             monitor_stop.set()

@@ -103,6 +103,20 @@ class ModelWarmer:
         start_time = asyncio.get_event_loop().time()
 
         try:
+            from core.gpu_coordination import GpuCoordinationError, assert_inference_gpu_available
+
+            try:
+                assert_inference_gpu_available()
+            except GpuCoordinationError as exc:
+                latency_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+                logger.warning("Warmup refused by GPU coordination: %s", exc)
+                return WarmupResult(
+                    model=model_name,
+                    success=False,
+                    latency_ms=latency_ms,
+                    error=str(exc),
+                )
+
             from api.inference.scheduler import get_scheduler
             scheduler = get_scheduler()
 

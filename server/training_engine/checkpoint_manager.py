@@ -220,7 +220,13 @@ def save_checkpoint_metadata(
     config: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> None:
-    """保存检查点元数据，便于后续恢复和诊断"""
+    """保存检查点元数据，便于后续恢复和诊断。
+
+    Writes via temp file + ``os.replace`` so a mid-write crash cannot leave a
+    truncated ``checkpoint_metadata.json`` as the only metadata artifact.
+    """
+    import os
+
     metadata = {
         "task_id": task_id,
         "step": step,
@@ -231,13 +237,24 @@ def save_checkpoint_metadata(
         "config": config or {},
         "tags": tags or [],
     }
+    checkpoint_path = Path(checkpoint_path)
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
     meta_path = checkpoint_path / "checkpoint_metadata.json"
+    tmp_path = checkpoint_path / "checkpoint_metadata.json.tmp"
     try:
-        with open(meta_path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, meta_path)
         logger.info(f"检查点元数据已保存：{meta_path}")
     except Exception as e:
         logger.warning(f"保存检查点元数据失败：{e}")
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _write_minimal_trainer_state(recovery_path: Path, trainer) -> None:

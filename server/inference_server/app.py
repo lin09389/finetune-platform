@@ -17,11 +17,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if (
-        settings.environment == "production"
-        and settings.inference_internal_api_key == "finetune-local-inference-dev-key"
-    ):
-        raise RuntimeError("Production inference service requires INFERENCE_INTERNAL_API_KEY")
+    from security.runtime_policy import assert_inference_internal_key_safe
+
+    # Fail-closed for production/staging default keys (shared policy with control plane).
+    assert_inference_internal_key_safe(settings)
     settings.models_dir_resolved.mkdir(parents=True, exist_ok=True)
     settings.outputs_dir_resolved.mkdir(parents=True, exist_ok=True)
     logger.info("Isolated inference service initialized")

@@ -148,6 +148,25 @@ class Embedder:
         return all_embeddings
 
 
+    def close(self) -> None:
+        """Release the loaded embedding model to free memory on shutdown."""
+        model = self.model
+        self.model = None
+        self._dimension = None
+        if model is None:
+            return
+        try:
+            # Best-effort: move off GPU / drop refs if the library supports it.
+            if hasattr(model, "to"):
+                try:
+                    model.to("cpu")
+                except Exception:
+                    pass
+            del model
+        except Exception as exc:
+            logger.debug("Embedder.close failed: %s", exc)
+
+
 _embedder_instance: Embedder | None = None
 
 
@@ -163,5 +182,21 @@ def get_embedder(model_name: str | None = None) -> Embedder:
 def reset_embedder(model_name: str) -> Embedder:
     """重置向量化器（切换模型时使用）"""
     global _embedder_instance
+    if _embedder_instance is not None:
+        try:
+            _embedder_instance.close()
+        except Exception as exc:
+            logger.debug("reset_embedder close failed: %s", exc)
     _embedder_instance = Embedder(model_name)
     return _embedder_instance
+
+
+def close_embedder() -> None:
+    """Close and clear the process-wide embedder singleton."""
+    global _embedder_instance
+    if _embedder_instance is not None:
+        try:
+            _embedder_instance.close()
+        except Exception as exc:
+            logger.debug("close_embedder failed: %s", exc)
+        _embedder_instance = None

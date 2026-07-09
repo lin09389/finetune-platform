@@ -435,3 +435,19 @@ def get_session_manager() -> SessionManager:
     if _session_manager is None:
         _session_manager = SessionManager()
     return _session_manager
+
+
+def close_session_manager() -> None:
+    """Release the process-wide chat session manager on application shutdown."""
+    global _session_manager
+    manager = _session_manager
+    _session_manager = None
+    if manager is None:
+        return
+    close = getattr(manager, "close", None)
+    if callable(close):
+        close()
+    # Drop in-memory session cache so restart does not reuse stale handles.
+    sessions = getattr(manager, "_sessions", None)
+    if isinstance(sessions, dict):
+        sessions.clear()

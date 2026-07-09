@@ -130,7 +130,27 @@ def _build_quantization_config(config: ModelLoadConfig) -> Any:
 
 
 def _check_vram_before_load(config: ModelLoadConfig) -> None:
-    """加载前检查显存，提前发现 OOM 风险"""
+    """加载前检查显存，提前发现 OOM 风险。
+
+    Also claims the cross-process training GPU lease (released in pipeline cleanup).
+    """
+    # Cross-process GPU coordination: refuse train load while inference holds lease.
+    try:
+        from core.gpu_coordination import (
+            GpuCoordinationError,
+            assert_training_gpu_available,
+            claim_training_gpu,
+        )
+
+        assert_training_gpu_available()
+        claim_training_gpu(
+            owner=f"training:{getattr(config, 'model_name', None) or getattr(config, 'model_path', 'model')}"
+        )
+    except GpuCoordinationError:
+        raise
+    except Exception as exc:
+        logger.debug("GPU coordination precheck skipped: %s", exc)
+
     available = get_available_memory()
     if available is None:
         return

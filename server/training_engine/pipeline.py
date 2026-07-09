@@ -842,6 +842,16 @@ class TrainingPipeline:
     def _run_cleanup(self) -> None:
         self._set_phase(TrainingPhase.CLEANUP)
 
+        # Release cross-process training GPU lease so inference can load again.
+        try:
+            from core.gpu_coordination import release_training_gpu
+
+            owner = f"training:{getattr(self.ctx, 'task_id', None) or 'pipeline'}"
+            release_training_gpu(owner=None)  # clear training holder regardless of owner id
+            logger.debug("Released training GPU lease for %s", owner)
+        except Exception as lease_exc:
+            logger.debug("GPU training lease release skipped: %s", lease_exc)
+
         # 【关键修复】立即设置训练状态为 False，让前端立即响应
         self.bus.publish_training_state(False)
         if self.ctx.task_id:
