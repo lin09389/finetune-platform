@@ -1,4 +1,12 @@
-from auto_fix_encoding import (
+import sys
+from pathlib import Path
+
+# Phase-1 hygiene relocated debug scripts under server/scripts/
+_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from auto_fix_encoding import (  # noqa: E402
     fix_file,
     fix_truncated_chinese,
     fix_unterminated_strings,
