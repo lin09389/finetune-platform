@@ -2,7 +2,7 @@
  * API service layer.
  * Handles connection reuse, request cancellation, and automatic retry logic.
  */
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 // Resolve backend API base URL.
 const getApiBaseUrl = () => {
@@ -15,7 +15,6 @@ const getApiBaseUrl = () => {
 
 // Export base URL for other modules.
 export const API_BASE_URL = getApiBaseUrl();
-console.log('[API] Base URL:', API_BASE_URL);
 
 export const getAgentTerminalWebSocketUrl = (terminalId: string): string => {
   const base = API_BASE_URL.replace(/^http/i, 'ws').replace(/\/$/, '');
@@ -225,7 +224,6 @@ let offlineQueue: OfflineRequest[] = [];
 
 export const processOfflineQueue = () => {
   if (offlineQueue.length > 0) {
-    console.log(`[API] Processing offline queue: ${offlineQueue.length} requests`);
     const queue = [...offlineQueue];
     offlineQueue = [];
     queue.forEach(({ config, resolve, reject }) => {
@@ -385,7 +383,6 @@ const createAxiosInstance = (): AxiosInstance => {
          const shouldQueue = config && !isFormData && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())
            && !url.includes('/agent-sessions/');
          if (shouldQueue) {
-            console.log(`[API] Network error detected, queuing request: ${config.method} ${config.url}`);
             return new Promise((resolve, reject) => {
                offlineQueue.push({ config, resolve, reject });
             });
@@ -1425,6 +1422,10 @@ export const updateWorkspace = async (workspaceId: string, payload: WorkspaceUpd
   return response.data;
 };
 
+export const deleteWorkspace = async (workspaceId: string): Promise<void> => {
+  await apiClient.delete(`/workspace/workspaces/${workspaceId}`);
+};
+
 export const getWorkspaceTree = async (params: {
   workspace_id?: string;
   project_path?: string;
@@ -2397,7 +2398,6 @@ export const streamInference = async (
 
     const decoder = new TextDecoder();
     let buffer = '';
-    let chunkCount = 0;
 
     try {
       let done = false;
@@ -2449,7 +2449,6 @@ export const streamInference = async (
             }
 
             if (data.content) {
-              chunkCount++;
               chunkBuffer += data.content;
               
               if (!flushPending) {
@@ -2472,7 +2471,6 @@ export const streamInference = async (
               if (data.stats && onStats) {
                 onStats(data.stats);
               }
-              console.log(`Streaming inference completed with ${chunkCount} chunks`);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== 'Stream error') {
@@ -2505,7 +2503,6 @@ export const streamInference = async (
       lastError = error;
 
       if (error.name === 'AbortError') {
-        console.log('Streaming inference was cancelled');
         throw error;
       }
 
@@ -2630,8 +2627,8 @@ export const switchBackend = async (backend: string) => {
   return response.data;
 };
 
-export const getOllamaStatus = async () => {
-  const response = await apiClient.get('/inference/ollama/status');
+export const getOllamaStatus = async (config?: AxiosRequestConfig) => {
+  const response = await apiClient.get('/inference/ollama/status', config);
   return response.data;
 };
 

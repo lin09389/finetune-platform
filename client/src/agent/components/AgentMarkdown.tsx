@@ -60,10 +60,19 @@ export function CopyResponseButton({ content }: { content: string }) {
   );
 }
 
-export default function AgentMarkdown({ content }: { content: string }) {
+export default function AgentMarkdown({
+  content,
+  streaming = false,
+}: {
+  content: string;
+  streaming?: boolean;
+}) {
   return (
     <Suspense fallback={<div className={styles.markdownLoading}>正在渲染内容…</div>}>
-      <AgentMarkdownRenderer content={content} />
+      <div className={streaming ? styles.markdownStreaming : undefined}>
+        <AgentMarkdownRenderer content={content} />
+        {streaming ? <span className={styles.streamingCursor} aria-hidden="true" /> : null}
+      </div>
     </Suspense>
   );
 }

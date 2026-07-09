@@ -429,12 +429,21 @@ export default function GatewayPage() {
         {/* 主内容卡片 */}
         <div className={styles.mainCard}>
           {/* 标签栏 */}
-          <div className={styles.tabsHeader}>
+          <div className={styles.tabsHeader} role="tablist" aria-label="Gateway 功能标签">
             {tabs.map((t) => (
               <div
                 key={t.key}
                 className={`${styles.tab} ${activeTab === t.key ? styles.active : ''}`}
+                role="tab"
+                tabIndex={activeTab === t.key ? 0 : -1}
+                aria-selected={activeTab === t.key}
                 onClick={() => setActiveTab(t.key)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActiveTab(t.key);
+                  }
+                }}
               >
                 {t.icon}
                 {t.label}

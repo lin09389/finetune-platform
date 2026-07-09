@@ -327,7 +327,12 @@ export const CUAControl: React.FC = () => {
                 </div>
                 {screenshot && (
                   <div className={styles.screenshotPreview}>
-                    <img src={screenshot} alt="Screenshot" />
+                    <img
+                      src={screenshot}
+                      alt="Screenshot"
+                      loading="lazy"
+                      style={{ maxWidth: '100%', maxHeight: '60vh', height: 'auto', borderRadius: 8 }}
+                    />
                   </div>
                 )}
               </div>

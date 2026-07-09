@@ -337,7 +337,19 @@ export default function DatasetManager() {
         style={{ marginBottom: 0 }}
       />
 
-      <div className={styles.dropzone} onClick={handleSelectFile}>
+      <div
+        className={styles.dropzone}
+        role="button"
+        tabIndex={0}
+        aria-label="上传数据集（点击或拖拽 JSON / JSONL 文件）"
+        onClick={handleSelectFile}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleSelectFile();
+          }
+        }}
+      >
         <InboxOutlined className={styles.dropIcon} />
         <div className={styles.dropText}>点击或拖拽上传 JSON / JSONL 数据集</div>
         <div className={styles.dropSubtext}>上传后会自动校验结构、统计样本并计算文件哈希。</div>

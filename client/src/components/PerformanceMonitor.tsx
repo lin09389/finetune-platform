@@ -20,7 +20,7 @@ import {
   Tooltip,
 } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
-import { API_BASE_URL } from '../services/api';
+import { getPerformanceMetrics, getPerformanceSuggestions } from '../services/performanceApi';
 
 interface PerformanceMetrics {
   tokensPerSecond: number;
@@ -106,10 +106,7 @@ const PerformanceMonitor: React.FC = () => {
 
   const fetchMetrics = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/inference/performance/metrics`);
-      if (!response.ok) return;
-
-      const data = await response.json();
+      const data = await getPerformanceMetrics<PerformanceApiMetrics>();
       setMetrics((prev) => ({
         ...prev,
         ...mapMetrics(data),
@@ -121,10 +118,7 @@ const PerformanceMonitor: React.FC = () => {
 
   const fetchSuggestions = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/inference/performance/suggestions`);
-      if (!response.ok) return;
-
-      const data: SuggestionApiItem[] = await response.json();
+      const data = await getPerformanceSuggestions<SuggestionApiItem[]>();
       setSuggestions((data || []).map(mapSuggestion));
     } catch {
       setSuggestions([]);

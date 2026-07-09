@@ -15,7 +15,14 @@ import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
-import { API_BASE_URL } from '../services/api';
+import { extractApiErrorMessage } from '../services/api';
+import {
+  deleteKnowledgeDocument,
+  getKnowledgeCollection,
+  getKnowledgeUploadStatus,
+  preloadKnowledgeEmbedder,
+  uploadKnowledgeDocumentAsync,
+} from '../services/knowledgeApi';
 import { notify } from '../utils/notify';
 import styles from './KnowledgeBase.module.css';
 
@@ -53,9 +60,6 @@ interface UploadTaskStatus {
   error?: string;
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error && error.message ? error.message : fallback;
-
 export default function KnowledgeBase() {
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
@@ -72,13 +76,10 @@ export default function KnowledgeBase() {
 
   const loadCollectionInfo = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/knowledge/collections/${collectionId}`, {
+      const data = await getKnowledgeCollection<CollectionInfo>(collectionId, {
         signal: AbortSignal.timeout(30000),
       });
-      if (response.ok) {
-        const data = await response.json();
-        setCollectionInfo(data);
-      }
+      setCollectionInfo(data);
     } catch {
       setCollectionInfo(null);
     }
@@ -95,20 +96,13 @@ export default function KnowledgeBase() {
   const preloadEmbedder = async () => {
     setPreloading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/knowledge/embedder/preload`, {
-        method: 'POST',
+      const data = await preloadKnowledgeEmbedder({
         signal: AbortSignal.timeout(120000),
       });
-      if (response.ok) {
-        const data = await response.json();
-        notify.success(`嵌入模型已加载，维度: ${data.dimension}`);
-        await refreshKnowledge();
-      } else {
-        const error = await response.json();
-        notify.error(error.detail || '预加载失败');
-      }
+      notify.success(`嵌入模型已加载，维度: ${data.dimension}`);
+      await refreshKnowledge();
     } catch (error: unknown) {
-      notify.error(getErrorMessage(error, '预加载失败'));
+      notify.error(extractApiErrorMessage(error, '预加载失败'));
     } finally {
       setPreloading(false);
     }
@@ -162,27 +156,13 @@ export default function KnowledgeBase() {
 
         setUploadStatus('正在上传文件...');
 
-        const response = await fetch(`${API_BASE_URL}/knowledge/upload/async`, {
-          method: 'POST',
-          body: formData,
+        const result = (await uploadKnowledgeDocumentAsync(formData, {
           signal: controller.signal,
-        });
+        })) as unknown as UploadTaskStatus;
 
         clearInterval(progressInterval);
         clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          let errorMessage = '上传失败';
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.detail || errorMessage;
-          } catch {
-            errorMessage = `服务器错误: ${response.status}`;
-          }
-          throw new Error(errorMessage);
-        }
-
-        const result = await response.json();
         setActiveUploadTask({
           task_id: result.task_id,
           status: result.status,
@@ -194,10 +174,15 @@ export default function KnowledgeBase() {
         onSuccess?.(result);
       } catch (error: unknown) {
         clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === 'AbortError') {
+        if (
+          error instanceof Error &&
+          (error.name === 'AbortError' ||
+            error.name === 'CanceledError' ||
+            (error as { code?: string }).code === 'ERR_CANCELED')
+        ) {
           notify.error('上传超时，请检查服务器状态');
         } else {
-          notify.error(getErrorMessage(error, '上传失败'));
+          notify.error(extractApiErrorMessage(error, '上传失败'));
         }
         onError?.(error instanceof Error ? error : new Error('上传失败'));
       } finally {
@@ -214,12 +199,7 @@ export default function KnowledgeBase() {
     let finished = false;
 
     while (!finished) {
-      const response = await fetch(`${API_BASE_URL}/knowledge/upload/status/${taskId}`);
-      if (!response.ok) {
-        throw new Error('无法获取上传任务状态');
-      }
-
-      const task = (await response.json()) as UploadTaskStatus;
+      const task = (await getKnowledgeUploadStatus(taskId)) as unknown as UploadTaskStatus;
       setActiveUploadTask(task);
       setUploadProgress(task.progress || 0);
       setUploadStatus(task.message || '');
@@ -243,16 +223,11 @@ export default function KnowledgeBase() {
   const handleDelete = async (doc: DocumentItem) => {
     await operation.run(
       async () => {
-        const response = await fetch(
-          `${API_BASE_URL}/knowledge/collections/${collectionId}/documents/${doc.doc_id}`,
-          { method: 'DELETE' },
-        );
-
-        if (!response.ok) {
-          const error = await response.json().catch(() => null);
-          throw new Error(error?.detail || `删除失败 (${response.status})`);
+        try {
+          await deleteKnowledgeDocument(collectionId, doc.doc_id);
+        } catch (error) {
+          throw new Error(extractApiErrorMessage(error, '删除失败'));
         }
-
         await loadCollectionInfo();
       },
       {

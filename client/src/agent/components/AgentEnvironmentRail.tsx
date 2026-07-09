@@ -12,6 +12,7 @@ import {
 import { Button, Tag, Tooltip } from 'antd';
 import type { AgentConnectionState } from '../protocol/agentProtocol';
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
+import { SESSION_STATUS_LABELS } from '../selectors/sessionStatus';
 import styles from '../workbench/AgentWorkbench.module.css';
 
 interface AgentEnvironmentRailProps {
@@ -20,19 +21,6 @@ interface AgentEnvironmentRailProps {
   connectionLabel: string;
   onOpenSettings: () => void;
 }
-
-const statusLabels: Record<string, string> = {
-  idle: '待命',
-  running: '运行中',
-  waiting_permission: '等待审批',
-  waiting_approval: '等待审批',
-  verifying: '验证中',
-  repairing: '修复中',
-  completed: '已完成',
-  failed: '失败',
-  interrupted: '已停止',
-  needs_manual_review: '需复核',
-};
 
 function sessionStatusLabel(session: AgentRuntimeState['session']): string {
   const metadata = session?.metadata || {};
@@ -43,7 +31,7 @@ function sessionStatusLabel(session: AgentRuntimeState['session']): string {
     if (failureKind === 'process_restart') return '可重新运行';
     if (failureKind === 'runtime_error') return '运行失败';
   }
-  return statusLabels[session?.status || 'idle'] || session?.status || '待命';
+  return SESSION_STATUS_LABELS[session?.status || 'idle'] || session?.status || '待命';
 }
 
 function basename(path?: string | null): string {

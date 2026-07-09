@@ -759,7 +759,12 @@ export const useChatStore = create<ChatStore>()(
         experimentSnapshots: state.experimentSnapshots.slice(0, 50),
         presets: state.presets.slice(0, 50),
         selectedPresetId: state.selectedPresetId,
-        cloudConfig: state.cloudConfig,
+        // SECURITY: strip any provider API key before persisting to localStorage.
+        // Real keys live server-side (encrypted); never mirror them into
+        // client storage where they would be exfiltrable via XSS.
+        cloudConfig: state.cloudConfig.config
+          ? { ...state.cloudConfig, config: { ...state.cloudConfig.config, api_key: undefined } }
+          : state.cloudConfig,
       }),
     },
   ),

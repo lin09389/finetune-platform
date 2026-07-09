@@ -1,0 +1,8 @@
+# Finetune Platform — robots.txt
+# This is a single-page application (SPA) behind a local/desktop runtime;
+# there is no crawlable server-rendered content. Allow all crawlers to fetch
+# the entry document so meta tags (title/description/OG) are indexable, but
+# note that route-level content is client-rendered.
+
+User-agent: *
+Allow: /

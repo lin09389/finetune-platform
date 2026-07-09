@@ -551,7 +551,7 @@ export default function Evaluation() {
           {subtitle && <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal', color: 'var(--text-tertiary)', marginLeft: 8 }} ellipsis>{subtitle}</Text>}
         </div>
         <Tooltip title="复制代码">
-          <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(text)} style={{ color: 'var(--text-tertiary)' }} />
+          <Button type="text" size="small" icon={<CopyOutlined />} aria-label="复制代码" onClick={() => handleCopy(text)} style={{ color: 'var(--text-tertiary)' }} />
         </Tooltip>
       </div>
       <div style={{
@@ -604,6 +604,16 @@ export default function Evaluation() {
                                         <MotionItem key={item.run_id}>
                                             <div
                                                 onClick={() => selectHistoryRun(item.run_id)}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    selectHistoryRun(item.run_id);
+                                                  }
+                                                }}
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-current={isSelected ? 'true' : undefined}
+                                                aria-label={`选择评估运行 ${item.run_id}`}
                                                 style={{
                                                     padding: '16px 20px',
                                                     cursor: 'pointer',

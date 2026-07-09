@@ -20,6 +20,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return { hasError: true, error };
   }
 
+  // Log render errors (error + React component stack) so they are visible in
+  // production browser consoles / error-monitoring tooling. getDerivedStateFromError
+  // only updates state; componentDidCatch is the correct place for side effects.
+  override componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack);
+  }
+
   handleReload = (): void => {
     window.location.reload();
   };

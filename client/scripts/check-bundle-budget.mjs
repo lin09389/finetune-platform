@@ -5,6 +5,8 @@ import path from 'node:path';
 const assetsDir = path.resolve('dist/assets');
 const budgets = [
   { pattern: /^vendor-ui-.*\.js$/, maxGzipKb: 430 },
+  { pattern: /^vendor-react-.*\.js$/, maxGzipKb: 60 },
+  { pattern: /^vendor-charts-.*\.js$/, maxGzipKb: 120 },
   { pattern: /^AgentWorkbenchRoute-.*\.js$/, maxGzipKb: 45 },
   { pattern: /^ChatNew-.*\.js$/, maxGzipKb: 100 },
 ];

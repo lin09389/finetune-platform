@@ -206,6 +206,8 @@ const MobileNav: React.FC = () => {
                 fontSize: 'var(--text-sm)',
                 color: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)',
               }}
+              role="status"
+              aria-label={backendStatus === 'connected' ? '后端服务：已连接' : '后端服务：未连接'}
             >
               <span
                 style={{
@@ -225,6 +227,8 @@ const MobileNav: React.FC = () => {
               overflow: 'auto',
               padding: '8px',
             }}
+            role="navigation"
+            aria-label="移动端导航"
           >
             <div style={{ marginBottom: 8 }}>
               <div
@@ -325,6 +329,16 @@ const NavItem: React.FC<{
   <motion.div
     whileTap={{ opacity: 0.85 }}
     onClick={onClick}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick();
+      }
+    }}
+    role="button"
+    tabIndex={0}
+    aria-current={isActive ? 'page' : undefined}
+    aria-label={item.label}
     style={{
       display: 'flex',
       alignItems: 'center',
@@ -399,6 +413,8 @@ export const MobileBottomNav: React.FC = () => {
         zIndex: 100,
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
+      role="navigation"
+      aria-label="底部导航"
     >
       {bottomNavItems.map((item) => {
         const isActive = location.pathname === item.key;
@@ -407,6 +423,16 @@ export const MobileBottomNav: React.FC = () => {
             key={item.key}
             whileTap={{ opacity: 0.85 }}
             onClick={() => navigate(item.key)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigate(item.key);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-current={isActive ? 'page' : undefined}
+            aria-label={item.label}
             style={{
               display: 'flex',
               flexDirection: 'column',

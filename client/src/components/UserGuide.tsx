@@ -100,7 +100,7 @@ const UserGuide: React.FC<UserGuideProps> = ({
   return (
     <>
       <Tooltip title="显示引导">
-        <Button type="text" icon={<QuestionCircleOutlined />} onClick={() => setVisible(true)} />
+        <Button type="text" icon={<QuestionCircleOutlined />} aria-label="显示引导" onClick={() => setVisible(true)} />
       </Tooltip>
 
       <Modal
@@ -200,7 +200,7 @@ export const QuickTip: React.FC<QuickTipProps> = ({
       }}
       extra={
         dismissible && (
-          <Button type="text" size="small" icon={<CloseOutlined />} onClick={handleDismiss} />
+          <Button type="text" size="small" icon={<CloseOutlined />} aria-label="关闭提示" onClick={handleDismiss} />
         )
       }
     >

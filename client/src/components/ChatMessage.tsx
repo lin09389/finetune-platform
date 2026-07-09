@@ -303,8 +303,11 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         li: ({ children }: MarkdownChildProps) => (
           <li>{children}</li>
         ),
+        // Downgrade markdown <h1> to <h2>: the page already has a single <h1>
+        // (HeaderBar / ChatNew main heading), and AI output can contain multiple
+        // top-level headings which would break the "one h1 per view" rule.
         h1: ({ children }: MarkdownChildProps) => (
-          <h1>{children}</h1>
+          <h2>{children}</h2>
         ),
         h2: ({ children }: MarkdownChildProps) => (
           <h2>{children}</h2>

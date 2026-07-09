@@ -15,7 +15,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import type { AgentSessionUiTimelineItem } from '../../services/api';
 import styles from '../workbench/AgentWorkbench.module.css';
@@ -111,6 +111,20 @@ function durationLabel(payload: Record<string, unknown> | undefined): string | n
   }
   const duration = payload?.duration;
   return typeof duration === 'string' && duration.trim() ? duration.trim() : null;
+}
+
+function formatElapsedSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return `${minutes}m ${remaining.toString().padStart(2, '0')}s`;
+}
+
+function liveElapsed(item: AgentSessionUiTimelineItem, now: number): string | null {
+  const start = item.created_at ? new Date(item.created_at).getTime() : NaN;
+  if (!Number.isFinite(start)) return null;
+  const elapsed = Math.max(0, Math.floor((now - start) / 1000));
+  return formatElapsedSeconds(elapsed);
 }
 
 function shouldShowStatus(item: AgentSessionUiTimelineItem): boolean {
@@ -340,23 +354,29 @@ interface AgentRunTimelineProps {
   timeline: AgentSessionUiTimelineItem[];
   pendingLabel?: string;
   errorMessage?: string | null;
+  /** 运行时活动摘要，用于空窗态反馈 */
+  activity?: { label: string; detail?: string; startedAt: number } | null;
+  /** 会话切换中，显示加载态而非空态 */
+  loading?: boolean;
 }
 
 export function TimelineContent({
   content,
   collapsible = true,
+  streaming = false,
 }: {
   content: string;
   collapsible?: boolean;
+  streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const canCollapse = collapsible && (content.length > 600 || content.split('\n').length > 10);
+  const canCollapse = collapsible && !streaming && (content.length > 600 || content.split('\n').length > 10);
   return (
     <>
       <div
         className={`${styles.timelineContent} ${canCollapse && !expanded ? styles.timelineContentCollapsed : ''}`}
       >
-        <AgentMarkdown content={content} />
+        <AgentMarkdown content={content} streaming={streaming} />
       </div>
       {canCollapse ? (
         <Button
@@ -412,6 +432,12 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
   const failureCount = items.filter(executionFailed).length;
   const running = items.some((item) => item.status === 'running' || item.status === 'pending');
   const [expanded, setExpanded] = useState(failureCount > 0);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
   const detailsId = `execution-group-${items.map((item) => item.id).join('-')}`;
   const summary = running
     ? `正在运行 ${items.length} 条命令`
@@ -457,6 +483,15 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
                   {active ? '正在运行' : failed ? '运行失败' : '已运行'}
                 </span>
                 <code title={executionLabel(item)}>{executionLabel(item)}</code>
+                {active ? (
+                  liveElapsed(item, now) ? (
+                    <span className={styles.executionGroupDuration}>{liveElapsed(item, now)}</span>
+                  ) : null
+                ) : (
+                  durationLabel(item.payload) ? (
+                    <span className={styles.executionGroupDuration}>{durationLabel(item.payload)}</span>
+                  ) : null
+                )}
                 {failed && item.content ? (
                   <span className={styles.executionGroupError}>{item.content}</span>
                 ) : null}
@@ -471,6 +506,8 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
 
 export function TimelineItem({ item }: { item: AgentSessionUiTimelineItem }) {
   const modelResponse = isModelResponse(item);
+  const isStreaming = modelResponse && (item.status === 'running' || item.status === 'pending'
+    || Boolean(item.payload?.streaming));
   const classNames = [
     styles.timelineItem,
     styles[`timeline_${item.status || 'default'}`] || '',
@@ -504,6 +541,7 @@ export function TimelineItem({ item }: { item: AgentSessionUiTimelineItem }) {
               <TimelineContent
                 content={item.content}
                 collapsible={!modelResponse && !isUserMessage(item)}
+                streaming={isStreaming}
               />
             ) : null}
             {!modelResponse && !item.content && item.payload ? (
@@ -525,6 +563,8 @@ export default function AgentRunTimeline({
   timeline,
   pendingLabel,
   errorMessage,
+  activity,
+  loading,
 }: AgentRunTimelineProps) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'output' | 'tools' | 'issues'>('all');
@@ -577,7 +617,17 @@ export default function AgentRunTimeline({
   if (timeline.length === 0) {
     return (
       <div className={styles.timelineEmpty}>
-        {pendingLabel ? (
+        {activity ? (
+          <div className={styles.timelineEmptyActivity}>
+            <LoadingOutlined spin />
+            <span>{activity.label}{activity.detail ? ` · ${activity.detail}` : ''}</span>
+          </div>
+        ) : loading ? (
+          <div className={styles.timelineEmptyActivity}>
+            <LoadingOutlined spin />
+            <span>正在加载会话...</span>
+          </div>
+        ) : pendingLabel ? (
           <Alert
             type="info"
             showIcon

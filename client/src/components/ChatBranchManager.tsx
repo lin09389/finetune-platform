@@ -293,7 +293,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                         ],
                       }}
                     >
-                      <Button size="small" icon={<MoreOutlined />} />
+                      <Button size="small" icon={<MoreOutlined />} aria-label="更多操作" />
                     </Dropdown>
                   </Space>
                 </div>

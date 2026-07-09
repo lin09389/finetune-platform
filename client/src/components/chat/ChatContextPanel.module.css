@@ -22,7 +22,6 @@
   overflow: visible;
   background: transparent;
   border-left: none;
-  backdrop-filter: none;
 }
 
 .embeddedPanel {
@@ -35,7 +34,6 @@
   scrollbar-gutter: stable;
   background: transparent;
   border-left: none;
-  backdrop-filter: none;
 }
 
 .embeddedPanel::-webkit-scrollbar {

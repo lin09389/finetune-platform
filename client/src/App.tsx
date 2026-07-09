@@ -1,7 +1,7 @@
-import { App as AntApp, ConfigProvider, Layout, theme as antdTheme } from 'antd';
+import { App as AntApp, ConfigProvider, Layout, Result, theme as antdTheme } from 'antd';
 import { AnimatePresence, motion, LazyMotion, domMax } from 'framer-motion';
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import zhCN from 'antd/locale/zh_CN';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -18,6 +18,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { ThemeProvider, useTheme } from './theme';
 import ContextualToolbar from './components/shared/ContextualToolbar';
 import TechBackground from './components/shared/TechBackground';
+import ExperimentalRouteGuard from './capability/ExperimentalRouteGuard';
 import { setModalAdapter } from './utils/modal';
 import { setNotifyAdapter } from './utils/notify';
 
@@ -125,6 +126,17 @@ const PageLoader = () => (
   </div>
 );
 
+const NotFound = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+    <Result
+      status="404"
+      title="404"
+      subTitle="抱歉，你访问的页面不存在。"
+      extra={<Link to="/agent">返回工作台</Link>}
+    />
+  </div>
+);
+
 const routes = [
   { path: '/dashboard', element: <Dashboard /> },
   { path: '/device', element: <DeviceInfo /> },
@@ -206,6 +218,14 @@ function AppContent() {
     document.title = `${title} · Finetune Platform`;
   }, [location.pathname]);
 
+  // Move focus to the main content region on route change so keyboard and
+  // screen-reader users land on the new page content instead of staying on the
+  // previous element (SPA navigation does not move focus by default).
+  useEffect(() => {
+    const el = document.getElementById('main-content');
+    el?.focus();
+  }, [location.pathname]);
+
   useEffect(() => {
     setNotifyAdapter({
       success: (content) => message.success(content),
@@ -269,6 +289,100 @@ function AppContent() {
     };
   }, [message, setBackendStatus, setBackendUrl]);
 
+  // Memoize the antd theme config: it only changes when the color mode changes.
+  // Without this, AppContent re-renders (e.g. on backend status / location
+  // changes) recreate the object and force antd to reprocess the whole theme.
+  const antdThemeConfig = useMemo(
+    () => ({
+      // Emit antd design tokens as CSS variables (e.g. --ant-color-primary) so
+      // they can be overridden from variables.css, and theme switches no longer
+      // require regenerating antd's CSS. hashed:false drops the class-name hash
+      // suffix (smaller CSS, easier debugging).
+      cssVar: true,
+      hashed: false,
+      algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+      token: {
+        colorPrimary: theme === 'dark' ? '#D97757' : '#b35433',
+        colorSuccess: theme === 'dark' ? '#8ca06f' : '#65754e',
+        colorWarning: theme === 'dark' ? '#D4A033' : '#916909',
+        colorError: theme === 'dark' ? '#ef4444' : '#d64545',
+        colorInfo: theme === 'dark' ? '#7B9BB8' : '#5B7B9A',
+        colorBgBase: theme === 'dark' ? '#262624' : '#faf9f5',
+        colorBgContainer: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
+        colorBgElevated: theme === 'dark' ? '#30302e' : '#ede9de',
+        colorBorder: theme === 'dark' ? '#3e3e38' : '#dad9d4',
+        colorText: theme === 'dark' ? '#f1f1ef' : '#3d3929',
+        colorTextSecondary: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
+        borderRadius: 8,
+        borderRadiusLG: 16,
+        borderRadiusSM: 4,
+        fontFamily:
+          "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+        fontSize: 14,
+        fontSizeLG: 16,
+        fontSizeSM: 12,
+        controlHeight: 38,
+        controlHeightLG: 46,
+        controlHeightSM: 30,
+        boxShadow: 'var(--shadow-md)',
+      },
+      components: {
+        Button: {
+          borderRadius: 10,
+          controlHeight: 40,
+          fontWeight: 500,
+          primaryShadow: 'var(--shadow-xs)',
+          defaultShadow: 'var(--shadow-xs)',
+        },
+        Card: {
+          borderRadius: 16,
+          boxShadow: 'none',
+          colorBgContainer: 'transparent',
+        },
+        Input: {
+          borderRadius: 10,
+          controlHeight: 40,
+          paddingInline: 16,
+          colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
+        },
+        Select: {
+          borderRadius: 10,
+          controlHeight: 40,
+          colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
+        },
+        Modal: {
+          borderRadius: 20,
+          boxShadow: 'var(--shadow-xl)',
+          contentBg: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
+          headerBg: 'transparent',
+        },
+        Tooltip: {
+          borderRadius: 8,
+        },
+        Menu: {
+          borderRadius: 10,
+          itemHeight: 36,
+        },
+        Tag: {
+          borderRadius: 6,
+        },
+        Table: {
+          borderRadius: 12,
+          headerBg: theme === 'dark' ? '#30302e' : '#ede9de',
+          headerColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
+          rowHoverBg: theme === 'dark' ? '#3e3e38' : '#f5f4ef',
+          borderColor: theme === 'dark' ? '#3e3e38' : '#dad9d4',
+        },
+        Tabs: {
+          itemColor: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
+          itemSelectedColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
+          inkBarColor: theme === 'dark' ? '#d97757' : '#b35433',
+        },
+      },
+    }),
+    [theme],
+  );
+
   if (loading) {
     return <LoadingScreen />;
   }
@@ -277,87 +391,7 @@ function AppContent() {
     <ErrorBoundary>
       <ConfigProvider
         locale={zhCN}
-        theme={{
-          algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-          token: {
-            colorPrimary: theme === 'dark' ? '#D97757' : '#C96442',
-            colorSuccess: theme === 'dark' ? '#8ca06f' : '#788c5d',
-            colorWarning: theme === 'dark' ? '#D4A033' : '#B8860B',
-            colorError: theme === 'dark' ? '#ef4444' : '#d64545',
-            colorInfo: theme === 'dark' ? '#7B9BB8' : '#5B7B9A',
-            colorBgBase: theme === 'dark' ? '#262624' : '#faf9f5',
-            colorBgContainer: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
-            colorBgElevated: theme === 'dark' ? '#30302e' : '#ede9de',
-            colorBorder: theme === 'dark' ? '#3e3e38' : '#dad9d4',
-            colorText: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-            colorTextSecondary: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
-            borderRadius: 8,
-            borderRadiusLG: 16,
-            borderRadiusSM: 4,
-            fontFamily:
-              "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
-            fontSize: 14,
-            fontSizeLG: 16,
-            fontSizeSM: 12,
-            controlHeight: 38,
-            controlHeightLG: 46,
-            controlHeightSM: 30,
-            boxShadow: 'var(--shadow-md)',
-          },
-          components: {
-            Button: {
-              borderRadius: 10,
-              controlHeight: 40,
-              fontWeight: 500,
-              primaryShadow: 'var(--shadow-xs)',
-              defaultShadow: 'var(--shadow-xs)',
-            },
-            Card: {
-              borderRadius: 16,
-              boxShadow: 'none',
-              colorBgContainer: 'transparent',
-            },
-            Input: {
-              borderRadius: 10,
-              controlHeight: 40,
-              paddingInline: 16,
-              colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
-            },
-            Select: {
-              borderRadius: 10,
-              controlHeight: 40,
-              colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
-            },
-            Modal: {
-              borderRadius: 20,
-              boxShadow: 'var(--shadow-xl)',
-              contentBg: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
-              headerBg: 'transparent',
-            },
-            Tooltip: {
-              borderRadius: 8,
-            },
-            Menu: {
-              borderRadius: 10,
-              itemHeight: 36,
-            },
-            Tag: {
-              borderRadius: 6,
-            },
-            Table: {
-              borderRadius: 12,
-              headerBg: theme === 'dark' ? '#30302e' : '#ede9de',
-              headerColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-              rowHoverBg: theme === 'dark' ? '#3e3e38' : '#f5f4ef',
-              borderColor: theme === 'dark' ? '#3e3e38' : '#dad9d4',
-            },
-            Tabs: {
-              itemColor: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
-              itemSelectedColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-              inkBarColor: theme === 'dark' ? '#d97757' : '#c96442',
-            },
-          },
-        }}
+        theme={antdThemeConfig}
       >
         <TechBackground />
         <ContextualToolbar />
@@ -385,6 +419,8 @@ function AppContent() {
             {!isImmersiveRoute && <HeaderBar />}
             <Content
               id="main-content"
+              role="main"
+              aria-label="主内容"
               className="app-content"
               tabIndex={-1}
               style={{
@@ -411,11 +447,21 @@ function AppContent() {
                       path={path}
                       element={
                         <PageWrapper locationKey={location.pathname}>
-                          <Suspense fallback={<PageLoader />}>{element}</Suspense>
+                          <Suspense fallback={<PageLoader />}>
+                            <ExperimentalRouteGuard path={path}>{element}</ExperimentalRouteGuard>
+                          </Suspense>
                         </PageWrapper>
                       }
                     />
                   ))}
+                  <Route
+                    path="*"
+                    element={
+                      <PageWrapper locationKey="not-found">
+                        <NotFound />
+                      </PageWrapper>
+                    }
+                  />
                 </Routes>
               </AnimatePresence>
             </Content>

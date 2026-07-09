@@ -1,23 +1,18 @@
 import {
-  CloseOutlined,
-  DownOutlined,
-  DoubleRightOutlined,
   ReloadOutlined,
   SettingOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Button, Drawer, Form, Input, Modal, Select, Tooltip } from 'antd';
+import { Button, Modal, Tooltip, message } from 'antd';
 import {
-  lazy,
   Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { AgentHitlDecision } from '../../services/api';
 import { useOptionalRuntimeContext } from '../../runtime/RuntimeContext';
@@ -25,24 +20,23 @@ import { useResponsive } from '../../hooks/useResponsive';
 import AgentAttentionRail from '../components/AgentAttentionRail';
 import AgentEnvironmentRail from '../components/AgentEnvironmentRail';
 import AgentPanelToolbar from '../components/AgentPanelToolbar';
+import AgentResizeHandle from '../components/AgentResizeHandle';
+import AgentRightDock from '../components/AgentRightDock';
 import AgentSessionRail from '../components/AgentSessionRail';
 import AgentTaskComposer from '../components/AgentTaskComposer';
+import AgentTerminalDock from '../components/AgentTerminalDock';
 import AgentWorkspaceView from '../components/AgentWorkspaceView';
+import AgentActivityBar from '../components/AgentActivityBar';
+import SubagentModal from '../components/SubagentModal';
+import WorkbenchSettingsDrawer from '../components/WorkbenchSettingsDrawer';
 import {
   persistAgentWorkbenchSettings,
   readAgentWorkbenchSettings,
   type AgentWorkbenchSettings,
 } from '../config/workbenchSettings';
 import {
-  DEFAULT_AGENT_PANEL_LAYOUT,
-  MAX_DOCK_WIDTH,
   MAX_SESSION_WIDTH,
-  MAX_TERMINAL_HEIGHT,
-  MAX_WORKSPACE_SPLIT,
-  MIN_DOCK_WIDTH,
   MIN_SESSION_WIDTH,
-  MIN_TERMINAL_HEIGHT,
-  MIN_WORKSPACE_SPLIT,
   persistAgentPanelLayout,
   readAgentPanelLayout,
   type AgentTaskCenterTab,
@@ -57,13 +51,15 @@ import {
   selectWorkspaceProjectLabel,
   selectWorkspaceStatus,
 } from '../selectors/workbenchSelectors';
+import { selectCurrentActivity } from '../selectors/currentActivity';
 import AgentWorkbenchShell from './AgentWorkbenchShell';
+import { buildPanelSurfaceStyle, usePanelResize } from './usePanelResize';
 import styles from './AgentWorkbench.module.css';
 import type { AgentTransport } from '../transport/agentTransport';
 import { routeAgentNextAction } from '../commands/nextActionRouting';
 
-const AgentTerminalPanel = lazy(() => import('../components/AgentTerminalPanel'));
 const AgentRunTimeline = lazy(() => import('../components/AgentRunTimeline'));
+
 const WORKSPACE_PANEL_TABS: Array<{ key: AgentWorkspacePanelTab; label: string }> = [
   { key: 'files', label: '文件' },
   { key: 'diff', label: 'Diff' },
@@ -74,7 +70,6 @@ const TASK_CENTER_TABS: Array<{ key: AgentTaskCenterTab; label: string }> = [
   { key: 'artifacts', label: '产物' },
   { key: 'environment', label: '环境' },
 ];
-type AgentResizeTarget = 'session' | 'dock' | 'terminal' | 'workspace-split';
 
 export interface AgentWorkbenchPageProps {
   transport?: AgentTransport;
@@ -98,22 +93,17 @@ export default function AgentWorkbenchPage({
   const [attentionOpenRequest, setAttentionOpenRequest] = useState(0);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [settings, setSettings] = useState<AgentWorkbenchSettings>(readAgentWorkbenchSettings);
-  const [subagentForm] = Form.useForm<{ agentName: string; description: string }>();
   const rightDockRef = useRef<HTMLElement | null>(null);
-  const resizeFrameRef = useRef<number | null>(null);
-  const pendingResizeRef = useRef<Partial<typeof panelLayout> | null>(null);
-  const resizeStateRef = useRef<{
-    type: AgentResizeTarget;
-    startX: number;
-    startY: number;
-    startValue: number;
-    containerSize: number;
-  } | null>(null);
+  const resize = usePanelResize({ panelLayout, setPanelLayout, rightDockRef, isDesktop });
+
   const timeline = useMemo(() => selectTimeline(state), [state]);
   const connectionLabel = selectConnectionLabel(state);
   const statusLabel = selectWorkspaceStatus(state);
   const projectLabel = selectWorkspaceProjectLabel(state.workspace);
   const attentionCount = selectAttentionCount(state);
+  const currentActivity = selectCurrentActivity(state);
+  const isSessionRunning = Boolean(state.session
+    && ['running', 'planning', 'executing', 'verifying', 'repairing'].includes(state.session.status));
   const activeOperation = state.activeOperation;
   const composerOperation = state.activeSessionId
     ? state.operations[`submit:${state.activeSessionId}`]
@@ -137,6 +127,14 @@ export default function AgentWorkbenchPage({
   const agentRuntimeLabel = effectiveAgentProvider && effectiveAgentModel
     ? `Agent 模型 ${effectiveAgentProvider}:${effectiveAgentModel}`
     : 'Agent 模型自动选择';
+  const subagentAttentionCount = state.workspace?.async_tasks.metrics.attention || 0;
+  const recoveredAt = state.recoveredAt;
+
+  useEffect(() => {
+    if (!recoveredAt) return;
+    const timer = window.setTimeout(() => message.success('已恢复实时同步'), 100);
+    return () => window.clearTimeout(timer);
+  }, [recoveredAt]);
 
   useEffect(() => {
     persistAgentWorkbenchSettings(settings);
@@ -146,22 +144,6 @@ export default function AgentWorkbenchPage({
     const timeout = window.setTimeout(() => persistAgentPanelLayout(panelLayout), 120);
     return () => window.clearTimeout(timeout);
   }, [panelLayout]);
-
-  useEffect(() => () => {
-    if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
-    delete document.body.dataset.agentResizing;
-  }, []);
-
-  const scheduleResize = (next: Partial<typeof panelLayout>) => {
-    pendingResizeRef.current = { ...pendingResizeRef.current, ...next };
-    if (resizeFrameRef.current !== null) return;
-    resizeFrameRef.current = requestAnimationFrame(() => {
-      const pending = pendingResizeRef.current;
-      resizeFrameRef.current = null;
-      pendingResizeRef.current = null;
-      if (pending) setPanelLayout((current) => ({ ...current, ...pending }));
-    });
-  };
 
   const confirmDiscardWorkspaceChanges = useCallback((action: () => void) => {
     if (!workspaceDirty) {
@@ -239,6 +221,14 @@ export default function AgentWorkbenchPage({
     if (!isDesktop) setMobileTerminalOpen(true);
   }, [isDesktop]);
 
+  const closeTerminal = useCallback(() => {
+    if (isDesktop) {
+      setPanelLayout((current) => ({ ...current, terminalOpen: false }));
+    } else {
+      setMobileTerminalOpen(false);
+    }
+  }, [isDesktop]);
+
   useEffect(() => {
     const togglePanelShortcut = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -257,172 +247,6 @@ export default function AgentWorkbenchPage({
     window.addEventListener('keydown', togglePanelShortcut);
     return () => window.removeEventListener('keydown', togglePanelShortcut);
   }, [toggleTaskCenter, toggleTerminal, toggleWorkspace]);
-
-  const beginResize = (
-    type: AgentResizeTarget,
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    if (!isDesktop) return;
-    const startValue = type === 'session'
-      ? panelLayout.sessionWidth
-      : type === 'dock'
-        ? panelLayout.dockWidth
-        : type === 'terminal'
-          ? panelLayout.terminalHeight
-          : panelLayout.workspaceSplit;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    resizeStateRef.current = {
-      type,
-      startX: event.clientX,
-      startY: event.clientY,
-      startValue,
-      containerSize: rightDockRef.current?.clientHeight || 1,
-    };
-    event.currentTarget.dataset.dragging = 'true';
-    document.body.dataset.agentResizing = type;
-  };
-
-  const resizePanel = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const resize = resizeStateRef.current;
-    if (!resize) return;
-    switch (resize.type) {
-      case 'session': {
-        const visibleDockWidth = panelLayout.workspaceOpen || panelLayout.taskCenterOpen
-          ? Math.max(MIN_DOCK_WIDTH, Math.min(panelLayout.dockWidth, window.innerWidth * 0.46))
-          : 0;
-        const maximum = Math.min(
-          MAX_SESSION_WIDTH,
-          Math.max(MIN_SESSION_WIDTH, window.innerWidth - visibleDockWidth - 320),
-        );
-        const sessionWidth = Math.min(
-          maximum,
-          Math.max(MIN_SESSION_WIDTH, resize.startValue + event.clientX - resize.startX),
-        );
-        scheduleResize({ sessionWidth: Math.round(sessionWidth) });
-        break;
-      }
-      case 'dock': {
-        const maximum = Math.min(
-          MAX_DOCK_WIDTH,
-          Math.max(MIN_DOCK_WIDTH, window.innerWidth - panelLayout.sessionWidth - 320),
-        );
-        const dockWidth = Math.min(
-          maximum,
-          Math.max(MIN_DOCK_WIDTH, resize.startValue + resize.startX - event.clientX),
-        );
-        scheduleResize({ dockWidth: Math.round(dockWidth) });
-        break;
-      }
-      case 'terminal': {
-        const terminalHeight = Math.min(
-          MAX_TERMINAL_HEIGHT,
-          Math.max(MIN_TERMINAL_HEIGHT, resize.startValue + resize.startY - event.clientY),
-        );
-        scheduleResize({ terminalHeight: Math.round(terminalHeight) });
-        break;
-      }
-      case 'workspace-split': {
-        const workspaceSplit = Math.min(
-          MAX_WORKSPACE_SPLIT,
-          Math.max(
-            MIN_WORKSPACE_SPLIT,
-            resize.startValue + ((event.clientY - resize.startY) / resize.containerSize) * 100,
-          ),
-        );
-        scheduleResize({ workspaceSplit: Math.round(workspaceSplit) });
-        break;
-      }
-    }
-  };
-
-  const endResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!resizeStateRef.current) return;
-    resizeStateRef.current = null;
-    delete event.currentTarget.dataset.dragging;
-    delete document.body.dataset.agentResizing;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  };
-
-  const resizePanelWithKeyboard = (
-    type: AgentResizeTarget,
-    event: ReactKeyboardEvent<HTMLDivElement>,
-  ) => {
-    const step = event.shiftKey ? 40 : 16;
-    if (type === 'session' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      event.preventDefault();
-      const direction = event.key === 'ArrowRight' ? 1 : -1;
-      setPanelLayout((current) => {
-        const visibleDockWidth = current.workspaceOpen || current.taskCenterOpen
-          ? Math.max(MIN_DOCK_WIDTH, Math.min(current.dockWidth, window.innerWidth * 0.46))
-          : 0;
-        const maximum = Math.min(
-          MAX_SESSION_WIDTH,
-          Math.max(MIN_SESSION_WIDTH, window.innerWidth - visibleDockWidth - 320),
-        );
-        return {
-          ...current,
-          sessionWidth: Math.round(Math.min(
-            maximum,
-            Math.max(MIN_SESSION_WIDTH, current.sessionWidth + direction * step),
-          )),
-        };
-      });
-    }
-    if (type === 'dock' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      event.preventDefault();
-      const direction = event.key === 'ArrowLeft' ? 1 : -1;
-      setPanelLayout((current) => {
-        const maximum = Math.min(
-          MAX_DOCK_WIDTH,
-          Math.max(MIN_DOCK_WIDTH, window.innerWidth - current.sessionWidth - 320),
-        );
-        return {
-          ...current,
-          dockWidth: Math.round(Math.min(
-            maximum,
-            Math.max(MIN_DOCK_WIDTH, current.dockWidth + direction * step),
-          )),
-        };
-      });
-    }
-    if (type === 'terminal' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-      event.preventDefault();
-      const direction = event.key === 'ArrowUp' ? 1 : -1;
-      setPanelLayout((current) => ({
-        ...current,
-        terminalHeight: Math.min(
-          MAX_TERMINAL_HEIGHT,
-          Math.max(MIN_TERMINAL_HEIGHT, current.terminalHeight + direction * step),
-        ),
-      }));
-    }
-    if (type === 'workspace-split' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-      event.preventDefault();
-      const splitStep = event.shiftKey ? 10 : 2;
-      const direction = event.key === 'ArrowDown' ? 1 : -1;
-      setPanelLayout((current) => ({
-        ...current,
-        workspaceSplit: Math.min(
-          MAX_WORKSPACE_SPLIT,
-          Math.max(MIN_WORKSPACE_SPLIT, current.workspaceSplit + direction * splitStep),
-        ),
-      }));
-    }
-  };
-
-  const resetPanelSize = (type: AgentResizeTarget) => {
-    setPanelLayout((current) => ({
-      ...current,
-      ...(type === 'session' && { sessionWidth: DEFAULT_AGENT_PANEL_LAYOUT.sessionWidth }),
-      ...(type === 'dock' && { dockWidth: DEFAULT_AGENT_PANEL_LAYOUT.dockWidth }),
-      ...(type === 'terminal' && { terminalHeight: DEFAULT_AGENT_PANEL_LAYOUT.terminalHeight }),
-      ...(type === 'workspace-split' && {
-        workspaceSplit: DEFAULT_AGENT_PANEL_LAYOUT.workspaceSplit,
-      }),
-    }));
-  };
 
   const decidePermission = (partId: string, decisions: AgentHitlDecision[]) => {
     void actions.decidePermission(partId, decisions);
@@ -514,23 +338,23 @@ export default function AgentWorkbenchPage({
           />
         </Tooltip>
       ) : null}
-          <Tooltip title="新建子 Agent">
-            <Button
-              type="text"
-              icon={<TeamOutlined />}
-              disabled={!state.activeSessionId}
-              onClick={() => setSubagentOpen(true)}
-              aria-label="新建子 Agent"
-            />
-          </Tooltip>
-          <Tooltip title="工作台设置">
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => setSettingsOpen(true)}
-              aria-label="工作台设置"
-            />
-          </Tooltip>
+      <Tooltip title="新建子 Agent">
+        <Button
+          type="text"
+          icon={<TeamOutlined />}
+          disabled={!state.activeSessionId}
+          onClick={() => setSubagentOpen(true)}
+          aria-label="新建子 Agent"
+        />
+      </Tooltip>
+      <Tooltip title="工作台设置">
+        <Button
+          type="text"
+          icon={<SettingOutlined />}
+          onClick={() => setSettingsOpen(true)}
+          aria-label="工作台设置"
+        />
+      </Tooltip>
     </>
   );
 
@@ -538,11 +362,7 @@ export default function AgentWorkbenchPage({
     ? panelLayout.workspaceOpen || panelLayout.taskCenterOpen
     : mobileDockOpen;
   const terminalVisible = isDesktop ? panelLayout.terminalOpen : mobileTerminalOpen;
-  const surfaceStyle = {
-    '--agent-dock-width': `${panelLayout.dockWidth}px`,
-    '--agent-terminal-height': `${panelLayout.terminalHeight}px`,
-    '--agent-workspace-split': `${panelLayout.workspaceSplit}%`,
-  } as CSSProperties;
+  const surfaceStyle: CSSProperties = buildPanelSurfaceStyle(panelLayout);
   const workspacePanel = (
     <AgentWorkspaceView
       key={`workspace:${state.workspace?.session.id || 'empty'}`}
@@ -583,22 +403,14 @@ export default function AgentWorkbenchPage({
       desktopSessionRail={(
         <>
           {sessionRail()}
-          <div
+          <AgentResizeHandle
+            target="session"
+            valueNow={panelLayout.sessionWidth}
+            valueMin={MIN_SESSION_WIDTH}
+            valueMax={MAX_SESSION_WIDTH}
+            isDesktop={isDesktop}
+            resize={resize}
             className={styles.sessionResizeHandle}
-            role="separator"
-            aria-label="调整会话栏宽度"
-            aria-orientation="vertical"
-            aria-valuemin={MIN_SESSION_WIDTH}
-            aria-valuemax={MAX_SESSION_WIDTH}
-            aria-valuenow={panelLayout.sessionWidth}
-            tabIndex={isDesktop ? 0 : -1}
-            title="拖动调整，双击恢复默认宽度"
-            onDoubleClick={() => resetPanelSize('session')}
-            onKeyDown={(event) => resizePanelWithKeyboard('session', event)}
-            onPointerDown={(event) => beginResize('session', event)}
-            onPointerMove={resizePanel}
-            onPointerUp={endResize}
-            onPointerCancel={endResize}
           />
         </>
       )}
@@ -626,13 +438,22 @@ export default function AgentWorkbenchPage({
               onToggleTerminal={toggleTerminal}
             />
             <div className={styles.contentSurface}>
-            <Suspense fallback={<div className={styles.panelLoading}>正在加载运行记录...</div>}>
-              <AgentRunTimeline
-                timeline={timeline}
-                pendingLabel={composerOperation?.key.startsWith('submit:') ? composerOperation.label : undefined}
-                errorMessage={state.error}
+              <AgentActivityBar
+                activity={currentActivity}
+                isRunning={isSessionRunning}
+                timelineEmpty={timeline.length === 0}
+                connection={state.connection}
+                connectionLabel={connectionLabel}
               />
-            </Suspense>
+              <Suspense fallback={<div className={styles.panelLoading}>正在加载运行记录...</div>}>
+                <AgentRunTimeline
+                  timeline={timeline}
+                  pendingLabel={composerOperation?.key.startsWith('submit:') ? composerOperation.label : undefined}
+                  errorMessage={state.error}
+                  activity={currentActivity}
+                  loading={Boolean(state.activeSessionId) && !state.session}
+                />
+              </Suspense>
             </div>
           </div>
           <AgentTaskComposer
@@ -650,170 +471,34 @@ export default function AgentWorkbenchPage({
             })}
             onInterrupt={actions.interrupt}
           />
-          <section
-            className={styles.terminalDock}
-            data-visible={terminalVisible ? 'true' : 'false'}
-            aria-label="终端面板"
-            aria-hidden={!terminalVisible}
-          >
-            <div
-              className={styles.terminalResizeHandle}
-              role="separator"
-              aria-label="调整终端高度"
-              aria-orientation="horizontal"
-              aria-valuemin={MIN_TERMINAL_HEIGHT}
-              aria-valuemax={MAX_TERMINAL_HEIGHT}
-              aria-valuenow={panelLayout.terminalHeight}
-              tabIndex={isDesktop ? 0 : -1}
-              title="拖动调整，双击恢复默认高度"
-              onDoubleClick={() => resetPanelSize('terminal')}
-              onKeyDown={(event) => resizePanelWithKeyboard('terminal', event)}
-              onPointerDown={(event) => beginResize('terminal', event)}
-              onPointerMove={resizePanel}
-              onPointerUp={endResize}
-              onPointerCancel={endResize}
-            />
-            <header className={styles.terminalDockHeader}>
-              <div><strong>终端 1</strong><span>测试</span></div>
-              <Tooltip title="隐藏终端">
-                <button
-                  type="button"
-                  aria-label="隐藏终端"
-                  onClick={() => {
-                    if (isDesktop) {
-                      setPanelLayout((current) => ({ ...current, terminalOpen: false }));
-                    } else {
-                      setMobileTerminalOpen(false);
-                    }
-                  }}
-                >
-                  <DownOutlined />
-                </button>
-              </Tooltip>
-            </header>
-            <div className={styles.terminalDockBody}>
-              {terminalMounted ? (
-                <Suspense fallback={<div className={styles.panelLoading}>正在加载终端...</div>}>
-                  <AgentTerminalPanel timeline={timeline} />
-                </Suspense>
-              ) : null}
-            </div>
-          </section>
+          <AgentTerminalDock
+            visible={terminalVisible}
+            mounted={terminalMounted}
+            isDesktop={isDesktop}
+            terminalHeight={panelLayout.terminalHeight}
+            timeline={timeline}
+            resize={resize}
+            onClose={closeTerminal}
+          />
         </section>
 
-        <aside
-          ref={rightDockRef}
-          className={styles.rightDock}
-          data-visible={rightDockVisible ? 'true' : 'false'}
-          data-workspace-open={panelLayout.workspaceOpen ? 'true' : 'false'}
-          data-tasks-open={panelLayout.taskCenterOpen ? 'true' : 'false'}
-          aria-label="工作台侧栏"
-          aria-hidden={!rightDockVisible}
-        >
-          <div
-            className={styles.dockResizeHandle}
-            role="separator"
-            aria-label="调整工作区宽度"
-            aria-orientation="vertical"
-            aria-valuemin={MIN_DOCK_WIDTH}
-            aria-valuemax={MAX_DOCK_WIDTH}
-            aria-valuenow={panelLayout.dockWidth}
-            tabIndex={isDesktop ? 0 : -1}
-            title="拖动调整，双击恢复默认宽度"
-            onDoubleClick={() => resetPanelSize('dock')}
-            onKeyDown={(event) => resizePanelWithKeyboard('dock', event)}
-            onPointerDown={(event) => beginResize('dock', event)}
-            onPointerMove={resizePanel}
-            onPointerUp={endResize}
-            onPointerCancel={endResize}
-          />
-          <button
-            type="button"
-            className={styles.mobileDockClose}
-            aria-label="关闭工作台侧栏"
-            onClick={() => setMobileDockOpen(false)}
-          >
-            <CloseOutlined />
-          </button>
-          <section className={styles.workspaceDockPanel} hidden={!panelLayout.workspaceOpen} aria-label="工作区">
-            <header className={styles.idePanelHeader}>
-              <div role="tablist" aria-label="工作区视图">
-                {WORKSPACE_PANEL_TABS.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={panelLayout.workspaceTab === tab.key}
-                    className={panelLayout.workspaceTab === tab.key ? styles.ideTabActive : styles.ideTab}
-                    onClick={() => openWorkspaceTab(tab.key)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <Tooltip title="隐藏工作区">
-                <button
-                  type="button"
-                  aria-label="隐藏工作区"
-                  onClick={collapseWorkspace}
-                >
-                  <DoubleRightOutlined />
-                </button>
-              </Tooltip>
-            </header>
-            <div className={styles.idePanelBody}>{workspacePanel}</div>
-          </section>
-          {panelLayout.workspaceOpen && panelLayout.taskCenterOpen ? (
-            <div
-              className={styles.workspaceSplitResizeHandle}
-              role="separator"
-              aria-label="调整工作区与任务中心比例"
-              aria-orientation="horizontal"
-              aria-valuemin={MIN_WORKSPACE_SPLIT}
-              aria-valuemax={MAX_WORKSPACE_SPLIT}
-              aria-valuenow={panelLayout.workspaceSplit}
-              tabIndex={isDesktop ? 0 : -1}
-              title="拖动调整，双击恢复默认比例"
-              onDoubleClick={() => resetPanelSize('workspace-split')}
-              onKeyDown={(event) => resizePanelWithKeyboard('workspace-split', event)}
-              onPointerDown={(event) => beginResize('workspace-split', event)}
-              onPointerMove={resizePanel}
-              onPointerUp={endResize}
-              onPointerCancel={endResize}
-            />
-          ) : null}
-          <section className={styles.taskCenterDockPanel} hidden={!panelLayout.taskCenterOpen} aria-label="任务中心">
-            <header className={styles.idePanelHeader}>
-              <div className={styles.taskCenterTitle}>任务中心</div>
-              <Tooltip title="隐藏任务中心">
-                <button
-                  type="button"
-                  aria-label="隐藏任务中心"
-                  onClick={collapseTaskCenter}
-                >
-                  <DoubleRightOutlined />
-                </button>
-              </Tooltip>
-            </header>
-            <nav className={styles.taskCenterTabs} aria-label="任务中心视图">
-              {TASK_CENTER_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  aria-current={panelLayout.taskCenterTab === tab.key ? 'page' : undefined}
-                  className={panelLayout.taskCenterTab === tab.key ? styles.ideTabActive : styles.ideTab}
-                  onClick={() => openTaskCenterTab(tab.key)}
-                >
-                  {tab.label}
-                  {tab.key === 'subagents' && state.workspace?.async_tasks.metrics.attention ? (
-                    <span className={styles.tabCount}>{state.workspace.async_tasks.metrics.attention}</span>
-                  ) : null}
-                </button>
-              ))}
-            </nav>
-            <div className={styles.idePanelBody}>{taskCenterPanel}</div>
-          </section>
-        </aside>
+        <AgentRightDock
+          panelLayout={panelLayout}
+          rightDockRef={rightDockRef}
+          isDesktop={isDesktop}
+          rightDockVisible={rightDockVisible}
+          workspaceTabs={WORKSPACE_PANEL_TABS}
+          taskCenterTabs={TASK_CENTER_TABS}
+          workspacePanel={workspacePanel}
+          taskCenterPanel={taskCenterPanel}
+          subagentAttentionCount={subagentAttentionCount}
+          resize={resize}
+          onOpenWorkspaceTab={openWorkspaceTab}
+          onOpenTaskCenterTab={openTaskCenterTab}
+          onCollapseWorkspace={collapseWorkspace}
+          onCollapseTaskCenter={collapseTaskCenter}
+          onMobileDockClose={() => setMobileDockOpen(false)}
+        />
 
         {!isDesktop && (mobileDockOpen || mobileTerminalOpen) ? (
           <button
@@ -828,72 +513,24 @@ export default function AgentWorkbenchPage({
         ) : null}
       </main>
 
-      <Drawer
-        title="工作台设置"
+      <WorkbenchSettingsDrawer
         open={settingsOpen}
+        settings={settings}
+        sessionActive={Boolean(state.session)}
         onClose={() => setSettingsOpen(false)}
-        width={360}
-      >
-        <Form layout="vertical">
-          <Form.Item label="项目路径" extra="留空时使用后端默认工作区。新会话创建后不可修改。">
-            <Input
-              value={settings.projectPath}
-              disabled={Boolean(state.session)}
-              placeholder="C:\\path\\to\\project"
-              onChange={(event) => setSettings((current) => ({
-                ...current,
-                projectPath: event.target.value,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item label="自主模式">
-            <Select
-              value={settings.autonomyMode}
-              disabled={Boolean(state.session)}
-              onChange={(autonomyMode) => setSettings((current) => ({ ...current, autonomyMode }))}
-              options={[
-                { value: 'safe_auto', label: '安全自动' },
-                { value: 'confirm_all', label: '全部确认' },
-                { value: 'read_only', label: '只读' },
-              ]}
-            />
-          </Form.Item>
-        </Form>
-      </Drawer>
+        onChange={setSettings}
+      />
 
-      <Modal
-        title="启动子 Agent"
+      <SubagentModal
         open={subagentOpen}
-        okText="启动"
-        cancelText="取消"
         confirmLoading={Boolean(subagentOperationKey && state.operations[subagentOperationKey])}
-        onCancel={() => setSubagentOpen(false)}
-        onOk={() => {
-          void subagentForm.validateFields().then(async (values) => {
-            try {
-              await actions.startSubagent(values.agentName, values.description);
-              subagentForm.resetFields();
-              setSubagentOpen(false);
-              openTaskCenterTab('subagents');
-            } catch {
-              // Runtime state already exposes the actionable error; keep the modal open for retry.
-            }
-          });
+        subagentTargets={subagentTargets}
+        onClose={() => setSubagentOpen(false)}
+        onStart={async (agentName, description) => {
+          await actions.startSubagent(agentName, description);
+          openTaskCenterTab('subagents');
         }}
-      >
-        <Form
-          form={subagentForm}
-          layout="vertical"
-          initialValues={{ agentName: subagentTargets[0] || 'explore' }}
-        >
-          <Form.Item name="agentName" label="Agent" rules={[{ required: true }]}>
-            <Select options={subagentTargets.map((target) => ({ value: target, label: target }))} />
-          </Form.Item>
-          <Form.Item name="description" label="任务说明" rules={[{ required: true, min: 3 }]}>
-            <Input.TextArea rows={4} placeholder="说明希望子 Agent 独立完成的工作" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      />
     </AgentWorkbenchShell>
   );
 }

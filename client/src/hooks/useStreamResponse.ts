@@ -209,6 +209,17 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
     };
   }, [streamManager, autoSave, onChunk, onComplete, onError, onReconnecting, onPartialSave]);
 
+  // Stop the active stream + clear StreamManager timers (heartbeat / partial-save
+  // / chunk-timeout) when the consumer unmounts. Without this, an in-flight fetch
+  // reader and its timers keep running after the component is gone (resource leak).
+  // `streamManager` is ref-stable (lazy-initialized via streamManagerRef.current
+  // on first render and never reassigned), so this effect only fires on unmount.
+  useEffect(() => {
+    return () => {
+      streamManager.stop();
+    };
+  }, [streamManager]);
+
   const connect = useCallback(
     async (url: string, body?: unknown) => {
       lastUrlRef.current = url;

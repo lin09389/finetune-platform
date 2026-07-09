@@ -30,6 +30,11 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
 
+          // React core (react, react-dom, scheduler, react/jsx-runtime) MUST be
+          // grouped before react-markdown etc. Otherwise Rollup's default chunking
+          // pulls react/jsx-runtime into vendor-markdown, which forces the entry
+          // to modulepreload the 46KiB-gz markdown chunk on first paint.
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react'
           if (id.includes('antd') || id.includes('@ant-design') || id.includes('/rc-')) return 'vendor-ui'
           if (id.includes('echarts') || id.includes('recharts')) return 'vendor-charts'
           if (id.includes('react-markdown') || id.includes('remark-gfm')) return 'vendor-markdown'

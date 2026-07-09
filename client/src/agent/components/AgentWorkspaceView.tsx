@@ -1,18 +1,14 @@
 import {
-  BranchesOutlined,
   CheckCircleOutlined,
   CloseOutlined,
   CloseCircleOutlined,
   FileTextOutlined,
-  FolderOpenOutlined,
-  NodeIndexOutlined,
-  CodeOutlined,
   ReloadOutlined,
   SaveOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { Button, Empty, Input, Modal, Progress, Spin, Tag, message } from 'antd';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   readWorkspaceFile,
   writeWorkspaceFile,
@@ -23,16 +19,6 @@ import {
 import styles from '../workbench/AgentWorkbench.module.css';
 
 export type AgentWorkspaceTab = 'activity' | 'files' | 'diff' | 'plan' | 'terminal' | 'subagents' | 'artifacts';
-
-export const workspaceTabs: Array<{ key: AgentWorkspaceTab; label: string; icon: ReactNode }> = [
-  { key: 'activity', label: '运行', icon: <NodeIndexOutlined /> },
-  { key: 'files', label: '文件', icon: <FolderOpenOutlined /> },
-  { key: 'diff', label: 'Diff', icon: <BranchesOutlined /> },
-  { key: 'plan', label: '计划', icon: <BranchesOutlined /> },
-  { key: 'terminal', label: '终端', icon: <CodeOutlined /> },
-  { key: 'subagents', label: '子 Agent', icon: <TeamOutlined /> },
-  { key: 'artifacts', label: '产物', icon: <FileTextOutlined /> },
-];
 
 function formatNodeDuration(startedAt?: string | null, completedAt?: string | null): string | null {
   if (!startedAt) return null;

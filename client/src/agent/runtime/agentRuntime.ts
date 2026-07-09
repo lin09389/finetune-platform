@@ -17,6 +17,7 @@ import {
   recordDiagnostic,
   type AgentDiagnosticsSnapshot,
 } from '../diagnostics/agentDiagnostics';
+import { activityFromEvent, type AgentActivity } from '../selectors/currentActivity';
 
 export interface RecentAgentSession {
   id: string;
@@ -53,6 +54,10 @@ export interface AgentRuntimeState {
   hydrated: boolean;
   streamRevision: number;
   diagnostics: AgentDiagnosticsSnapshot;
+  /** Agent 执行中的即时活动摘要，由 SSE 事件派生 */
+  currentActivity: AgentActivity | null;
+  /** SSE 重连恢复同步的时间戳，用于短暂提示用户 */
+  recoveredAt: number | null;
 }
 
 export type AgentRuntimeAction =
@@ -92,6 +97,8 @@ export const initialAgentRuntimeState: AgentRuntimeState = {
   hydrated: false,
   streamRevision: 0,
   diagnostics: EMPTY_AGENT_DIAGNOSTICS,
+  currentActivity: null,
+  recoveredAt: null,
 };
 
 const MAX_SEEN_EVENTS = 2000;
@@ -154,6 +161,7 @@ export function agentRuntimeReducer(
         unknownEvents: [],
         malformedEvents: [],
         error: null,
+        currentActivity: null,
         streamRevision: state.streamRevision + 1,
         diagnostics: {
           ...EMPTY_AGENT_DIAGNOSTICS,
@@ -173,6 +181,7 @@ export function agentRuntimeReducer(
         unknownEvents: [],
         malformedEvents: [],
         error: null,
+        currentActivity: null,
         streamRevision: state.streamRevision + 1,
         diagnostics: {
           ...EMPTY_AGENT_DIAGNOSTICS,
@@ -266,6 +275,10 @@ export function agentRuntimeReducer(
                   id: action.event.id,
                 })
               : state.diagnostics;
+      const activityUpdate = activityFromEvent(action.event, Date.now());
+      const currentActivity = activityUpdate === null
+        ? state.currentActivity
+        : activityUpdate ?? null;
       return {
         ...state,
         session,
@@ -277,13 +290,17 @@ export function agentRuntimeReducer(
         seenEventIds,
         unknownEvents,
         diagnostics,
+        currentActivity,
       };
     }
-    case 'connection_changed':
+    case 'connection_changed': {
+      const wasReconnecting = state.connection === 'reconnecting' || state.reconnectAttempt > 0;
+      const recovered = wasReconnecting && action.connection === 'open';
       return {
         ...state,
         connection: action.connection,
         reconnectAttempt: action.attempt,
+        recoveredAt: recovered ? Date.now() : state.recoveredAt,
         diagnostics: action.connection === 'reconnecting'
           ? recordDiagnostic(state.diagnostics, {
               sessionId: state.activeSessionId,
@@ -292,6 +309,7 @@ export function agentRuntimeReducer(
             })
           : state.diagnostics,
       };
+    }
     case 'malformed_event':
       return {
         ...state,
@@ -344,6 +362,7 @@ export function agentRuntimeReducer(
         activeOperation: null,
         operations: {},
         error: null,
+        currentActivity: null,
         streamRevision: state.streamRevision + 1,
       };
     default:

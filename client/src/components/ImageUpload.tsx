@@ -8,7 +8,7 @@ import {
 import type { UploadFile, UploadProps } from 'antd';
 import { Button, Card, Image, message, Modal, Space, Spin, Typography, Upload } from 'antd';
 import React, { useCallback, useRef, useState } from 'react';
-import { API_BASE_URL } from '../services/api';
+import { runOcr } from '../services/ocrApi';
 
 const { Text } = Typography;
 
@@ -86,20 +86,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
 
     setOcrLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/ocr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_base64: previewImage.split(',')[1],
-        }),
+      const result = await runOcr<OCRResult>({
+        image_base64: previewImage.split(',')[1]!,
       });
-
-      if (!response.ok) {
-        message.error('OCR 识别失败');
-        return;
-      }
-
-      const result = await response.json();
       setOcrResult(result);
       onOCR?.(result);
       message.success('OCR 识别完成');

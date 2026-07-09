@@ -6,7 +6,7 @@ import {
 } from '@ant-design/icons';
 import { Alert, Button, Card, Space, Tag } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import { API_BASE_URL } from '../services/api';
+import { checkSwift } from '../services/swiftApi';
 
 interface SwiftStatus {
   available: boolean;
@@ -25,14 +25,10 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<SwiftStatus | null>(null);
 
-  const checkSwift = useCallback(async () => {
+  const checkSwiftStatus = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/training/check-swift`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await checkSwift<SwiftStatus>();
       setStatus(data);
       onStatusChange?.(data);
     } catch {
@@ -47,8 +43,8 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
   }, [onStatusChange]);
 
   useEffect(() => {
-    checkSwift();
-  }, [checkSwift]);
+    checkSwiftStatus();
+  }, [checkSwiftStatus]);
 
   if (loading) {
     return (
@@ -72,7 +68,7 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
         </Space>
       }
       extra={
-        <Button type="text" icon={<ReloadOutlined />} onClick={checkSwift} disabled={loading} />
+        <Button type="text" icon={<ReloadOutlined />} aria-label="重新检查" onClick={checkSwiftStatus} disabled={loading} />
       }
     >
       <Space direction="vertical" style={{ width: '100%' }} size="small">

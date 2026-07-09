@@ -23,7 +23,8 @@ import {
   Typography,
 } from 'antd';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE_URL, apiClient } from '../services/api';
+import { apiClient } from '../services/api';
+import { executeCode } from '../services/codeApi';
 import CodeBlock from './CodeBlock';
 
 const { Text } = Typography;
@@ -149,22 +150,16 @@ const CodeExecutor: React.FC = () => {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch(`${API_BASE_URL}/code/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const data = await executeCode<ExecuteResult>(
+        {
           code,
           language,
           timeout,
           memory_limit_mb: memoryLimit,
           stdin: stdin || null,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
-
-      const data = await response.json();
+        },
+        { signal: abortControllerRef.current.signal },
+      );
       setResult(data);
 
       if (data.success) {
@@ -173,7 +168,11 @@ const CodeExecutor: React.FC = () => {
         message.warning('代码执行完成，但有错误');
       }
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      const isAbort =
+        (error instanceof Error &&
+          (error.name === 'AbortError' || error.name === 'CanceledError')) ||
+        (error as { code?: string }).code === 'ERR_CANCELED';
+      if (isAbort) {
         message.info('执行已取消');
       } else {
         const errorMessage = error instanceof Error && error.message ? error.message : '未知错误';

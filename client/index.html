@@ -2,15 +2,49 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Finetune Platform — 企业级大模型微调平台，支持 LoRA/QLoRA 微调、模型管理、数据集处理、实时监控、推理服务与 Agent 会话，专为消费级显卡优化。" />
+    <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)" />
     <title>Finetune Platform - 大模型微调平台</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Poppins:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Load web fonts without blocking first paint. media="print" makes the
+         request non-matching (non-blocking); onload swaps to "all" once loaded.
+         display=swap in the URL keeps text visible in the fallback font meanwhile. -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Poppins:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Geist+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+    <style>
+      /* Inline first-paint skeleton: shown until the JS bundle mounts React.
+         Replaced automatically when React renders into #root. Colors are
+         hardcoded (CSS variables are not available before the CSS bundle loads). */
+      .ft-skeleton {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 24px; height: 100vh;
+        background: #faf9f5; color: #3d3929;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      }
+      .ft-skeleton__logo {
+        width: 64px; height: 64px; border-radius: 16px;
+        background: #b35433; color: #ffffff;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 24px; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+        animation: ft-sk-pulse 2s ease-in-out infinite;
+      }
+      .ft-skeleton__title { font-size: 20px; font-weight: 700; letter-spacing: .02em; margin: 0; }
+      .ft-skeleton__sub { font-size: 14px; color: #6e6d68; margin: 8px 0 0; text-align: center; }
+      @keyframes ft-sk-pulse { 0%,100%{opacity:.8} 50%{opacity:1} }
+      @media (prefers-color-scheme: dark) {
+        .ft-skeleton { background: #262624; color: #f1f1ef; }
+        .ft-skeleton__logo { background: #d97757; }
+        .ft-skeleton__sub { color: #b7b5a9; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="ft-skeleton" aria-label="正在加载 Finetune Platform" role="status"><div class="ft-skeleton__logo">FT</div><div><div class="ft-skeleton__title">Finetune Platform</div><div class="ft-skeleton__sub">正在加载工作台...</div></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
 import type { AgentPart, AgentSessionUiTimelineItem, AgentWorkspace } from '../../services/api';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
+import { SESSION_STATUS_LABELS } from './sessionStatus';
 
 const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
@@ -123,22 +124,7 @@ export function selectWorkspaceStatus(state: AgentRuntimeState): string {
     state.session?.status ||
     '待命';
   return (
-    (
-      {
-        idle: '待命',
-        running: '运行中',
-        planning: '规划中',
-        executing: '执行中',
-        verifying: '验证中',
-        repairing: '修复中',
-        waiting_permission: '等待审批',
-        waiting_approval: '等待审批',
-        completed: '已完成',
-        failed: '失败',
-        interrupted: '已停止',
-        needs_manual_review: '需要复核',
-      } as Record<string, string>
-    )[status] || status
+    SESSION_STATUS_LABELS[status] || status
   );
 }
 

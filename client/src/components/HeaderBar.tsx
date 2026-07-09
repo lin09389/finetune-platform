@@ -97,10 +97,10 @@ export default function HeaderBar() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <Header className={styles.header}>
+      <Header className={styles.header} role="banner" aria-label="页头">
         <div className={styles.leftSection}>
           {currentTitle && (
-            <h2 className={styles.pageTitle}>{currentTitle}</h2>
+            <h1 className={styles.pageTitle}>{currentTitle}</h1>
           )}
         </div>
 
@@ -118,6 +118,7 @@ export default function HeaderBar() {
             <Button
               className={styles.actionBtn}
               icon={<ReloadOutlined spin={loading} />}
+              aria-label="刷新设备状态"
               onClick={fetchDeviceInfo}
               loading={loading}
               size="small"

@@ -4,7 +4,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: 40px minmax(0, 1fr);
-  background: #0a0a0a;
+  background: var(--terminal-bg);
 }
 
 .toolbar {
@@ -12,8 +12,8 @@
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  border-bottom: 1px solid #27272a;
-  background: #141414;
+  border-bottom: 1px solid var(--terminal-border);
+  background: var(--terminal-toolbar-bg);
 }
 
 .toolbar :global(.ant-select) {
@@ -33,7 +33,7 @@
 
 .toolbar :global(.ant-select-selector),
 .toolbar :global(.ant-select-arrow) {
-  color: #e5e5e5 !important;
+  color: var(--terminal-fg);
 }
 
 .terminal {

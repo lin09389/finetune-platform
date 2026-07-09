@@ -272,7 +272,7 @@ export default function Deployment() {
           <section className={styles.panel}>
             <div className={styles.sectionHeading}>
               <Title level={4}>版本列表</Title>
-              <Button type="text" icon={<ReloadOutlined />} onClick={() => void loadHistory()} />
+              <Button type="text" icon={<ReloadOutlined />} aria-label="刷新版本列表" onClick={() => void loadHistory()} />
             </div>
             <List
               loading={historyLoading}

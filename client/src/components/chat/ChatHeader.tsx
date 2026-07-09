@@ -165,7 +165,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             }}
           >
             <div>
-              <Button icon={<MoreOutlined />} className={styles.actionButton} />
+              <Button icon={<MoreOutlined />} aria-label="更多操作" className={styles.actionButton} />
             </div>
           </Dropdown>
         </Space>

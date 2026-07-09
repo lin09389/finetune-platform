@@ -1,12 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
-  API_BASE_URL,
   getBackends,
   getInferenceModels,
   getOllamaStatus,
   getRuntimeBootstrap,
   type RuntimeBootstrapPayload,
 } from '../services/api';
+import { getKnowledgeCollections, getKnowledgeEmbedderStatus } from '../services/knowledgeApi';
 import { useAppStore } from '../store/appStore';
 import { useChatStore } from '../store/chatStore';
 
@@ -320,15 +320,14 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     if (backendStatus !== 'connected') return;
 
     try {
-      const [collectionsResponse, embedderResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/knowledge/collections`).catch(() => null),
-        fetch(`${API_BASE_URL}/knowledge/embedder/status`).catch(() => null),
+      const [collectionsData, embedderData] = await Promise.all([
+        getKnowledgeCollections().catch(() => null),
+        getKnowledgeEmbedderStatus().catch(() => null),
       ]);
 
-      if (collectionsResponse?.ok) {
-        const data = await collectionsResponse.json();
+      if (collectionsData) {
         setCollections(
-          (data.collections || []).map((collection: { name: string; count?: number }) => ({
+          (collectionsData.collections || []).map((collection) => ({
             id: collection.name,
             name: collection.name,
             count: collection.count || 0,
@@ -336,9 +335,15 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
         );
       }
 
-      if (embedderResponse?.ok) {
-        const data = await embedderResponse.json();
-        setEmbedderStatus(data);
+      if (embedderData) {
+        // Map EmbedderStatus (API) -> RuntimeEmbedderStatus (UI). Field names
+        // differ (model -> model_name), so map explicitly instead of casting.
+        setEmbedderStatus({
+          loaded: Boolean(embedderData.loaded),
+          model_name: typeof embedderData.model === 'string' ? embedderData.model : undefined,
+          dimension: typeof embedderData.dimension === 'number' ? embedderData.dimension : undefined,
+          error: typeof embedderData.error === 'string' ? embedderData.error : undefined,
+        });
       } else {
         setEmbedderStatus({ loaded: false, error: '无法连接到服务器' });
       }

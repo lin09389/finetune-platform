@@ -8,7 +8,7 @@ import {
 import { Alert, Button, Card, Space, Spin, Tag, Typography, message } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { API_BASE_URL } from '../services/api';
+import { getSharedChat, getSharedChatMarkdown } from '../services/chatShareApi';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -45,22 +45,19 @@ const SharedChatPage: React.FC = () => {
 
     const fetchShare = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/chat/share/${shareId}`);
-        if (!response.ok) {
-          if (response.status === 404) {
-            setError('分享不存在或已过期');
-          } else if (response.status === 410) {
-            setError('分享链接已过期');
-          } else {
-            setError('加载失败');
-          }
-          return;
-        }
-
-        const data = await response.json();
+        const data = await getSharedChat<SharedChat>(shareId);
         setShare(data);
-      } catch {
-        setError('加载失败，请检查网络连接');
+      } catch (error) {
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 404) {
+          setError('分享不存在或已过期');
+        } else if (status === 410) {
+          setError('分享链接已过期');
+        } else if (status) {
+          setError('加载失败');
+        } else {
+          setError('加载失败，请检查网络连接');
+        }
       } finally {
         setLoading(false);
       }
@@ -73,13 +70,7 @@ const SharedChatPage: React.FC = () => {
     if (!shareId) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/share/${shareId}/markdown`);
-      if (!response.ok) {
-        message.error('导出失败');
-        return;
-      }
-
-      const text = await response.text();
+      const text = await getSharedChatMarkdown(shareId);
       const blob = new Blob([text], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');

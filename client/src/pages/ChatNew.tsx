@@ -1,6 +1,7 @@
 import { SettingOutlined } from '@ant-design/icons';
 import { Button, Drawer, Select, Switch } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useShallow } from 'zustand/react/shallow';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
@@ -22,7 +23,7 @@ const STARTERS = [
 
 export default function ChatPage() {
   const { isMobile } = useResponsive();
-  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,6 +32,7 @@ export default function ChatPage() {
   const {
     sessions,
     messages,
+    currentSessionId,
     settings,
     isLoading,
     isStreaming,
@@ -47,6 +49,7 @@ export default function ChatPage() {
   } = useChatStore(useShallow((state) => ({
     sessions: state.sessions,
     messages: state.messages,
+    currentSessionId: state.currentSessionId,
     settings: state.settings,
     isLoading: state.isLoading,
     isStreaming: state.isStreaming,
@@ -82,12 +85,12 @@ export default function ChatPage() {
     void Promise.all([loadSessions(), refreshProviders()]);
   }, [loadSessions, refreshProviders]);
 
+  // Jump to the latest message on mount and whenever the active session
+  // changes (e.g. loading a history session). Per-token streaming follow is
+  // handled by Virtuoso's followOutput, which respects the user scrolling up.
   useEffect(() => {
-    const target = messageEndRef.current;
-    if (target && typeof target.scrollIntoView === 'function') {
-      target.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
-    }
-  }, [isStreaming, messages.length]);
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' });
+  }, [currentSessionId]);
 
   const send = useCallback(async (content: string) => {
     if (cloudConfig.useCloudAI && cloudConfig.config) {
@@ -140,7 +143,7 @@ export default function ChatPage() {
       />
 
       <main className={styles.chatMain} aria-label="AI 对话">
-        <div className={styles.messages}>
+        <div className={styles.messages} role="log" aria-live="polite" aria-label="对话消息">
           {messages.length === 0 ? (
             <div className={styles.emptyState}>
               <span>AI 对话</span>
@@ -154,23 +157,31 @@ export default function ChatPage() {
                 ))}
               </div>
             </div>
-          ) : messages.map((item) => (
-            <ChatMessage
-              key={item.id}
-              id={item.id}
-              role={item.role}
-              content={item.content}
-              timestamp={item.timestamp}
-              isLoading={item.isLoading}
-              isStreaming={isStreaming && item.role === 'assistant' && item.isLoading}
-              knowledge_sources={item.knowledge_sources}
-              retrieval_info={item.retrieval_info}
-              onDelete={deleteMessage}
-              onEdit={(id, content) => void editMessage(id, content)}
-              onRetry={(_, content = item.content) => void send(content)}
+          ) : (
+            <Virtuoso
+              ref={virtuosoRef}
+              data={messages}
+              computeItemKey={(_, item) => item.id}
+              followOutput={(atBottom) => (atBottom ? 'auto' : false)}
+              increaseViewportBy={600}
+              style={{ height: '100%' }}
+              itemContent={(_, item) => (
+                <ChatMessage
+                  id={item.id}
+                  role={item.role}
+                  content={item.content}
+                  timestamp={item.timestamp}
+                  isLoading={item.isLoading}
+                  isStreaming={isStreaming && item.role === 'assistant' && item.isLoading}
+                  knowledge_sources={item.knowledge_sources}
+                  retrieval_info={item.retrieval_info}
+                  onDelete={deleteMessage}
+                  onEdit={(id, content) => void editMessage(id, content)}
+                  onRetry={(_, content = item.content) => void send(content)}
+                />
+              )}
             />
-          ))}
-          <div ref={messageEndRef} />
+          )}
         </div>
 
         {error ? <div className={styles.errorBanner}>{error}</div> : null}

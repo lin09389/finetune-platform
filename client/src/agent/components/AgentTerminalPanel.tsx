@@ -28,7 +28,7 @@ function terminalRecords(timeline: AgentSessionUiTimelineItem[]): TerminalRecord
     const terminalId = String(payload.terminal_id || item.part_id || item.id);
     records.set(terminalId, {
       id: terminalId,
-      title: item.title || String(payload.command || 'Terminal'),
+      title: item.title || String(payload.command || '终端'),
       command: String(payload.command || ''),
       stdout: String(payload.stdout || item.content || ''),
       stderr: String(payload.stderr || ''),
@@ -46,6 +46,27 @@ const stateLabels: Record<TerminalState, string> = {
   closed: '已结束',
   error: '连接错误',
 };
+
+function readTerminalFontFamily(): string {
+  if (typeof window === 'undefined') return 'ui-monospace, monospace';
+  const token = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
+  return token || 'ui-monospace, monospace';
+}
+
+function readTerminalTheme() {
+  const root = typeof document !== 'undefined' ? document.documentElement : null;
+  const read = (name: string, fallback: string) => {
+    if (!root) return fallback;
+    const value = getComputedStyle(root).getPropertyValue(name).trim();
+    return value || fallback;
+  };
+  return {
+    background: read('--terminal-bg', '#1b1b19'),
+    foreground: read('--terminal-fg', '#e8e6df'),
+    cursor: read('--terminal-cursor', '#e8e6df'),
+    selectionBackground: read('--terminal-selection', 'rgba(232,230,223,0.22)'),
+  };
+}
 
 interface AgentTerminalPanelProps {
   timeline: AgentSessionUiTimelineItem[];
@@ -79,16 +100,11 @@ export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps
     const terminal = new Terminal({
       convertEol: true,
       cursorBlink: selected.running,
-      fontFamily: 'Cascadia Mono, Consolas, monospace',
+      fontFamily: readTerminalFontFamily(),
       fontSize: 12,
       lineHeight: 1.35,
       scrollback: 5000,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e5e5e5',
-        cursor: '#ffffff',
-        selectionBackground: '#404040',
-      },
+      theme: readTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);

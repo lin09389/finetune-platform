@@ -422,11 +422,22 @@ export default function Inference() {
                     <div
                       key={backend.id}
                       className={`${styles.backendItem} ${currentBackend === backend.id ? styles.backendItemActive : ''}`}
+                      role="button"
+                      tabIndex={backend.available ? 0 : -1}
+                      aria-current={currentBackend === backend.id ? 'true' : undefined}
+                      aria-disabled={!backend.available}
+                      aria-label={`选择推理后端 ${backend.id}`}
                       style={{
                         cursor: backend.available ? 'pointer' : 'not-allowed',
                         opacity: backend.available ? 1 : 0.6,
                       }}
                       onClick={() => backend.available && handleBackendChange(backend.id)}
+                      onKeyDown={(e) => {
+                        if (backend.available && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          handleBackendChange(backend.id);
+                        }
+                      }}
                     >
                       <div
                         style={{

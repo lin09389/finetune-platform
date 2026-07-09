@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import {
+  isExperimentalEnabled,
+  isExperimentalRoute,
+  ROUTE_CAPABILITY,
+  tierLabel,
+} from '../capability/tiers';
+
+describe('capability tiers helpers', () => {
+  it('maps experimental SPA routes', () => {
+    expect(isExperimentalRoute('/gateway')).toBe(true);
+    expect(isExperimentalRoute('/heartbeat')).toBe(true);
+    expect(isExperimentalRoute('/cua-control')).toBe(true);
+    expect(isExperimentalRoute('/dashboard')).toBe(false);
+    expect(ROUTE_CAPABILITY['/memory']?.tier).toBe('beta');
+  });
+
+  it('does not treat cloud-api as experimental (backend cloud_chat is always-on auxiliary)', () => {
+    expect(isExperimentalRoute('/cloud-api')).toBe(false);
+    expect(ROUTE_CAPABILITY['/cloud-api']?.tier).toBe('beta');
+    expect(ROUTE_CAPABILITY['/cloud-api']?.id).toBe('cloud_chat');
+  });
+
+  it('reads experimental_enabled from /api/info payload', () => {
+    expect(isExperimentalEnabled({ experimental_enabled: false })).toBe(false);
+    expect(isExperimentalEnabled({ experimental_enabled: true })).toBe(true);
+    // offline optimistic default
+    expect(isExperimentalEnabled(null)).toBe(true);
+  });
+
+  it('tier labels', () => {
+    expect(tierLabel('ga')).toBe('GA');
+    expect(tierLabel('beta')).toBe('Beta');
+    expect(tierLabel('experimental')).toBe('Exp');
+  });
+});

@@ -3,7 +3,13 @@ import { App, Badge, Button, Form, Input, Modal, Space, Tag, Tooltip } from 'ant
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { API_BASE_URL, browseFolderBackend } from '../services/api';
+import {
+  browseFolderBackend,
+  createWorkspace,
+  deleteWorkspace,
+  listWorkspaces,
+  updateWorkspace,
+} from '../services/api';
 import { appModal } from '../utils/modal';
 import styles from './WorkspaceManager.module.css';
 
@@ -106,13 +112,8 @@ export default function WorkspaceManager() {
 
   const loadWorkspaces = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/workspace/workspaces`);
-      if (!response.ok) {
-        message.error('加载工作空间失败');
-        return;
-      }
-      const data = (await response.json()) as WorkspaceListResponse;
-      setWorkspaces(normalizeWorkspaces(data));
+      const data = await listWorkspaces();
+      setWorkspaces(normalizeWorkspaces(data as unknown as WorkspaceListResponse));
     } catch {
       message.error('加载工作空间失败');
     }
@@ -124,19 +125,14 @@ export default function WorkspaceManager() {
 
   const handleCreate = async (values: { name: string; description?: string; local_path?: string }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/workspace/workspaces`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...values, local_path: normalizePath(values.local_path) || undefined }),
+      await createWorkspace({
+        ...values,
+        local_path: normalizePath(values.local_path) || undefined,
       });
-      if (response.ok) {
-        message.success('工作空间创建成功');
-        setModalVisible(false);
-        form.resetFields();
-        await loadWorkspaces();
-      } else {
-        message.error('创建工作空间失败');
-      }
+      message.success('工作空间创建成功');
+      setModalVisible(false);
+      form.resetFields();
+      await loadWorkspaces();
     } catch {
       message.error('创建工作空间失败');
     }
@@ -145,20 +141,15 @@ export default function WorkspaceManager() {
   const handleUpdate = async (values: { name?: string; description?: string; local_path?: string }) => {
     if (!editingWorkspace) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/workspace/workspaces/${editingWorkspace.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...values, local_path: normalizePath(values.local_path) }),
+      await updateWorkspace(editingWorkspace.id, {
+        ...values,
+        local_path: normalizePath(values.local_path),
       });
-      if (response.ok) {
-        message.success('工作空间更新成功');
-        setModalVisible(false);
-        setEditingWorkspace(null);
-        form.resetFields();
-        await loadWorkspaces();
-      } else {
-        message.error('更新工作空间失败');
-      }
+      message.success('工作空间更新成功');
+      setModalVisible(false);
+      setEditingWorkspace(null);
+      form.resetFields();
+      await loadWorkspaces();
     } catch {
       message.error('更新工作空间失败');
     }
@@ -170,15 +161,9 @@ export default function WorkspaceManager() {
       content: '删除后将无法恢复，确认继续吗？',
       onOk: async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/workspace/workspaces/${id}`, {
-            method: 'DELETE',
-          });
-          if (response.ok) {
-            message.success('工作空间已删除');
-            await loadWorkspaces();
-          } else {
-            message.error('删除工作空间失败');
-          }
+          await deleteWorkspace(id);
+          message.success('工作空间已删除');
+          await loadWorkspaces();
         } catch {
           message.error('删除工作空间失败');
         }

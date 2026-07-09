@@ -105,7 +105,7 @@ export default function AgentTaskComposer({
             disabled={Boolean(session)}
             aria-label="选择 Agent"
             onChange={setAgentId}
-            options={(agents.length > 0 ? agents : [{ id: 'build', name: 'Build Agent' }]).map((agent) => ({
+            options={(agents.length > 0 ? agents : [{ id: 'build', name: '构建 Agent' }]).map((agent) => ({
               value: agent.id,
               label: agent.name,
             }))}

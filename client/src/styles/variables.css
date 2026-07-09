@@ -183,10 +183,10 @@
   --container-7xl: 80rem;
 
   /* 渐变系统 - terra-cotta 暖色 */
-  --gradient-primary: linear-gradient(135deg, #c96442 0%, #b0562f 100%);
+  --gradient-primary: linear-gradient(135deg, #b35433 0%, #b0562f 100%);
   --gradient-secondary: linear-gradient(135deg, #b0562f 0%, #934828 100%);
-  --gradient-brand: linear-gradient(135deg, #c96442 0%, #b0562f 100%);
-  --gradient-warm: linear-gradient(135deg, #d97757 0%, #c96442 100%);
+  --gradient-brand: linear-gradient(135deg, #b35433 0%, #b0562f 100%);
+  --gradient-warm: linear-gradient(135deg, #d97757 0%, #b35433 100%);
   --gradient-success: linear-gradient(135deg, #788c5d 0%, #647649 100%);
   --gradient-warning: linear-gradient(135deg, #b8860b 0%, #9c7209 100%);
   --gradient-error: linear-gradient(135deg, #d64545 0%, #b83636 100%);
@@ -233,7 +233,7 @@
   /* 文字色 - text 色阶 */
   --text-primary: #3d3929;    /* text-800 foreground */
   --text-secondary: #6e6d68;  /* text-500 muted-foreground */
-  --text-tertiary: #9b988c;   /* text-400 */
+  --text-tertiary: #737064;   /* text-400 — darkened for WCAG AA (4.71:1 on bg-primary) */
   --text-disabled: #c2c0b6;   /* text-300 */
   --muted-foreground: #6e6d68; /* text-500 = muted-foreground */
   --text-inverse: #ffffff;    /* primary-foreground */
@@ -247,7 +247,7 @@
   --border-focus: var(--accent-primary);
 
   /* 强调色 - brand 色阶 */
-  --accent-primary: #c96442;    /* brand-500 */
+  --accent-primary: #b35433;    /* brand-500 — darkened for WCAG AA (4.71:1 as text; 4.96:1 white-on-accent) */
   --accent-secondary: #b0562f;  /* brand-600 */
   --accent-tertiary: #934828;   /* brand-700 */
   --accent-primary-light: #f4e0d5; /* brand-100 */
@@ -256,11 +256,11 @@
   --secondary-bg: #e9e6dc;     /* secondary */
 
   /* 功能色 - 调暖 */
-  --success: #788c5d;
+  --success: #65754e;
   --success-light: #f0f3ea;
   --success-dark: #647649;
   --success-border: rgba(120, 140, 93, 0.25);
-  --warning: #b8860b;
+  --warning: #916909;
   --warning-light: #faf6ec;
   --warning-dark: #9c7209;
   --warning-border: rgba(184, 134, 11, 0.25);
@@ -279,7 +279,7 @@
   --primary-200: #ebc6b6;
   --primary-300: #e0a892;
   --primary-400: #d6866a;
-  --primary-500: #c96442;
+  --primary-500: #b35433;
   --primary-600: #b0562f;
   --primary-700: #934828;
   --primary-800: #753a22;
@@ -312,6 +312,14 @@
   --sidebar-accent: #e9e6dc;
   --sidebar-accent-foreground: #343434;
   --sidebar-primary: #c96442;
+
+  /* 终端专用令牌 - 浅色主题保留可读深色终端底（终端惯例），边框/工具栏跟随主题 */
+  --terminal-bg: #1e1e1c;
+  --terminal-fg: #e8e6df;
+  --terminal-cursor: #e8e6df;
+  --terminal-selection: rgba(232, 230, 223, 0.22);
+  --terminal-toolbar-bg: #252523;
+  --terminal-border: #3e3e38;
 }
 
 /* ============================================
@@ -421,4 +429,12 @@
   --sidebar-accent: #0f0f0e;
   --sidebar-accent-foreground: #c3c0b6;
   --sidebar-primary: #343434;    /* 官方 .dark --sidebar-primary */
+
+  /* 终端专用令牌 - 深色主题用温暖深灰，与 --bg-elevated 协调 */
+  --terminal-bg: #1b1b19;
+  --terminal-fg: #e8e6df;
+  --terminal-cursor: #e8e6df;
+  --terminal-selection: rgba(232, 230, 223, 0.22);
+  --terminal-toolbar-bg: #262624;
+  --terminal-border: #3e3e38;
 }

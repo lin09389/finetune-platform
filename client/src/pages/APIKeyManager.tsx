@@ -23,11 +23,12 @@ import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
 import { notify } from '../utils/notify';
 import {
-  API_BASE_URL,
+  extractApiErrorMessage,
   getSavedCloudProviderData,
   getSavedCloudProviders,
   testCloudProviderStream,
 } from '../services/api';
+import { deleteCloudApiKey, saveCloudApiKey, testCloudProvider } from '../services/cloudApi';
 
 const { Text } = Typography;
 
@@ -230,10 +231,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
       await operation.run(async () => {
         const models = splitModels(values.models_text);
         const provider = values.provider.trim().toLowerCase();
-        const response = await fetch(`${API_BASE_URL}/cloud/api-keys`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        try {
+          await saveCloudApiKey({
             provider,
             api_key: values.api_key?.trim() || '',
             group_id: values.group_id || undefined,
@@ -244,12 +243,9 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
             interface_format: values.interface_format,
             default_model: values.default_model || models[0] || undefined,
             models,
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || response.statusText);
+          });
+        } catch (error) {
+          throw new Error(extractApiErrorMessage(error, '保存供应商配置失败'));
         }
 
         const config: APIKeyConfig = {
@@ -286,14 +282,16 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     setTesting(true);
     try {
       await operation.run(async () => {
-        const params = new URLSearchParams();
-        if (baseUrl) params.set('base_url', baseUrl);
-        if (groupId) params.set('group_id', groupId);
-        const response = await fetch(`${API_BASE_URL}/cloud/test/${provider}?${params.toString()}`, {
-          method: 'POST',
-        });
-        const data = await response.json();
-        if (!response.ok || !data.success) {
+        let data;
+        try {
+          data = await testCloudProvider(provider, {
+            base_url: baseUrl || undefined,
+            group_id: groupId || undefined,
+          });
+        } catch (error) {
+          throw new Error(extractApiErrorMessage(error, '连接测试未通过，请先保存 API Key'));
+        }
+        if (!data.success) {
           throw new Error(data.detail || data.message || '连接测试未通过，请先保存 API Key');
         }
         return data;
@@ -342,7 +340,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
 
   const handleDeleteKey = async (provider: string) => {
     await operation.run(async () => {
-      await fetch(`${API_BASE_URL}/cloud/api-keys/${provider}`, { method: 'DELETE' });
+      await deleteCloudApiKey(provider);
       if (selectedProvider === provider) {
         setSelectedProvider('');
         form.setFieldsValue(defaultValues);
@@ -437,6 +435,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
                 {savedKeys.map((key) => (
                   <div
                     key={key.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={selectedProvider === key.provider ? 'true' : undefined}
+                    aria-label={`选择 API 配置 ${key.name || key.provider}`}
                     style={{
                       border: selectedProvider === key.provider ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
                       borderRadius: 8,
@@ -445,6 +447,12 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
                       background: 'var(--bg-primary)',
                     }}
                     onClick={() => void handleSelectSaved(key)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        void handleSelectSaved(key);
+                      }
+                    }}
                   >
                     <Space style={{ justifyContent: 'space-between', width: '100%' }} align="start">
                       <div>

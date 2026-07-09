@@ -10,7 +10,16 @@ import {
 import { App, Button, Input, Progress, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { API_BASE_URL } from '../services/api';
+import {
+  deleteLocalModel,
+  downloadModelFromHuggingFace,
+  downloadModelFromModelScope,
+  getDownloadProgress,
+  getLocalModels,
+  getModelSource,
+  getModelSuggestions,
+  searchModels,
+} from '../services/api';
 import { appModal } from '../utils/modal';
 import styles from './ModelHub.module.css';
 
@@ -69,12 +78,9 @@ export default function ModelHub() {
 
   const loadModelSource = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/model-center/source`);
-      if (response.ok) {
-        const data = await response.json();
-        setModelSource(data.current_source);
-        setDefaultSource(data.default_source);
-      }
+      const data = await getModelSource();
+      setModelSource(data.current_source);
+      setDefaultSource(data.default_source);
     } catch {
       setModelSource('modelscope');
       setDefaultSource('modelscope');
@@ -83,12 +89,9 @@ export default function ModelHub() {
 
   const loadSuggestions = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/model-center/suggestions`);
-      if (response.ok) {
-        const data = await response.json();
-        setSuggestions(data.suggestions);
-        setDefaultSource(data.default_source || 'modelscope');
-      }
+      const data = await getModelSuggestions();
+      setSuggestions(data.suggestions);
+      setDefaultSource(data.default_source || 'modelscope');
     } catch {
       setSuggestions([]);
     }
@@ -96,11 +99,8 @@ export default function ModelHub() {
 
   const loadLocalModels = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/model-center/local`);
-      if (response.ok) {
-        const data = await response.json();
-        setLocalModels(data);
-      }
+      const data = await getLocalModels();
+      setLocalModels(data);
     } catch {
       setLocalModels([]);
     }
@@ -110,16 +110,9 @@ export default function ModelHub() {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/model-center/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery, limit: 20, source: modelSource }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSearchResults(data);
-      }
-    } catch (error) {
+      const data = await searchModels(searchQuery, 20, modelSource);
+      setSearchResults(data);
+    } catch {
       message.error('搜索失败');
     } finally {
       setSearching(false);
@@ -128,32 +121,24 @@ export default function ModelHub() {
 
   const handleDownload = async (repoId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/model-center/download`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo_id: repoId,
-          revision: modelSource === 'modelscope' ? 'master' : 'main',
-          source: modelSource,
-        }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        message.success(
-          `开始下载：${repoId}（${data.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}）`,
-        );
-        setDownloadTasks((prev) => ({
-          ...prev,
-          [data.task_id]: {
-            task_id: data.task_id,
-            status: 'pending',
-            progress: 0,
-            source: data.source,
-          },
-        }));
-        pollProgress(data.task_id);
-      }
-    } catch (error) {
+      const data =
+        modelSource === 'modelscope'
+          ? await downloadModelFromModelScope(repoId)
+          : await downloadModelFromHuggingFace(repoId);
+      message.success(
+        `开始下载：${repoId}（${data.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}）`,
+      );
+      setDownloadTasks((prev) => ({
+        ...prev,
+        [data.task_id]: {
+          task_id: data.task_id,
+          status: 'pending',
+          progress: 0,
+          source: data.source,
+        },
+      }));
+      pollProgress(data.task_id);
+    } catch {
       message.error('下载失败');
     }
   };
@@ -161,28 +146,25 @@ export default function ModelHub() {
   const pollProgress = async (taskId: string) => {
     const poll = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/model-center/download/${taskId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setDownloadTasks((prev) => ({
-            ...prev,
-            [taskId]: {
-              task_id: data.task_id,
-              status: data.status,
-              progress: data.progress,
-              error: data.error,
-            },
-          }));
-          if (data.status === 'completed' || data.status === 'failed') {
-            if (data.status === 'completed') {
-              message.success('下载完成');
-              loadLocalModels();
-            } else {
-              message.error(`下载失败：${data.error}`);
-            }
+        const data = await getDownloadProgress(taskId);
+        setDownloadTasks((prev) => ({
+          ...prev,
+          [taskId]: {
+            task_id: data.task_id,
+            status: data.status,
+            progress: data.progress,
+            error: data.error,
+          },
+        }));
+        if (data.status === 'completed' || data.status === 'failed') {
+          if (data.status === 'completed') {
+            message.success('下载完成');
+            loadLocalModels();
           } else {
-            setTimeout(poll, 2000);
+            message.error(`下载失败：${data.error}`);
           }
+        } else {
+          setTimeout(poll, 2000);
         }
       } catch {
         setDownloadTasks((prev) => ({
@@ -204,16 +186,10 @@ export default function ModelHub() {
       content: `确定要删除模型 ${modelId} 吗？`,
       onOk: async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/model-center/local/${modelId}`, {
-            method: 'DELETE',
-          });
-          if (response.ok) {
-            message.success('已删除');
-            loadLocalModels();
-          } else {
-            message.error('删除失败');
-          }
-        } catch (error) {
+          await deleteLocalModel(modelId);
+          message.success('已删除');
+          loadLocalModels();
+        } catch {
           message.error('删除失败');
         }
       },

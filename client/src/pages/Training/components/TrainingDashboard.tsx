@@ -14,6 +14,18 @@ import { Tag, Tooltip, message } from 'antd';
 import styles from './TrainingDashboard.module.css';
 import type { TrainingProgress as TrainingProgressType } from '../../../types';
 import { getTrainingCheckpoints, subscribeTrainingLogs } from '../../../services/trainingApi';
+import { highlightLog, type LogTokenClasses } from './highlightLog';
+
+// CSS-module class names are static; bind them once for highlightLog.
+// `?? ''` guards against missing classes under noUncheckedIndexedAccess
+// (a missing class previously stringified to the literal "undefined").
+const logTokenClasses: LogTokenClasses = {
+  tokenMetric: styles.tokenMetric ?? '',
+  tokenError: styles.tokenError ?? '',
+  tokenWarn: styles.tokenWarn ?? '',
+  tokenState: styles.tokenState ?? '',
+  tokenTime: styles.tokenTime ?? '',
+};
 
 interface CheckpointInfo {
   name: string;
@@ -63,20 +75,8 @@ const AnimatedValue = ({ value, className }: { value: string; className?: string
 );
 
 /* ── Terminal with Syntax Highlighting ── */
-const highlightLog = (log: string) =>
-  log
-    .replace(/\[METRIC\]/g, `<span class="${styles.tokenMetric}">[METRIC]</span>`)
-    .replace(/\[ERROR\]/g, `<span class="${styles.tokenError}">[ERROR]</span>`)
-    .replace(/\[WARN\]/g, `<span class="${styles.tokenWarn}">[WARN]</span>`)
-    .replace(/\[STATE\]/g, `<span class="${styles.tokenState}">[STATE]</span>`)
-    .replace(/\[VRAM\]/g, `<span class="${styles.tokenMetric}">[VRAM]</span>`)
-    .replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/g, `<span class="${styles.tokenTime}">$1</span>`)
-    .replace(/(\|\s*(?:INFO|WARNING|ERROR|DEBUG)\s*\|)/g, (match) => {
-      if (match.includes('ERROR')) return `<span class="${styles.tokenError}">${match}</span>`;
-      if (match.includes('WARN')) return `<span class="${styles.tokenWarn}">${match}</span>`;
-      return `<span class="${styles.tokenState}">${match}</span>`;
-    })
-    .replace(/(\[\d{2}:\d{2}:\d{2}\])/g, `<span class="${styles.tokenTime}">$1</span>`);
+// highlightLog (with mandatory HTML escaping) lives in ./highlightLog.ts.
+// It is invoked below with the CSS-module class map.
 
 const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -102,7 +102,7 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
     const log = logs[i]!;
     let cached = htmlCache.current.get(log);
     if (cached === undefined) {
-      cached = highlightLog(log);
+      cached = highlightLog(log, logTokenClasses);
       if (htmlCache.current.size > 300) {
         const first = htmlCache.current.keys().next().value;
         if (first !== undefined) htmlCache.current.delete(first);
@@ -201,7 +201,7 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
           </button>
         </Tooltip>
       </div>
-      <div className={styles.terminalBody} ref={terminalRef}>
+      <div className={styles.terminalBody} ref={terminalRef} role="log" aria-live="polite" aria-label="训练日志">
         {filteredIndices.length > 0 ? (
           filteredIndices.map(i => (
             <div

@@ -39,9 +39,14 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import axios from 'axios';
 import { useEffect, useState } from 'react';
-import { API_BASE_URL } from '../services/api';
+import {
+  enhanceContext as enhanceContextApi,
+  getContextUnderstandingStatus,
+  manageContextWindow as manageContextWindowApi,
+  processContextUnderstanding as processContextUnderstandingApi,
+  summarizeContext as summarizeContextApi,
+} from '../services/contextUnderstandingApi';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -174,8 +179,8 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
 
   const fetchEngineStatus = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/context/understanding/status`);
-      setEngineStatus(response.data.status);
+      const data = await getContextUnderstandingStatus();
+      setEngineStatus(data.status as unknown as EngineStatus);
     } catch {
       setEngineStatus(null);
     }
@@ -189,7 +194,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/context/understanding/process`, {
+      const data = await processContextUnderstandingApi<ProcessResult>({
         message: inputText,
         role: 'user',
         history: messages.map((m, i) => ({
@@ -198,7 +203,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
           content: m.content,
         })),
       });
-      setProcessResult(response.data);
+      setProcessResult(data);
     } catch {
       message.error('处理消息失败');
     } finally {
@@ -214,7 +219,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/context/understanding/enhance`, {
+      const data = await enhanceContextApi<EnhanceResult>({
         query: enhanceQuery,
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
@@ -223,8 +228,8 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         })),
         max_context_tokens: maxTokens,
       });
-      setEnhanceResult(response.data);
-      onContextEnhanced?.(response.data);
+      setEnhanceResult(data);
+      onContextEnhanced?.(data);
     } catch {
       message.error('增强上下文失败');
     } finally {
@@ -240,7 +245,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/context/understanding/summarize`, {
+      const data = await summarizeContextApi<SummaryResult>({
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
@@ -248,7 +253,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         })),
         use_llm: useLlm,
       });
-      setSummaryResult(response.data);
+      setSummaryResult(data);
     } catch {
       message.error('生成摘要失败');
     } finally {
@@ -264,7 +269,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/context/understanding/window`, {
+      const data = await manageContextWindowApi<WindowResult>({
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
@@ -273,7 +278,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         max_tokens: maxTokens,
         keep_recent: keepRecent,
       });
-      setWindowResult(response.data);
+      setWindowResult(data);
     } catch {
       message.error('管理窗口失败');
     } finally {

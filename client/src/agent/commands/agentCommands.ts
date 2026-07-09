@@ -172,7 +172,7 @@ export class AgentCommandExecutor {
       }
       case 'cancel_subtask': {
         const task = await this.transport.cancelAsyncTask(command.sessionId, command.taskId, {
-          reason: 'Cancelled from Agent Workbench',
+          reason: '已在工作台取消',
         });
         return {
           type: 'cancel_subtask',

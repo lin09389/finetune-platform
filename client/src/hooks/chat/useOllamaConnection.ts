@@ -2,7 +2,7 @@
  * Ollama 连接管理 Hook - 增强稳定性
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE_URL } from '../../services/api';
+import { getOllamaStatus } from '../../services/api';
 
 interface ConnectionState {
   status: 'connected' | 'disconnected' | 'connecting' | 'error';
@@ -19,10 +19,17 @@ interface UseOllamaConnectionOptions {
   onStatusChange?: (status: ConnectionState['status']) => void;
 }
 
-const isAbortError = (error: unknown) =>
-  error instanceof DOMException
-    ? error.name === 'AbortError'
-    : error instanceof Error && error.name === 'AbortError';
+const isAbortError = (error: unknown) => {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (error instanceof Error) {
+    return (
+      error.name === 'AbortError' ||
+      error.name === 'CanceledError' ||
+      (error as { code?: string }).code === 'ERR_CANCELED'
+    );
+  }
+  return false;
+};
 
 export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
   const {
@@ -57,32 +64,26 @@ export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
       abortControllerRef.current?.abort();
       abortControllerRef.current = new AbortController();
 
-      const response = await fetch(`${API_BASE_URL}/inference/ollama/status`, {
+      const data = await getOllamaStatus({
         signal: abortControllerRef.current.signal,
         headers: { 'Cache-Control': 'no-cache' },
       });
+      const isRunning = data.running === true;
 
-      if (response.ok) {
-        const data = await response.json();
-        const isRunning = data.running === true;
+      setState((prev) => {
+        const newState: ConnectionState = {
+          status: isRunning ? 'connected' : 'disconnected',
+          lastCheck: Date.now(),
+          failureCount: 0,
+          isCircuitOpen: false,
+        };
+        if (prev.status !== newState.status) {
+          onStatusChange?.(newState.status);
+        }
+        return newState;
+      });
 
-        setState((prev) => {
-          const newState: ConnectionState = {
-            status: isRunning ? 'connected' : 'disconnected',
-            lastCheck: Date.now(),
-            failureCount: 0,
-            isCircuitOpen: false,
-          };
-          if (prev.status !== newState.status) {
-            onStatusChange?.(newState.status);
-          }
-          return newState;
-        });
-
-        return isRunning;
-      } else {
-        throw new Error(`Health check failed: ${response.status}`);
-      }
+      return isRunning;
     } catch (error: unknown) {
       if (isAbortError(error)) {
         return false;
@@ -119,24 +120,20 @@ export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
       return;
     }
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${API_BASE_URL}/inference/ollama/status`, {
+    try {
+      await getOllamaStatus({
         signal: controller.signal,
         headers: { 'Cache-Control': 'no-cache' },
       });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        await checkHealth();
-      }
     } catch (error: unknown) {
       if (!isAbortError(error)) {
         await checkHealth();
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, [checkHealth, state.status]);
 

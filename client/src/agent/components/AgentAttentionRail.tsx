@@ -7,7 +7,10 @@ import {
   UndoOutlined,
 } from '@ant-design/icons';
 import { Button, Popconfirm, Tag } from 'antd';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
+import { useMotionConfig } from '../../components/motion/useMotionConfig';
+import { staggerContainer, staggerItem } from '../../theme/motion-tokens';
 import type {
   AgentExecutionPlanNode,
   AgentHitlDecision,
@@ -77,6 +80,7 @@ export default function AgentAttentionRail({
   onRestartSubagent,
   embedded = false,
 }: AgentAttentionRailProps) {
+  const { getSafeVariants } = useMotionConfig();
   const items = selectAttentionItems(state);
   const [batchApproving, setBatchApproving] = useState(false);
   const [history, setHistory] = useState<AttentionHistoryEntry[]>(readAttentionHistory);
@@ -133,7 +137,7 @@ export default function AgentAttentionRail({
         Array.from({ length: count }, () => (
           action.id === 'approve'
             ? { type: 'approve' as const }
-            : { type: 'reject' as const, message: 'Rejected from Agent Workbench' }
+            : { type: 'reject' as const, message: '已在工作台拒绝' }
         )),
       ));
       recordHistory(title, action);
@@ -162,7 +166,7 @@ export default function AgentAttentionRail({
     >
       <div className={styles.attentionHeader}>
         <BellOutlined />
-        <span>Attention Center</span>
+        <span>注意事项</span>
         <span className={styles.attentionCount}>{items.length}</span>
         {approvable.length > 1 ? (
           <Popconfirm
@@ -227,12 +231,21 @@ export default function AgentAttentionRail({
             <p>当前会话暂无协议异常、解析失败或恢复事件。</p>
           )}
         </section>
-        {items.map((item) => (
-          <section
-            key={item.id}
-            className={`${styles.attentionItem} ${styles[`attention_${item.severity}`] || ''}`}
-            data-attention-kind={item.kind}
+        <AnimatePresence initial={false}>
+          <motion.div
+            key="attention-items"
+            variants={getSafeVariants(staggerContainer)}
+            initial="initial"
+            animate="animate"
+            style={{ display: 'contents' }}
           >
+            {items.map((item) => (
+              <motion.section
+                key={item.id}
+                variants={getSafeVariants(staggerItem)}
+                className={`${styles.attentionItem} ${styles[`attention_${item.severity}`] || ''}`}
+                data-attention-kind={item.kind}
+              >
             <div className={styles.attentionTitle}>
               <Tag color={item.severity === 'critical' ? 'red' : item.severity === 'high' ? 'orange' : undefined}>
                 {severityLabels[item.severity]}
@@ -277,8 +290,10 @@ export default function AgentAttentionRail({
                 </Button>
               ))}
             </div>
-          </section>
-        ))}
+          </motion.section>
+            ))}
+          </motion.div>
+        </AnimatePresence>
         {items.length === 0 ? <div className={styles.attentionEmpty}>暂无需要处理的事项</div> : null}
         {history.length > 0 ? (
           <section className={styles.attentionHistory} aria-label="最近处理">

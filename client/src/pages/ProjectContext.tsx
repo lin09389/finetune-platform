@@ -10,10 +10,14 @@ import { Button, Input, message, Popconfirm, Progress, Tag } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
-import { API_BASE_URL } from '../services/api';
+import { extractApiErrorMessage } from '../services/api';
+import {
+  getProjectContexts,
+  indexProject,
+  removeProjectContext,
+  scanProject,
+} from '../services/projectContextApi';
 import styles from './ProjectContext.module.css';
-
-const API_BASE = API_BASE_URL;
 
 const getErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
@@ -49,10 +53,9 @@ export default function ProjectContext() {
 
   const loadProjects = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/context/projects`);
-      const data = await response.json();
+      const data = await getProjectContexts();
       if (data.success) {
-        setProjects(data.projects || []);
+        setProjects((data.projects || []) as unknown as Project[]);
       }
     } catch {
       setProjects([]);
@@ -73,22 +76,12 @@ export default function ProjectContext() {
     setIndexingStatus({ status: 'scanning', message: '正在扫描项目...', progress: 30 });
 
     try {
-      const scanResponse = await fetch(`${API_BASE}/context/scan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: searchPath }),
-      });
-      const scanData = await scanResponse.json();
+      const scanData = await scanProject({ project_path: searchPath });
       if (!scanData.success) throw new Error(scanData.message || '扫描失败');
 
       setIndexingStatus({ status: 'indexing', message: '正在构建索引...', progress: 60 });
 
-      const indexResponse = await fetch(`${API_BASE}/context/index`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: searchPath, force_reindex: false }),
-      });
-      const indexData = await indexResponse.json();
+      const indexData = await indexProject({ project_path: searchPath, force_reindex: false });
       if (!indexData.success) throw new Error(indexData.message || '索引失败');
 
       setIndexingStatus({
@@ -114,14 +107,14 @@ export default function ProjectContext() {
   const handleRemoveProject = async (path: string) => {
     await operation.run(
       async () => {
-        const response = await fetch(`${API_BASE}/context/remove`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project_path: path }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success) {
-          throw new Error(data?.message || `移除失败 (${response.status})`);
+        let data;
+        try {
+          data = await removeProjectContext({ project_path: path });
+        } catch (error) {
+          throw new Error(extractApiErrorMessage(error, '移除失败'));
+        }
+        if (!data?.success) {
+          throw new Error(data?.message || '移除失败');
         }
         await loadProjects();
       },

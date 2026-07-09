@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../../services/api';
 import type { ActiveFileContext, ExplicitContextMention } from '../../services/api';
 import { persistChatRunToSession } from '../../services/chatSessionApi';
-import { generateTitleCloud, generateTitleLocal } from '../../services/api';
+import { generateTitleCloud, generateTitleLocal, getOllamaStatus } from '../../services/api';
 import { useChatStore } from '../../store/chatStore';
 import type {
   KnowledgeSource,
@@ -279,12 +279,10 @@ async function checkOllamaAvailability(): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), OLLAMA_PREFLIGHT_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE_URL}/inference/ollama/status`, {
+    const data = await getOllamaStatus({
       signal: controller.signal,
       headers: { 'Cache-Control': 'no-cache' },
     });
-    if (!response.ok) return false;
-    const data = (await response.json()) as { available?: boolean; running?: boolean };
     return Boolean(data.available || data.running);
   } catch {
     return false;

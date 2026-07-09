@@ -11,6 +11,7 @@ import {
 import { Button, Dropdown, Input, Modal, Segmented, Tooltip } from 'antd';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type { RecentAgentSession } from '../runtime/agentRuntime';
+import { SESSION_STATUS_LABELS } from '../selectors/sessionStatus';
 import styles from '../workbench/AgentWorkbench.module.css';
 
 const PINNED_SESSIONS_KEY = 'finetune.agent.pinned-sessions.v1';
@@ -35,19 +36,6 @@ function readSessionPreferences(): SessionPreferences {
     return { aliases: {}, archivedIds: [] };
   }
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  idle: '待命',
-  running: '运行中',
-  waiting_permission: '等待审批',
-  waiting_approval: '等待审批',
-  verifying: '验证中',
-  repairing: '修复中',
-  completed: '已完成',
-  failed: '失败',
-  interrupted: '已停止',
-  needs_manual_review: '需复核',
-};
 
 interface AgentSessionRailProps {
   sessions: RecentAgentSession[];
@@ -224,7 +212,7 @@ export default function AgentSessionRail({
                   <span className={styles.sessionTitle}>{title}</span>
                   <span className={styles.sessionMeta}>
                     <span className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`} />
-                    {STATUS_LABELS[session.status] || session.status}
+                    {SESSION_STATUS_LABELS[session.status] || session.status}
                   </span>
                 </button>
                 <Tooltip title={pinned ? '取消置顶' : '置顶'}>
