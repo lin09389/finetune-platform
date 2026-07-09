@@ -15,6 +15,9 @@ build/
 release/
 *.egg-info/
 
+# Architecture / encoding / analysis reports (generated artifacts)
+reports/
+
 # Models & Data
 models/
 datasets/
@@ -22,6 +25,7 @@ datasets/
 server/datasets/*
 !server/datasets/__init__.py
 outputs/
+server/outputs/
 *.h5
 *.ckpt
 *.safetensors
@@ -125,3 +129,14 @@ htmlcov/
 
 *storybook.log
 storybook-static
+
+# Local workspace / personal artifacts (2026-07-09 cleanup)
+*.code-workspace
+client/lint.txt
+server/create
+
+# Local runtime / IDE temp dirs (not project files)
+terminals/
+.workbuddy/
+.zcode/
+client/*.timestamp-*.mjs
