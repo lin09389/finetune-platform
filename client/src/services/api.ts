@@ -1443,6 +1443,57 @@ export const browseFolderBackend = async (initialPath?: string): Promise<{ statu
   return response.data;
 };
 
+export interface AllowedWorkspaceRoot {
+  path: string;
+  source: string;
+  label?: string;
+}
+
+export interface AllowedWorkspaceRootsResponse {
+  default_project_path: string;
+  roots: AllowedWorkspaceRoot[];
+}
+
+export interface WorkspacePathValidation {
+  ok: boolean;
+  resolved_path: string | null;
+  allowed: boolean;
+  exists: boolean;
+  is_dir: boolean;
+  needs_register: boolean;
+  message: string | null;
+  error_code: 'path_missing' | 'path_not_dir' | 'path_not_allowed' | null;
+}
+
+export const getAllowedWorkspaceRoots = async (): Promise<AllowedWorkspaceRootsResponse> => {
+  const response = await apiClient.get('/workspace/allowed-roots');
+  return response.data;
+};
+
+export const validateWorkspacePath = async (path?: string | null): Promise<WorkspacePathValidation> => {
+  const response = await apiClient.post('/workspace/validate-path', { path: path ?? null });
+  return response.data;
+};
+
+/** Prefer Electron native picker; fall back to backend OS dialog. */
+export const browseWorkspaceFolder = async (initialPath?: string): Promise<string | null> => {
+  const electronApi =
+    typeof window !== 'undefined'
+      ? (window as Window & { electronAPI?: { selectFolder?: (path?: string) => Promise<string | null> } }).electronAPI
+      : undefined;
+  if (electronApi?.selectFolder) {
+    return electronApi.selectFolder(initialPath);
+  }
+  const res = await browseFolderBackend(initialPath);
+  if (res.status === 'success' && res.path) {
+    return res.path;
+  }
+  if (res.status === 'error') {
+    throw new Error(res.message || '文件夹选择失败，请手动输入路径');
+  }
+  return null;
+};
+
 export const readWorkspaceFile = async (params: {
   file_path: string;
   workspace_id?: string;
