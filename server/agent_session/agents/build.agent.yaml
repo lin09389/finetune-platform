@@ -24,6 +24,9 @@ Tools:
     - list_async_tasks
     - update_async_task
     - cancel_async_task
+    - propose_training
+    - submit_training
+    - get_training_summary
 
 Handoff:
   targets:

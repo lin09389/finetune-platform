@@ -7,6 +7,16 @@ import type {
 
 export type AgentConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
 
+export const TRAINING_TOOL_NAMES = new Set([
+  'propose_training',
+  'submit_training',
+  'get_training_summary',
+]);
+
+export function isTrainingToolName(value: unknown): boolean {
+  return typeof value === 'string' && TRAINING_TOOL_NAMES.has(value);
+}
+
 export interface AgentUnknownEvent {
   id: string;
   eventType: string;

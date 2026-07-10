@@ -32,3 +32,19 @@ Proposals live only in a bounded, thread-safe in-process store (100 entries by
 default). They are intentionally not written to disk or a database. An
 application restart clears them, so an agent must request a fresh proposal
 before attempting to submit training.
+
+## Build Agent integration
+
+The runtime exposes `propose_training`, `submit_training`, and
+`get_training_summary` only to Build sessions whose persisted `task_mode` is
+`train` or `hybrid`. Explore, Review, ordinary Build, and project-chat sessions
+receive none of these tools.
+
+Proposal and summary calls are read-only. `submit_training` is forced through
+the existing DeepAgents HITL interrupt flow and can invoke the application
+service only after the matching official approval creates a one-time,
+proposal-specific grant. Rejection and repeated calls cannot create a task.
+
+Agent events and Workbench timeline projections restrict training data to safe
+identifiers and status fields; output, adapter, and checkpoint paths are never
+rendered.

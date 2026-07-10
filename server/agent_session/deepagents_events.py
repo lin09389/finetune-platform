@@ -6,6 +6,7 @@ from typing import Any
 from .execution_plan_events import apply_execution_event_to_session
 from .session_state_machine import AgentSessionStateMachine
 from .state import ensure_session_state
+from .training_tools import TRAINING_TOOL_NAMES, safe_training_payload
 
 
 @dataclass
@@ -161,6 +162,8 @@ class DeepAgentsEventMapper:
         name = str(event.get("name") or "tool")
         run_id = str(event.get("run_id") or "")
         payload = self._normalize_tool_input((event.get("data") or {}).get("input"))
+        if name in TRAINING_TOOL_NAMES:
+            payload = safe_training_payload(payload)
         agent_context = self._agent_context(event)
         part = self.repository.add_part(
             self.session_id,
@@ -259,13 +262,19 @@ class DeepAgentsEventMapper:
                 or review_config.get("allowedDecisions")
                 or ["approve", "edit", "reject", "respond"]
             )
+            if tool_name == "submit_training":
+                allowed_decisions = ["approve", "reject"]
             actions.append(
                 {
                     "index": index,
                     "name": tool_name,
-                    "args": action.get("args") if isinstance(action.get("args"), dict) else {},
-                    "description": str(action.get("description") or f"工具 {tool_name} 需要确认后继续。"),
-                    "allowed_decisions": list(allowed_decisions) if isinstance(allowed_decisions, (list, tuple)) else ["approve", "reject"],
+                    "args": safe_training_payload(action.get("args")) if tool_name in TRAINING_TOOL_NAMES and isinstance(action.get("args"), dict) else action.get("args") if isinstance(action.get("args"), dict) else {},
+                    "description": (
+                        "将提交训练任务；批准后才会创建一个训练任务。"
+                        if tool_name == "submit_training"
+                        else str(action.get("description") or f"工具 {tool_name} 需要确认后继续。")
+                    ),
+                    "allowed_decisions": list(allowed_decisions) if isinstance(allowed_decisions, list | tuple) else ["approve", "reject"],
                 }
             )
         first_action = actions[0] if actions else {"name": "tool", "description": "工具调用需要确认后继续。"}
@@ -350,7 +359,7 @@ class DeepAgentsEventMapper:
         interrupts = chunk.get("__interrupt__")
         if not interrupts:
             return None
-        item = interrupts[0] if isinstance(interrupts, (list, tuple)) else interrupts
+        item = interrupts[0] if isinstance(interrupts, list | tuple) else interrupts
         value = item.get("value") if isinstance(item, dict) and "value" in item else getattr(item, "value", item)
         return dict(value) if isinstance(value, dict) else None
 
@@ -368,7 +377,7 @@ class DeepAgentsEventMapper:
             return []
         if isinstance(value, dict):
             return [dict(value)]
-        if not isinstance(value, (list, tuple)):
+        if not isinstance(value, list | tuple):
             return []
         normalized: list[dict[str, Any]] = []
         for item in value:

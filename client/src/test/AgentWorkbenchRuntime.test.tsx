@@ -207,6 +207,47 @@ describe('Agent protocol and runtime', () => {
     expect(selectTimeline(loaded).some((item) => item.id === 'part_empty_stream')).toBe(false);
   });
 
+  it('projects training timeline payloads to model, dataset, proposal, task, and status fields only', () => {
+    const loaded = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        parts: [{
+          id: 'part_training_summary',
+          session_id: session.id,
+          type: 'tool_result',
+          status: 'completed',
+          title: 'get_training_summary',
+          content: JSON.stringify({
+            task_id: 'task-1',
+            status: 'completed',
+            model_id: 'tiny-model',
+            dataset_id: 'tiny-dataset',
+            output_path: 'C:/private/output',
+            adapter_path: 'C:/private/adapter',
+          }),
+          payload: {
+            tool: 'get_training_summary',
+            input: { task_id: 'task-1', output_path: 'C:/private/input' },
+            runtime: 'deepagents',
+          },
+          created_at: session.created_at,
+        }],
+      },
+    });
+
+    const item = selectTimeline(loaded).find((entry) => entry.id === 'part_training_summary');
+
+    expect(item?.content).toBe(JSON.stringify({
+      task_id: 'task-1',
+      status: 'completed',
+      model_id: 'tiny-model',
+      dataset_id: 'tiny-dataset',
+    }));
+    expect(item?.payload).toMatchObject({ tool: 'get_training_summary', input: { task_id: 'task-1', training_config: {} } });
+    expect(JSON.stringify(item)).not.toContain('C:/private');
+  });
+
   it('rejects malformed envelopes and retains unknown valid events', () => {
     expect(decodeAgentSessionEvent({ id: 'broken' })).toBeNull();
     const decoded = decodeAgentSessionEvent({

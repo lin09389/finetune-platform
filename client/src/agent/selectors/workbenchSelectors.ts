@@ -1,5 +1,6 @@
 import type { AgentPart, AgentSessionUiTimelineItem, AgentWorkspace } from '../../services/api';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
+import { isTrainingToolName } from '../protocol/agentProtocol';
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
 import { SESSION_STATUS_LABELS } from './sessionStatus';
 
@@ -7,7 +8,7 @@ const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
 
 function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
-  const payload = part.payload || {};
+  const payload = safeTimelinePayload(part.payload || {});
   const action = Array.isArray(payload.action_requests) ? payload.action_requests[0] : undefined;
   const actionName =
     action && typeof action === 'object' && 'name' in action
@@ -20,7 +21,7 @@ function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
     type: part.type,
     status: part.status,
     title: part.title,
-    content: part.content,
+    content: safeTimelineContent(part.content, payload),
     tool: asOptionalString(payload.tool) || asOptionalString(payload.name) || actionName,
     agent_name: asOptionalString(payload.agent_name),
     agent_role: asOptionalString(payload.agent_role),
@@ -33,13 +34,88 @@ function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
   };
 }
 
+function safeTimelineItem(item: AgentSessionUiTimelineItem): AgentSessionUiTimelineItem {
+  const payload = safeTimelinePayload(item.payload || {});
+  return { ...item, payload, content: safeTimelineContent(item.content, payload) };
+}
+
+const TRAINING_RESULT_FIELDS = new Set([
+  'model_id',
+  'dataset_id',
+  'proposal_id',
+  'task_id',
+  'status',
+  'method',
+  'task_goal',
+  'required_vram_gb',
+  'blockers',
+  'warnings',
+  'suggestions',
+  'started_at',
+  'completed_at',
+  'final_loss',
+  'elapsed_time',
+  'error',
+  'code',
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function safeTrainingConfig(value: unknown): Record<string, unknown> {
+  const config = asRecord(value);
+  if (!config) return {};
+  return Object.fromEntries(
+    ['model_id', 'dataset_id', 'method'].flatMap((key) => key in config ? [[key, config[key]]] : []),
+  );
+}
+
+function safeTrainingResult(value: unknown): Record<string, unknown> {
+  const result = asRecord(value);
+  if (!result) return {};
+  return Object.fromEntries(
+    Object.entries(result).filter(([key]) => TRAINING_RESULT_FIELDS.has(key)),
+  );
+}
+
+function safeTimelinePayload(payload: Record<string, any>): Record<string, any> {
+  const tool = asOptionalString(payload.tool) || asOptionalString(payload.name);
+  if (!isTrainingToolName(tool)) return payload;
+  const input = asRecord(payload.input) || asRecord(payload.args) || {};
+  const safeInput = {
+    ...safeTrainingResult(input),
+    training_config: safeTrainingConfig(input.training_config),
+  };
+  return {
+    tool,
+    runtime: payload.runtime,
+    run_id: payload.run_id,
+    agent_name: payload.agent_name,
+    agent_role: payload.agent_role,
+    input: safeInput,
+  };
+}
+
+function safeTimelineContent(content: string | undefined, payload: Record<string, any>): string | undefined {
+  if (!isTrainingToolName(payload.tool) || !content) return content;
+  try {
+    const parsed = JSON.parse(content);
+    return JSON.stringify(safeTrainingResult(parsed));
+  } catch {
+    return '训练工具返回了不可展示的内容。';
+  }
+}
+
 export function selectTimeline(state: AgentRuntimeState): AgentSessionUiTimelineItem[] {
   const byId = new Map<string, AgentSessionUiTimelineItem>();
   for (const item of state.taskContextTimeline) {
-    if (!state.session || item.session_id === state.session.id) byId.set(item.id, item);
+    if (!state.session || item.session_id === state.session.id) byId.set(item.id, safeTimelineItem(item));
   }
   for (const item of state.workspace?.timeline || []) {
-    byId.set(item.part_id || item.id, item);
+    byId.set(item.part_id || item.id, safeTimelineItem(item));
   }
   for (const part of state.session?.parts || []) {
     const item = timelineFromPart(part);

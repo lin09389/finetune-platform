@@ -37,6 +37,11 @@ from .runtime_contract import (
 )
 from .runtime_factory import ensure_deepagents_available
 from .session_state_machine import AgentSessionStateMachine
+from .training_tools import (
+    build_training_tools,
+    training_submission_interrupt_metadata,
+    training_tools_enabled_for_session,
+)
 from .trajectory import (
     TrajectoryStateStore,
     build_trajectory_middleware,
@@ -47,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 # Tracks live runner instances so test fixtures can close compat checkpointer
 # contexts created via _get_checkpointer() without each test having to do it.
-_RUNNER_INSTANCES: "weakref.WeakSet[DeepAgentsSessionRunner]" = weakref.WeakSet()
+_RUNNER_INSTANCES: weakref.WeakSet[DeepAgentsSessionRunner] = weakref.WeakSet()
 
 DEEPAGENTS_BUILTIN_TOOLS = frozenset(
     {
@@ -222,6 +227,7 @@ class DeepAgentsSessionRunner:
         model_call: Any = None,
         async_subagent_service: AsyncSubagentService | None = None,
         interrupt_session: Callable[..., Any] | None = None,
+        training_service: Any | None = None,
     ):
         self.repository = repository
         self.notify_event = notify_event
@@ -229,6 +235,7 @@ class DeepAgentsSessionRunner:
         self.agent_registry = AgentRegistry()
         self.async_subagent_service = async_subagent_service
         self.interrupt_session = interrupt_session
+        self.training_service = training_service
         self._compat_checkpointer_contexts: list[Any] = []
         self.state_machine = AgentSessionStateMachine(repository)
         _RUNNER_INSTANCES.add(self)
@@ -330,6 +337,8 @@ class DeepAgentsSessionRunner:
         agent_id = str(session.get("agent_id") or "build")
         agent = self.agent_registry.get(agent_id)
         metadata = dict(session.get("metadata") or {})
+        if training_tools_enabled_for_session({**session, "metadata": metadata}):
+            metadata = training_submission_interrupt_metadata(metadata)
         permission_policy = permission_policy_for_agent(agent, agent_id, metadata)
         context = RuntimeExecutionContext(
             session_id=session_id,
@@ -355,7 +364,7 @@ class DeepAgentsSessionRunner:
         if checkpointer is None:
             checkpointer = await self._get_checkpointer()
         contract = AgentRuntimeContract.for_agent_session(
-            session=session,
+            session={**session, "metadata": metadata},
             goal=prompt,
             model=model,
             agent_registry=self.agent_registry,
@@ -462,13 +471,13 @@ class DeepAgentsSessionRunner:
         agent_id = str(session.get("agent_id") or "build")
         agent = self.agent_registry.get(agent_id)
         manifest = async_subagent_manifest_for_agent(self.agent_registry, agent)
-        if not manifest.enabled:
-            return []
 
         from langchain_core.tools import StructuredTool
 
         session_id = str(session.get("id"))
-        service = self._async_subagent_service()
+        tools: list[Any] = []
+        if manifest.enabled:
+            service = self._async_subagent_service()
 
         async def start_async_task(subagent_type: str, description: str) -> str:
             try:
@@ -505,42 +514,57 @@ class DeepAgentsSessionRunner:
                 result = {"status": "not_found", "task_id": task_id, "error": str(exc)}
             return self._json_tool_result(result)
 
-        available = manifest.available_label()
-        tools = [
-            StructuredTool.from_function(
-                coroutine=start_async_task,
-                name="start_async_task",
-                description=(
-                    "Start a local async subagent task. It returns a task_id immediately. "
-                    f"Available subagent types: {available}. Do not immediately check status after starting."
-                ),
-                args_schema=StartAsyncTaskInput,
-            ),
-            StructuredTool.from_function(
-                coroutine=check_async_task,
-                name="check_async_task",
-                description="Check the current status and result for a local async subagent task.",
-                args_schema=CheckAsyncTaskInput,
-            ),
-            StructuredTool.from_function(
-                coroutine=list_async_tasks,
-                name="list_async_tasks",
-                description="List local async subagent tasks for the current parent session.",
-                args_schema=ListAsyncTasksInput,
-            ),
-            StructuredTool.from_function(
-                coroutine=update_async_task,
-                name="update_async_task",
-                description="Restart a local async subagent task with new instructions while preserving its task_id.",
-                args_schema=UpdateAsyncTaskInput,
-            ),
-            StructuredTool.from_function(
-                coroutine=cancel_async_task,
-                name="cancel_async_task",
-                description="Soft-cancel a local async subagent task.",
-                args_schema=CancelAsyncTaskInput,
-            ),
-        ]
+        if manifest.enabled:
+            available = manifest.available_label()
+            tools.extend(
+                [
+                    StructuredTool.from_function(
+                        coroutine=start_async_task,
+                        name="start_async_task",
+                        description=(
+                            "Start a local async subagent task. It returns a task_id immediately. "
+                            f"Available subagent types: {available}. Do not immediately check status after starting."
+                        ),
+                        args_schema=StartAsyncTaskInput,
+                    ),
+                    StructuredTool.from_function(
+                        coroutine=check_async_task,
+                        name="check_async_task",
+                        description="Check the current status and result for a local async subagent task.",
+                        args_schema=CheckAsyncTaskInput,
+                    ),
+                    StructuredTool.from_function(
+                        coroutine=list_async_tasks,
+                        name="list_async_tasks",
+                        description="List local async subagent tasks for the current parent session.",
+                        args_schema=ListAsyncTasksInput,
+                    ),
+                    StructuredTool.from_function(
+                        coroutine=update_async_task,
+                        name="update_async_task",
+                        description="Restart a local async subagent task with new instructions while preserving its task_id.",
+                        args_schema=UpdateAsyncTaskInput,
+                    ),
+                    StructuredTool.from_function(
+                        coroutine=cancel_async_task,
+                        name="cancel_async_task",
+                        description="Soft-cancel a local async subagent task.",
+                        args_schema=CancelAsyncTaskInput,
+                    ),
+                ]
+            )
+        if training_tools_enabled_for_session(session):
+            if self.training_service is None:
+                from agent_training.service import AgentTrainingService
+
+                self.training_service = AgentTrainingService()
+            tools.extend(
+                build_training_tools(
+                    session,
+                    repository=self.repository,
+                    training_service=self.training_service,
+                )
+            )
         return permission_policy_for_agent(agent, agent_id, dict(session.get("metadata") or {})).filter_named_tools(tools)
 
     def _async_subagent_service(self) -> AsyncSubagentService:

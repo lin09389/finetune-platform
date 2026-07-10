@@ -30,8 +30,9 @@ from agent_session.runtime_contract import AgentRuntimeContract
 from agent_session.runtime_factory import DeepAgentsRuntimeFactory
 from agent_session.service import AgentSessionService
 from agent_session.session_state_machine import AgentSessionStateMachine
-from core.config import settings
 from fastapi import BackgroundTasks
+
+from core.config import settings
 
 
 def test_runtime_contract_enforces_agent_launch_modes(tmp_path: Path):
@@ -397,6 +398,60 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
     assert "/skills/builtin/" in captured["skills"]
     assert len(captured["middleware"]) == 1
     assert captured["middleware"][0].__class__.__name__ == "TrajectoryGuardMiddleware"
+
+
+def test_deepagents_runtime_registers_training_tools_only_for_train_or_hybrid_build_sessions(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_build_runtime(config):
+        captured["tools"] = config.tools
+        captured["interrupt_on"] = config.interrupt_on
+        return object()
+
+    monkeypatch.setattr("agent_session.deepagents_runtime.build_deep_agent_runtime", fake_build_runtime)
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+    asyncio.run(
+        runner._build_graph(
+            {
+                "id": "session-train",
+                "project_path": str(tmp_path),
+                "provider": "",
+                "model": None,
+                "agent_id": "build",
+                "metadata": {"task_mode": "train"},
+            },
+            "诊断训练配置",
+        )
+    )
+
+    assert {"propose_training", "submit_training", "get_training_summary"}.issubset(
+        {tool.name for tool in captured["tools"]}
+    )
+    assert captured["interrupt_on"]["submit_training"] is True
+
+    asyncio.run(
+        runner._build_graph(
+            {
+                "id": "session-build",
+                "project_path": str(tmp_path),
+                "provider": "",
+                "model": None,
+                "agent_id": "build",
+                "metadata": {"task_mode": "build"},
+            },
+            "构建项目",
+        )
+    )
+
+    assert not {"propose_training", "submit_training", "get_training_summary"} & {
+        tool.name for tool in captured["tools"]
+    }
+    assert captured["interrupt_on"] is None
 
 
 def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_path: Path):

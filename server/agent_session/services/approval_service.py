@@ -10,6 +10,7 @@ from agent_session.approval import permission_decisions
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentSessionResponse
 from agent_session.permission import validate_hitl_decisions
+from agent_session.training_tools import grant_approved_training_submissions
 from core.db_manager import run_sync
 
 if TYPE_CHECKING:
@@ -161,6 +162,7 @@ class ApprovalService:
             raise ValueError("Permission part is not pending")
         metadata["pending_deepagents_interrupt"] = None
         self.service.state_machine.mark_running(session_id, metadata=metadata)
+        grant_approved_training_submissions(self.service.repository, part, decisions)
         event = self.service.repository.add_event(
             session_id,
             "permission_decided",

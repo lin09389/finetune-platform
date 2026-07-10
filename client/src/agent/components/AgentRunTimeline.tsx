@@ -20,6 +20,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { AgentSessionUiTimelineItem, AgentSessionUiPendingPermission } from '../../services/api';
 import type { AgentHitlDecision } from '../../services/api';
+import { isTrainingToolName } from '../protocol/agentProtocol';
 import styles from '../workbench/AgentWorkbench.module.css';
 import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
 
@@ -436,10 +437,42 @@ function compactValue(value: unknown): string {
   return serialized.length > 110 ? `${serialized.slice(0, 107)}…` : serialized;
 }
 
+function trainingFieldEntries(item: AgentSessionUiTimelineItem): Array<[string, string]> {
+  if (!isTrainingToolName(item.tool || item.title)) return [];
+  const values: Record<string, unknown> = {};
+  const input = isRecord(item.payload?.input) ? item.payload.input : {};
+  const config = isRecord(input.training_config) ? input.training_config : {};
+  for (const key of ['model_id', 'dataset_id', 'proposal_id', 'task_id', 'status']) {
+    if (typeof input[key] === 'string') values[key] = input[key];
+    if (typeof config[key] === 'string') values[key] = config[key];
+  }
+  try {
+    const result = item.content ? JSON.parse(item.content) : null;
+    if (isRecord(result)) {
+      for (const key of ['model_id', 'dataset_id', 'proposal_id', 'task_id', 'status']) {
+        if (typeof result[key] === 'string') values[key] = result[key];
+      }
+    }
+  } catch {
+    // Training content is already filtered by selectors; there is no fallback raw display.
+  }
+  return [
+    ['模型', String(values.model_id || '')],
+    ['数据集', String(values.dataset_id || '')],
+    ['提案', String(values.proposal_id || '')],
+    ['任务', String(values.task_id || '')],
+    ['状态', String(values.status || '')],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+}
+
 function executionLabel(item: AgentSessionUiTimelineItem): string {
   const command = stringifyCommand(item.payload?.command);
   if (command) return command;
   const tool = item.tool || item.title || '工具';
+  const trainingFields = trainingFieldEntries(item);
+  if (trainingFields.length > 0) {
+    return `${tool} · ${trainingFields.map(([label, value]) => `${label}=${value}`).join(' · ')}`;
+  }
   const input = compactValue(item.payload?.input || item.payload?.args);
   return input ? `${tool} ${input}` : tool;
 }
@@ -513,6 +546,11 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
                   {active ? '正在运行' : failed ? '运行失败' : '已运行'}
                 </span>
                 <code title={executionLabel(item)}>{executionLabel(item)}</code>
+                {trainingFieldEntries(item).length > 0 ? (
+                  <div className={styles.timelineMetaRow}>
+                    {trainingFieldEntries(item).map(([label, value]) => <span key={label}>{label}：{value}</span>)}
+                  </div>
+                ) : null}
                 {active ? (
                   liveElapsed(item, now) ? (
                     <span className={styles.executionGroupDuration}>{liveElapsed(item, now)}</span>
