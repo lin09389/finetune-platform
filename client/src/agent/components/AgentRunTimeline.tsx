@@ -15,9 +15,10 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Virtuoso } from 'react-virtuoso';
-import type { AgentSessionUiTimelineItem } from '../../services/api';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import type { AgentSessionUiTimelineItem, AgentSessionUiPendingPermission } from '../../services/api';
+import type { AgentHitlDecision } from '../../services/api';
 import styles from '../workbench/AgentWorkbench.module.css';
 import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
 
@@ -287,7 +288,13 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
   );
 }
 
-export function DiffCard({ item }: { item: AgentSessionUiTimelineItem }) {
+export function DiffCard({
+  item,
+  onOpenFile,
+}: {
+  item: AgentSessionUiTimelineItem;
+  onOpenFile?: (filePath: string) => void;
+}) {
   const files = changedFiles(item);
   const diff = payloadText(item.payload, 'diff') || item.content || '';
   const [expanded, setExpanded] = useState(Boolean(files.length || diff));
@@ -322,7 +329,19 @@ export function DiffCard({ item }: { item: AgentSessionUiTimelineItem }) {
             <ul>
               {files.slice(0, 5).map((file) => (
                 <li key={file}>
-                  <FileTextOutlined /> <span>{file}</span>
+                  <FileTextOutlined />
+                  {onOpenFile ? (
+                    <button
+                      type="button"
+                      className={styles.diffFileName}
+                      title={`在文件面板打开 ${file}`}
+                      onClick={() => onOpenFile(file)}
+                    >
+                      {file}
+                    </button>
+                  ) : (
+                    <span>{file}</span>
+                  )}
                 </li>
               ))}
               {files.length > 5 ? (
@@ -358,6 +377,14 @@ interface AgentRunTimelineProps {
   activity?: { label: string; detail?: string; startedAt: number } | null;
   /** 会话切换中，显示加载态而非空态 */
   loading?: boolean;
+  /** 当前待审批权限请求，用于 timeline 内联审批 */
+  pendingPermission?: AgentSessionUiPendingPermission | null;
+  /** 审批决策回调 */
+  onDecidePermission?: (partId: string, decisions: AgentHitlDecision[]) => void;
+  /** 审批是否正在提交中（对应 operation key permission:partId） */
+  permissionBusy?: boolean;
+  /** 点击 diff 文件名时跳转到文件面板 */
+  onOpenFile?: (filePath: string) => void;
 }
 
 export function TimelineContent({
@@ -492,8 +519,16 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
                     <span className={styles.executionGroupDuration}>{durationLabel(item.payload)}</span>
                   ) : null
                 )}
-                {failed && item.content ? (
-                  <span className={styles.executionGroupError}>{item.content}</span>
+                {failed ? (
+                  <div className={styles.executionGroupFailure}>
+                    {item.content ? <span className={styles.executionGroupError}>{item.content}</span> : null}
+                    {typeof item.payload?.exit_code === 'number' && item.payload.exit_code !== 0 ? (
+                      <span className={styles.executionGroupExitCode}>退出码 {item.payload.exit_code}</span>
+                    ) : null}
+                    {typeof item.payload?.failure_summary === 'string' && item.payload.failure_summary.trim() ? (
+                      <span className={styles.executionGroupFailureSummary}>{item.payload.failure_summary.trim()}</span>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );
@@ -504,7 +539,92 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
   );
 }
 
-export function TimelineItem({ item }: { item: AgentSessionUiTimelineItem }) {
+function PermissionInlineCard({
+  item,
+  permission,
+  onDecide,
+  busy,
+}: {
+  item: AgentSessionUiTimelineItem;
+  permission: AgentSessionUiPendingPermission;
+  onDecide: (partId: string, decisions: AgentHitlDecision[]) => void;
+  busy?: boolean;
+}) {
+  const partId = permission.part_id || item.part_id || item.id;
+  const actions = permission.actions || [];
+  const [decided, setDecided] = useState<'approve' | 'reject' | null>(null);
+  const handleDecide = (type: 'approve' | 'reject') => {
+    if (busy || decided) return;
+    setDecided(type);
+    onDecide(partId, Array.from({ length: Math.max(1, actions.length) }, () => (
+      type === 'approve'
+        ? { type: 'approve' as const }
+        : { type: 'reject' as const, message: '已在工作台拒绝' }
+    )));
+  };
+  return (
+    <div className={styles.permissionInline}>
+      <div className={styles.permissionInlineHeader}>
+        <SafetyCertificateOutlined />
+        <strong>{decided ? (decided === 'approve' ? '已批准' : '已拒绝') : '等待审批'}</strong>
+        <span>{permission.title || item.title || '工具执行前需要确认'}</span>
+      </div>
+      {decided ? (
+        <p className={styles.permissionInlineContent}>
+          {decided === 'approve' ? '已提交批准，Agent 正在继续执行...' : '已提交拒绝，Agent 将根据策略处理...'}
+        </p>
+      ) : (
+        <>
+          {permission.content ? <p className={styles.permissionInlineContent}>{permission.content}</p> : null}
+          {actions.length > 0 ? (
+            <div className={styles.permissionInlineActions}>
+              {actions.map((action) => (
+                <div key={action.index} className={styles.permissionInlineAction}>
+                  <code>{action.name}</code>
+                  {action.description ? <small>{action.description}</small> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className={styles.permissionInlineButtons}>
+            <Button
+              size="small"
+              type="primary"
+              loading={busy && decided === 'approve'}
+              disabled={busy}
+              onClick={() => handleDecide('approve')}
+            >
+              批准
+            </Button>
+            <Button
+              size="small"
+              danger
+              loading={busy && decided === 'reject'}
+              disabled={busy}
+              onClick={() => handleDecide('reject')}
+            >
+              拒绝
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function TimelineItem({
+  item,
+  pendingPermission,
+  onDecidePermission,
+  permissionBusy,
+  onOpenFile,
+}: {
+  item: AgentSessionUiTimelineItem;
+  pendingPermission?: AgentSessionUiPendingPermission | null;
+  onDecidePermission?: (partId: string, decisions: AgentHitlDecision[]) => void;
+  permissionBusy?: boolean;
+  onOpenFile?: (filePath: string) => void;
+}) {
   const modelResponse = isModelResponse(item);
   const isStreaming = modelResponse && (item.status === 'running' || item.status === 'pending'
     || Boolean(item.payload?.streaming));
@@ -522,10 +642,17 @@ export function TimelineItem({ item }: { item: AgentSessionUiTimelineItem }) {
     <article className={classNames}>
       <div className={styles.timelineIcon}>{itemIcon(item)}</div>
       <div className={styles.timelineBody}>
-        {item.type === 'command' ? (
+        {item.type === 'permission' && pendingPermission && onDecidePermission ? (
+          <PermissionInlineCard
+            item={item}
+            permission={pendingPermission}
+            onDecide={onDecidePermission}
+            busy={permissionBusy}
+          />
+        ) : item.type === 'command' ? (
           <ExecutionGroup items={[item]} />
         ) : item.type === 'diff' ? (
-          <DiffCard item={item} />
+          <DiffCard item={item} onOpenFile={onOpenFile} />
         ) : item.type === 'tool_call' || item.type === 'tool_result' ? (
           <ExecutionGroup items={[item]} />
         ) : (
@@ -565,10 +692,16 @@ export default function AgentRunTimeline({
   errorMessage,
   activity,
   loading,
+  pendingPermission,
+  onDecidePermission,
+  permissionBusy,
+  onOpenFile,
 }: AgentRunTimelineProps) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'output' | 'tools' | 'issues'>('all');
   const [autoFollow, setAutoFollow] = useState(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const visibleTimeline = useMemo(
     () =>
@@ -686,20 +819,50 @@ export default function AgentRunTimeline({
           <Empty description="没有匹配的执行记录" />
         </div>
       ) : (
-        <Virtuoso
-          data={displayTimeline}
-          followOutput={autoFollow && hasLiveItems ? 'smooth' : false}
-          initialTopMostItemIndex={initialTimelineIndex}
-          itemContent={(_, entry) =>
-            isExecutionGroup(entry) ? (
-              <div className={styles.timelineExecutionGroup}>
-                <ExecutionGroup items={entry.items} />
-              </div>
-            ) : (
-              <TimelineItem item={entry} />
-            )
-          }
-        />
+        <div className={styles.timelineScrollArea}>
+          <Virtuoso
+            ref={virtuosoRef}
+            data={displayTimeline}
+            followOutput={autoFollow ? 'smooth' : false}
+            initialTopMostItemIndex={initialTimelineIndex}
+            atBottomStateChange={(atBottom) => {
+              setShowJumpToLatest(!atBottom);
+              if (atBottom && !autoFollow) setAutoFollow(true);
+            }}
+            itemContent={(_, entry) =>
+              isExecutionGroup(entry) ? (
+                <div className={styles.timelineExecutionGroup}>
+                  <ExecutionGroup items={entry.items} />
+                </div>
+              ) : (
+                <TimelineItem
+                  item={entry}
+                  pendingPermission={pendingPermission}
+                  onDecidePermission={onDecidePermission}
+                  permissionBusy={permissionBusy}
+                  onOpenFile={onOpenFile}
+                />
+              )
+            }
+          />
+          {showJumpToLatest ? (
+            <button
+              type="button"
+              className={styles.jumpToLatest}
+              aria-label="回到最新"
+              onClick={() => {
+                virtuosoRef.current?.scrollToIndex({
+                  index: displayTimeline.length - 1,
+                  behavior: 'smooth',
+                });
+                setAutoFollow(true);
+                setShowJumpToLatest(false);
+              }}
+            >
+              <DownOutlined /> 回到最新
+            </button>
+          ) : null}
+        </div>
       )}
     </div>
   );

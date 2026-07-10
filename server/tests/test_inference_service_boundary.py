@@ -298,7 +298,7 @@ def test_control_profile_does_not_import_native_inference_runtime():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_agent_ollama_provider_routes_through_local_openai_service(monkeypatch):
+def test_agent_ollama_provider_rejects_text_only_local_service(monkeypatch):
     adapter = importlib.import_module("agent_session.model_adapter")
     captured = {}
 
@@ -311,12 +311,9 @@ def test_agent_ollama_provider_routes_through_local_openai_service(monkeypatch):
     )
     context = SimpleNamespace(provider="ollama", model="qwen3:8b", metadata={})
 
-    adapter.get_chat_model(context)
-
-    assert captured["model_provider"] == "openai"
-    assert captured["model"] == "ollama/qwen3:8b"
-    assert captured["base_url"] == "http://127.0.0.1:8020/v1"
-    assert captured["api_key"] == "internal-key"
+    with pytest.raises(adapter.ProviderAdapterError, match="不支持 Agent 所需的工具调用"):
+        adapter.get_chat_model(context)
+    assert captured == {}
 
 
 @pytest.mark.asyncio

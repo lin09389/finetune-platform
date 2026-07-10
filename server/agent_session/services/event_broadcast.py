@@ -19,6 +19,12 @@ class EventBroadcastService:
     def unsubscribe_events(self, session_id: str, queue: Any) -> None:
         self.service._event_bus.unsubscribe(session_id, queue)
 
+    def subscribe_global_events(self) -> Any:
+        return self.service._event_bus.subscribe_global()
+
+    def unsubscribe_global_events(self, queue: Any) -> None:
+        self.service._event_bus.unsubscribe_global(queue)
+
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         apply_execution_event_to_session(self.service.repository, session_id, event)
         self._clear_recovery_latches_for_event(session_id, event)

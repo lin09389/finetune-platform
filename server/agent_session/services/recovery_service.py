@@ -140,6 +140,9 @@ class RecoveryService:
         return {"recovered": recovered, "failed": failed, "session_ids": [str(item.get("id")) for item in sessions if item.get("id")]}
 
     async def shutdown_async_subtasks(self) -> None:
+        prompt_shutdown = await self.service.background_manager.shutdown_prompt_tasks()
+        if prompt_shutdown["interrupted"] or prompt_shutdown["remaining_tasks"] or prompt_shutdown["remaining_threads"]:
+            logger.info("Agent prompt shutdown complete: %s", prompt_shutdown)
         await self.service.async_subagent_service.shutdown()
 
     def _get_recovery_latch(self, metadata: dict[str, Any], node_id: str) -> dict[str, Any] | None:

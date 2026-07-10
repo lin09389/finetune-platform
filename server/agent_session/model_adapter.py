@@ -18,8 +18,12 @@ from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E4
 
 from core.config import settings  # noqa: E402
 from security.encryption import secure_storage  # noqa: E402
+from cloud_models import CloudProviderRepository  # noqa: E402
 
+from .model_capabilities import local_agent_tool_calling_status  # noqa: E402
 from .execution_context import RuntimeExecutionContext  # noqa: E402
+
+cloud_provider_repository = CloudProviderRepository(secure_storage)
 
 
 class ProviderAdapterError(RuntimeError):
@@ -63,6 +67,9 @@ def get_chat_model(context: RuntimeExecutionContext) -> BaseChatModel:
             f"当前 provider={provider!r}, model={model!r}。"
             "请使用 provider:model，例如 openai:gpt-4o、ollama:qwen3:8b、openrouter:z-ai/glm-5.1。"
         )
+    if spec.transport == "local_inference_service":
+        status = local_agent_tool_calling_status("local", settings)
+        raise ProviderAdapterError(status["message"])
     try:
         return init_official_chat_model(spec, context)
     except Exception as exc:
@@ -130,7 +137,7 @@ def _official_model_kwargs(spec: OfficialModelSpec, context: RuntimeExecutionCon
         model_params = metadata.get("model_params")
         return _merge_model_kwargs(kwargs, model_params) if isinstance(model_params, dict) else kwargs
 
-    key_data = secure_storage.get(f"cloud_{spec.provider}_key") or {}
+    key_data = cloud_provider_repository.get(spec.provider)
     if not isinstance(key_data, dict):
         key_data = {}
     kwargs: dict[str, Any] = {
@@ -145,8 +152,6 @@ def _official_model_kwargs(spec: OfficialModelSpec, context: RuntimeExecutionCon
     base_url = metadata.get("base_url") or key_data.get("base_url")
     if base_url and spec.provider in {"openai", "deepseek", "openrouter"}:
         kwargs["base_url"] = base_url
-    if spec.provider == "deepseek":
-        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     model_params = metadata.get("model_params")
     if isinstance(model_params, dict):
         kwargs = _merge_model_kwargs(kwargs, model_params)

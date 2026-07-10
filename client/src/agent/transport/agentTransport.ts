@@ -21,7 +21,7 @@ import {
   type AgentWorkspace,
   reportAgentDiagnostics,
 } from '../../services/api';
-import { buildAgentSessionStreamUrl, getAgentStreamRetryDelay } from '../../utils/agentSessionStream';
+import { buildAgentSessionStreamUrl, buildGlobalAgentSessionStreamUrl, getAgentStreamRetryDelay } from '../../utils/agentSessionStream';
 import { decodeAgentSessionEvent, type AgentConnectionState } from '../protocol/agentProtocol';
 
 export interface AgentStreamHandlers {
@@ -106,6 +106,70 @@ export function connectAgentSessionStream(
   };
 }
 
+export function connectGlobalAgentSessionStream(
+  handlers: AgentStreamHandlers,
+): AgentStreamSubscription {
+  let closed = false;
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+
+  const open = () => {
+    if (closed) return;
+    handlers.onConnectionChange(attempt === 0 ? 'connecting' : 'reconnecting', attempt);
+    source = new EventSource(buildGlobalAgentSessionStreamUrl());
+
+    source.addEventListener('open', () => {
+      attempt = 0;
+      handlers.onConnectionChange('open', attempt);
+    });
+
+    source.addEventListener('agent_session_event', (rawEvent) => {
+      try {
+        const decoded = decodeAgentSessionEvent(JSON.parse((rawEvent as MessageEvent<string>).data));
+        if (!decoded) {
+          handlers.onMalformedEvent((rawEvent as MessageEvent<string>).data);
+          return;
+        }
+        handlers.onEvent(decoded);
+      } catch {
+        handlers.onMalformedEvent((rawEvent as MessageEvent<string>).data);
+      }
+    });
+
+    source.addEventListener('agent_session_done', (rawEvent) => {
+      let status: string | undefined;
+      try {
+        status = JSON.parse((rawEvent as MessageEvent<string>).data)?.status;
+      } catch {
+        status = undefined;
+      }
+      handlers.onDone(status);
+      source?.close();
+      source = null;
+    });
+
+    source.onerror = () => {
+      source?.close();
+      source = null;
+      if (closed) return;
+      handlers.onConnectionChange('error', attempt);
+      const delay = getAgentStreamRetryDelay(attempt);
+      attempt += 1;
+      retryTimer = setTimeout(open, delay);
+    };
+  };
+
+  open();
+  return {
+    close: () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      source?.close();
+    },
+  };
+}
+
 export const agentTransport = {
   listAgents: getAgents,
   listSessions: listAgentSessions,
@@ -126,6 +190,7 @@ export const agentTransport = {
   cancelAsyncTask: cancelAgentAsyncTask,
   reportDiagnostics: reportAgentDiagnostics,
   connectStream: connectAgentSessionStream,
+  connectGlobalStream: connectGlobalAgentSessionStream,
 };
 
 export type AgentTransport = typeof agentTransport;

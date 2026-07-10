@@ -85,6 +85,12 @@ class AgentSessionService:
     def unsubscribe_events(self, session_id: str, queue: Any) -> None:
         self.event_service.unsubscribe_events(session_id, queue)
 
+    def subscribe_global_events(self) -> Any:
+        return self.event_service.subscribe_global_events()
+
+    def unsubscribe_global_events(self, queue: Any) -> None:
+        self.event_service.unsubscribe_global_events(queue)
+
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         self.event_service._notify_event(session_id, event)
 

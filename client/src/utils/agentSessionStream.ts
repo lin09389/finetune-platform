@@ -14,3 +14,7 @@ export function buildAgentSessionStreamUrl(sessionId: string, lastEventId = ''):
   const qs = params.toString();
   return `${API_BASE_URL}/agent-sessions/${encodeURIComponent(sessionId)}/events/stream${qs ? `?${qs}` : ''}`;
 }
+
+export function buildGlobalAgentSessionStreamUrl(): string {
+  return `${API_BASE_URL}/agent-sessions/events/stream`;
+}

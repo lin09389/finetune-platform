@@ -3,11 +3,12 @@ import {
   CheckCircleOutlined,
   CloudSyncOutlined,
   CodeOutlined,
+  EditOutlined,
   ExclamationCircleOutlined,
   FolderOpenOutlined,
   GithubOutlined,
   InfoCircleOutlined,
-  PlusOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { Button, Tag, Tooltip } from 'antd';
 import type { AgentConnectionState } from '../protocol/agentProtocol';
@@ -80,7 +81,7 @@ export default function AgentEnvironmentRail({
             <Button
               type="text"
               size="small"
-              icon={<PlusOutlined />}
+              icon={<SettingOutlined />}
               aria-label="打开工作台设置"
               onClick={onOpenSettings}
             />
@@ -97,8 +98,26 @@ export default function AgentEnvironmentRail({
           </div>
           <div className={styles.environmentRow}>
             <FolderOpenOutlined />
-            <span>本地</span>
-            <strong>{basename(session?.project_path || workspace?.runtime?.workspace_root)}</strong>
+            <span>工作区</span>
+            <Tooltip
+              title={
+                session?.project_path || workspace?.runtime?.workspace_root
+                  ? `${session?.project_path || workspace?.runtime?.workspace_root}\n点击更换工作区`
+                  : '点击选择本地工作区文件夹'
+              }
+            >
+              <button
+                type="button"
+                className={styles.workspacePathChip}
+                onClick={onOpenSettings}
+                aria-label="打开工作区路径设置"
+              >
+                <span className={styles.workspacePathName}>
+                  {basename(session?.project_path || workspace?.runtime?.workspace_root)}
+                </span>
+                <EditOutlined className={styles.workspacePathEdit} />
+              </button>
+            </Tooltip>
           </div>
           <div className={styles.environmentRow}>
             <BranchesOutlined />

@@ -29,6 +29,8 @@ const REFRESH_EVENT_TYPES = new Set([
   'tool_call_completed',
   'tool_call_failed',
   'summary_completed',
+  'async_subtask_started',
+  'async_subtask_updated',
   'async_subtask_completed',
   'async_subtask_failed',
   'async_subtask_cancelled',
@@ -196,6 +198,24 @@ export function useAgentWorkbench(
     });
     return () => subscription.close();
   }, [scheduleWorkspaceRefresh, state.activeSessionId, state.streamRevision, transport]);
+
+  // Global event stream: multi-session awareness.
+  // Receives events from all sessions so the workbench can surface
+  // status changes (completed/failed/permission needed) for non-active sessions.
+  useEffect(() => {
+    if (!transport.connectGlobalStream || !state.hydrated) return;
+    const subscription = transport.connectGlobalStream({
+      onConnectionChange: (connection, attempt) => {
+        dispatch({ type: 'global_connection_changed', connection, attempt });
+      },
+      onEvent: (event) => {
+        dispatch({ type: 'global_stream_event', event });
+      },
+      onDone: () => undefined,
+      onMalformedEvent: () => undefined,
+    });
+    return () => subscription.close();
+  }, [transport, state.hydrated]);
 
   useEffect(() => () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);

@@ -31,6 +31,8 @@ class BackgroundTaskManagerService:
         self.service = service
         self._prompt_tasks: dict[str, PromptTaskRecord] = {}
         self._prompt_tasks_lock = threading.Lock()
+        self._prompt_threads: dict[str, threading.Thread] = {}
+        self._shutdown_started = threading.Event()
         self._session_start_locks: dict[str, threading.Lock] = {}
         self._session_start_locks_lock = threading.Lock()
 
@@ -48,6 +50,8 @@ class BackgroundTaskManagerService:
         request: AgentPromptRequest,
         background_tasks: BackgroundTasks | None,
     ) -> AgentSessionResponse:
+        if self._shutdown_started.is_set():
+            raise RuntimeError("Agent service is shutting down; new background prompts are unavailable")
         repository = self.service.repository
         with self._session_start_lock(session_id):
             session = repository.get_session(session_id)
@@ -73,6 +77,11 @@ class BackgroundTaskManagerService:
                 request.model or session.get("model"),
             )
             metadata["model_configured"] = model_configured
+            metadata["model_configuration"] = self.service.lifecycle.get_model_configuration_status(
+                effective_provider,
+                effective_model,
+                model_configured,
+            )
             metadata["failure_kind"] = None
             metadata["next_action"] = None
             if effective_provider != session.get("provider") or effective_model != session.get("model"):
@@ -87,7 +96,10 @@ class BackgroundTaskManagerService:
                 metadata["next_action"] = "configure_model"
                 metadata["background_run"] = False
                 metadata["active_prompt_id"] = None
-                metadata["latest_error"] = "Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"
+                metadata["latest_error"] = str(
+                    metadata["model_configuration"]["message"]
+                    or "Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"
+                )
                 repository.update_session(session_id, metadata=metadata)
                 raise AgentConfigurationError(metadata["latest_error"])
 
@@ -163,8 +175,10 @@ class BackgroundTaskManagerService:
                 target=self._run_prompt_thread_entry,
                 args=(session_id, request, str(prompt_id)),
                 name=f"agent-prompt-{session_id}",
-                daemon=True,
+                daemon=False,
             )
+            with self._prompt_tasks_lock:
+                self._prompt_threads[session_id] = thread
             thread.start()
         return response
 
@@ -187,6 +201,11 @@ class BackgroundTaskManagerService:
                 resolved_provider,
                 resolved_model,
             )
+            metadata["model_configuration"] = self.service.lifecycle.get_model_configuration_status(
+                resolved_provider,
+                resolved_model,
+                bool(metadata["model_configured"]),
+            )
             repository.update_session(
                 session_id,
                 provider=resolved_provider,
@@ -202,7 +221,8 @@ class BackgroundTaskManagerService:
             session.get("model"),
         )
         if self.service.model_call is None and (not configured or not (provider and model)):
-            raise AgentConfigurationError("Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。")
+            status = self.service.lifecycle.get_model_configuration_status(provider, model, configured)
+            raise AgentConfigurationError(str(status["message"] or "Agent 模型未配置：请先在模型运行/Agent 工作台选择 provider 和 model。"))
         if provider != session.get("provider") or model != session.get("model"):
             repository.update_session(session_id, provider=provider, model=model, metadata=metadata)
             session = repository.get_session(session_id) or session
@@ -298,6 +318,7 @@ class BackgroundTaskManagerService:
 
     def _run_prompt_thread_entry(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
         loop = asyncio.new_event_loop()
+        task: asyncio.Task[Any] | None = None
         try:
             asyncio.set_event_loop(loop)
             task = loop.create_task(self._run_prompt_background(session_id, request, prompt_id))
@@ -306,14 +327,17 @@ class BackgroundTaskManagerService:
             logger.exception("Agent prompt background thread failed for session %s", session_id)
         finally:
             try:
-                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                for task in pending:
-                    task.cancel()
+                pending = [pending_task for pending_task in asyncio.all_tasks(loop) if not pending_task.done()]
+                for pending_task in pending:
+                    pending_task.cancel()
                 if pending:
                     loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             finally:
                 asyncio.set_event_loop(None)
                 loop.close()
+                with self._prompt_tasks_lock:
+                    if self._prompt_threads.get(session_id) is threading.current_thread():
+                        self._prompt_threads.pop(session_id, None)
 
     async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
         loop = asyncio.get_running_loop()
@@ -424,6 +448,59 @@ class BackgroundTaskManagerService:
         if not record:
             return False
         return not record[1].done()
+
+    async def shutdown_prompt_tasks(self, timeout_seconds: float = 10.0) -> dict[str, int]:
+        """Persist interruption and cancel prompt work before app shutdown.
+
+        Detached prompts run in non-daemon threads, while approval/recovery
+        prompts run as asyncio tasks.  Both are tracked here so shutdown does
+        not leave their sessions in ``running`` when the process exits.
+        """
+        self._shutdown_started.set()
+        with self._prompt_tasks_lock:
+            task_records = dict(self._prompt_tasks)
+            thread_records = dict(self._prompt_threads)
+        session_ids = set(task_records) | set(thread_records)
+        interrupted = 0
+        for session_id in session_ids:
+            try:
+                self.service.repository.run_write_with_retry(
+                    lambda session_id=session_id: self.interrupt_session(
+                        session_id,
+                        "Agent 服务正在关闭，后台任务已安全中断。",
+                    )
+                )
+                interrupted += 1
+            except ValueError:
+                # The session was removed while shutdown was in progress.
+                continue
+            except Exception:
+                logger.exception("Failed to persist Agent shutdown interruption for session %s", session_id)
+
+        deadline = asyncio.get_running_loop().time() + max(timeout_seconds, 0.0)
+        for session_id, (loop, task) in task_records.items():
+            if not task.done():
+                loop.call_soon_threadsafe(task.cancel)
+        for thread in thread_records.values():
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0 or not thread.is_alive():
+                continue
+            await asyncio.to_thread(thread.join, remaining)
+
+        with self._prompt_tasks_lock:
+            remaining_tasks = sum(not task.done() for _, task in self._prompt_tasks.values())
+            remaining_threads = sum(thread.is_alive() for thread in self._prompt_threads.values())
+        if remaining_tasks or remaining_threads:
+            logger.warning(
+                "Agent prompt shutdown timed out: tasks=%s threads=%s; sessions are persisted as interrupted",
+                remaining_tasks,
+                remaining_threads,
+            )
+        return {
+            "interrupted": interrupted,
+            "remaining_tasks": remaining_tasks,
+            "remaining_threads": remaining_threads,
+        }
 
     def record_prompt_failure(self, session_id: str, exc: Exception) -> dict[str, Any]:
         repository = self.service.repository

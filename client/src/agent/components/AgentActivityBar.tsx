@@ -16,7 +16,17 @@ interface AgentActivityBarProps {
   /** 连接状态，用于右侧 mini 指示 */
   connection: AgentConnectionState;
   connectionLabel: string;
+  /** 最近一次 SSE 事件到达时间戳，用于活跃度感知 */
+  lastEventAt: number | null;
+  /** 运行中的子 Agent 数量 */
+  subagentRunningCount: number;
+  /** 执行计划已完成步骤数 */
+  planCompleted: number;
+  /** 执行计划总步骤数 */
+  planTotal: number;
 }
+
+const STALE_THRESHOLD_MS = 30_000;
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -51,17 +61,21 @@ export default function AgentActivityBar({
   timelineEmpty,
   connection,
   connectionLabel,
+  lastEventAt,
+  subagentRunningCount,
+  planCompleted,
+  planTotal,
 }: AgentActivityBarProps) {
   const { shouldReduceMotion } = useMotionConfig();
   const [now, setNow] = useState(Date.now());
 
   // 每秒刷新计时器；仅在运行态时计时
   useEffect(() => {
-    if (!isRunning || !activity?.startedAt) return;
+    if (!isRunning) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [isRunning, activity?.startedAt]);
+  }, [isRunning, activity?.startedAt, lastEventAt]);
 
   // 非运行态时保留占位高度，避免 timeline 上下抖动
   if (!isRunning) {
@@ -74,6 +88,12 @@ export default function AgentActivityBar({
   const elapsed = activity?.startedAt
     ? Math.max(0, Math.floor((now - activity.startedAt) / 1000))
     : null;
+
+  // 活跃度：距上一事件时长
+  const sinceEvent = lastEventAt
+    ? Math.max(0, Math.floor((now - lastEventAt) / 1000))
+    : null;
+  const isStale = sinceEvent !== null && sinceEvent * 1000 >= STALE_THRESHOLD_MS;
 
   return (
     <div className={styles.activityBar} role="status" aria-live="polite">
@@ -88,9 +108,28 @@ export default function AgentActivityBar({
         {label}
         {detail ? <span className={styles.activityDetail}>{detail}</span> : null}
       </span>
+      {planTotal > 0 ? (
+        <span className={styles.activityPlanProgress} title={`执行计划：已完成 ${planCompleted}/${planTotal} 步`}>
+          步骤 {planCompleted}/{planTotal}
+        </span>
+      ) : null}
       {elapsed !== null ? (
         <span className={styles.activityTimer} aria-label="已运行时长">
           {formatElapsed(elapsed)}
+        </span>
+      ) : null}
+      {sinceEvent !== null ? (
+        <span
+          className={`${styles.activitySinceEvent} ${isStale ? styles.activitySinceEventStale : ''}`}
+          aria-label="距上一事件时长"
+          title={isStale ? '长时间无新输出，可能正在长推理' : undefined}
+        >
+          {isStale ? '无输出' : `${sinceEvent}s`}
+        </span>
+      ) : null}
+      {subagentRunningCount > 0 ? (
+        <span className={styles.activitySubagent} title={`${subagentRunningCount} 个子 Agent 正在后台运行`}>
+          {subagentRunningCount} 子 Agent
         </span>
       ) : null}
       <Tooltip title={connectionLabel}>

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from core.storage import APP_DB_PATH
+from core.storage import get_langgraph_checkpoint_db_path
 
 _cached_checkpointer: AsyncSqliteSaver | None = None
 _cached_checkpointer_context = None
@@ -21,12 +21,7 @@ _cached_checkpointer_context = None
 @lru_cache(maxsize=1)
 def get_checkpoint_db_path() -> str:
     """Return the dedicated SQLite database path used for LangGraph checkpoints."""
-    configured = os.getenv("LANGGRAPH_CHECKPOINT_DB", "").strip()
-    if configured:
-        path = Path(configured)
-    else:
-        app_db = Path(APP_DB_PATH)
-        path = app_db.with_name("langgraph_checkpoints.db")
+    path = Path(get_langgraph_checkpoint_db_path())
     path.parent.mkdir(parents=True, exist_ok=True)
     return str(path)
 

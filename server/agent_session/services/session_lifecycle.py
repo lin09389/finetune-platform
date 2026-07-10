@@ -12,17 +12,20 @@ from agent_session.models import (
     AgentSessionPreferencesUpdate,
     AgentSessionResponse,
 )
+from agent_session.model_capabilities import agent_model_tool_calling_status
 from agent_session.permission import default_deepagents_permission_metadata
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.state import ensure_session_state
 from core.config import settings
 from security.encryption import secure_storage
-from workspace.local_paths import get_allowed_workspace_roots
+from cloud_models import CloudProviderRepository
+from workspace.path_policy import require_valid_project_path, resolve_default_project_path
 
 if TYPE_CHECKING:
     from agent_session.service import AgentSessionService
 
 SAVED_CLOUD_PROVIDER_PRIORITY = ("deepseek", "openrouter", "openai")
+cloud_provider_repository = CloudProviderRepository(secure_storage)
 
 
 class SessionLifecycleService:
@@ -30,30 +33,10 @@ class SessionLifecycleService:
         self.service = service
 
     def _default_project_path(self) -> str:
-        env_path = settings.agent_default_project_path
-        if env_path:
-            candidate = Path(env_path)
-            if candidate.exists() and candidate.is_dir():
-                return str(candidate.resolve())
-        base_dir = settings.base_dir.resolve()
-        workspace = base_dir.parent if base_dir.name == "server" else base_dir
-        return str(workspace)
+        return resolve_default_project_path(settings)
 
     def validate_project_path(self, project_path: str | None) -> str:
-        if not project_path or not project_path.strip():
-            return self._default_project_path()
-        resolved = Path(project_path).expanduser().resolve()
-        if not resolved.exists():
-            raise ValueError("project_path does not exist")
-        if not resolved.is_dir():
-            raise ValueError("project_path must be a directory")
-        default_root = Path(self._default_project_path()).resolve()
-        allowed_roots = get_allowed_workspace_roots({default_root, settings.base_dir.resolve(), Path.cwd().resolve()})
-
-        if not any(resolved == allowed or resolved.is_relative_to(allowed) for allowed in allowed_roots):
-            allowed = ", ".join(sorted(str(path) for path in allowed_roots))
-            raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
-        return str(resolved)
+        return require_valid_project_path(project_path, settings)
 
     def _validate_project_path(self, project_path: str | None) -> str:
         return self.validate_project_path(project_path)
@@ -68,6 +51,7 @@ class SessionLifecycleService:
             **default_deepagents_permission_metadata(),
             "enabled_skill_sources": enabled_skill_sources,
             "model_configured": model_configured,
+            "model_configuration": self.get_model_configuration_status(provider, model, model_configured),
         }
         if user_id:
             metadata["user_id"] = user_id
@@ -114,23 +98,43 @@ class SessionLifecycleService:
         model: str | None,
     ) -> tuple[str | None, str | None, bool]:
         resolved_provider, resolved_model = self._resolve_session_model_defaults(agent_id, provider, model)
-        configured = bool(self.service.model_call is not None) or self._has_saved_cloud_model(resolved_provider, resolved_model)
+        tool_status = agent_model_tool_calling_status(resolved_provider, settings)
+        configured = bool(self.service.model_call is not None) or (
+            bool(tool_status["supported"])
+            and self._has_saved_cloud_model(resolved_provider, resolved_model)
+        )
         return resolved_provider, resolved_model, configured
+
+    def get_model_configuration_status(
+        self,
+        provider: str | None,
+        model: str | None,
+        configured: bool,
+    ) -> dict[str, Any]:
+        """Expose non-secret model readiness on the persisted session metadata."""
+        tool_status = agent_model_tool_calling_status(provider, settings)
+        message = tool_status["message"]
+        if not configured and message is None:
+            message = "Agent 模型未配置：请先在 Agent 工作台配置可用的 provider:model。"
+        return {
+            "configured": configured,
+            "provider": provider,
+            "model": model,
+            "tool_calling_supported": bool(tool_status["supported"]),
+            "message": message,
+        }
 
     def _saved_cloud_provider_model(self, provider: str | None = None) -> tuple[str | None, str | None]:
         providers = [provider] if provider else list(SAVED_CLOUD_PROVIDER_PRIORITY)
         if not provider:
-            index = secure_storage.get("cloud_custom_provider_index") or {}
-            if isinstance(index, dict):
-                for candidate in index.get("providers") or []:
-                    provider_id = str(candidate or "").strip()
-                    if provider_id and provider_id not in providers:
-                        providers.append(provider_id)
+            for provider_id in cloud_provider_repository.custom_provider_ids():
+                if provider_id not in providers:
+                    providers.append(provider_id)
 
         for provider_id in providers:
             if not provider_id:
                 continue
-            key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
+            key_data = cloud_provider_repository.get(provider_id)
             if not isinstance(key_data, dict) or not key_data.get("api_key"):
                 continue
             model = str(key_data.get("default_model") or "").strip()
@@ -145,7 +149,7 @@ class SessionLifecycleService:
     def _has_saved_cloud_model(self, provider: str | None, model: str | None) -> bool:
         if not provider or not model:
             return False
-        key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+        key_data = cloud_provider_repository.get(provider)
         if not isinstance(key_data, dict) or not key_data.get("api_key"):
             return False
         saved_model = str(key_data.get("default_model") or "").strip()

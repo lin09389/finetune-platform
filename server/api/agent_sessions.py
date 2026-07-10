@@ -467,6 +467,59 @@ async def list_agent_session_events(
     return await run_sync(service.list_events, session_id)
 
 
+@router.get("/events/stream")
+async def stream_all_agent_session_events(
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    """Global SSE stream for multi-session awareness.
+
+    Delivers events from all sessions the current user can access, so the
+    workbench can surface status changes (completed/failed/permission needed)
+    even when the user is viewing a different session.
+    """
+
+    async def event_stream():
+        yield "retry: 5000\n\n"
+        queue = service.subscribe_global_events()
+        last_heartbeat = time.monotonic()
+        heartbeat_interval = 20.0
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
+                except TimeoutError:
+                    now = time.monotonic()
+                    if now - last_heartbeat >= heartbeat_interval:
+                        yield ": heartbeat\n\n"
+                        last_heartbeat = now
+                    continue
+
+                session_id = str(event.get("session_id") or "")
+                if not session_id:
+                    continue
+
+                # Permission filter: only deliver events the user can access.
+                try:
+                    session = await run_sync(service.get_session, session_id)
+                    if session and not _user_can_access_session(session, current_user):
+                        continue
+                except Exception:
+                    continue
+
+                chunk = await run_sync(service.build_stream_chunk, event)
+                yield _sse_event("agent_session_event", chunk, str(chunk.get("id") or ""))
+                last_heartbeat = time.monotonic()
+        finally:
+            service.unsubscribe_global_events(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/{session_id}/events/stream")
 async def stream_agent_session_events(
     session_id: str,

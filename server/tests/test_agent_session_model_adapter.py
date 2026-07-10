@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agent_session.model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
 
 
@@ -34,6 +36,13 @@ def test_get_chat_model_rejects_legacy_platform_provider():
         raise AssertionError("Expected ProviderAdapterError for legacy provider")
 
 
+def test_get_chat_model_rejects_local_service_before_tool_binding():
+    context = type("Context", (), {"provider": "local", "model": "qwen3:8b", "metadata": {}})()
+
+    with pytest.raises(ProviderAdapterError, match="不支持 Agent 所需的工具调用"):
+        get_chat_model(context)
+
+
 def test_get_chat_model_uses_official_init_chat_model(monkeypatch):
     captured = {}
 
@@ -60,7 +69,7 @@ def test_get_chat_model_uses_official_init_chat_model(monkeypatch):
     assert captured["max_tokens"] == 1024
 
 
-def test_deepseek_defaults_disable_thinking(monkeypatch):
+def test_deepseek_does_not_inject_unsupported_thinking_parameters(monkeypatch):
     captured = {}
 
     class FakeModel:
@@ -78,10 +87,10 @@ def test_deepseek_defaults_disable_thinking(monkeypatch):
 
     assert isinstance(model, FakeModel)
     assert captured["model_provider"] == "deepseek"
-    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "extra_body" not in captured
 
 
-def test_deepseek_model_params_merge_extra_body(monkeypatch):
+def test_deepseek_model_params_pass_extra_body_through(monkeypatch):
     captured = {}
 
     class FakeModel:
@@ -106,4 +115,4 @@ def test_deepseek_model_params_merge_extra_body(monkeypatch):
     model = get_chat_model(context)
 
     assert isinstance(model, FakeModel)
-    assert captured["extra_body"] == {"thinking": {"type": "disabled"}, "foo": "bar"}
+    assert captured["extra_body"] == {"foo": "bar"}

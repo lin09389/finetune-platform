@@ -127,6 +127,6 @@ def test_project_chat_reads_injected_context_file_data(tmp_path: Path):
 
 
 def test_project_chat_only_auto_enables_for_official_provider_model():
-    assert can_use_deepagents_project_chat("deepseek", "deepseek-chat")
+    assert can_use_deepagents_project_chat("deepseek", "deepseek-v4-flash")
     assert can_use_deepagents_project_chat("openrouter", "z-ai/glm-5.1")
     assert not can_use_deepagents_project_chat("minimax", "abab6.5")

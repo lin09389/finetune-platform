@@ -59,6 +59,7 @@ const KNOWN_EVENT_TYPES = new Set([
   'trajectory_guard_blocked',
   'context_preparing',
   'context_ready',
+  'session_title_updated',
   // Historical events remain readable after the execution-plan migration.
   'task_plan_created',
   'part_created',

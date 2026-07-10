@@ -58,6 +58,12 @@ export interface AgentRuntimeState {
   currentActivity: AgentActivity | null;
   /** SSE 重连恢复同步的时间戳，用于短暂提示用户 */
   recoveredAt: number | null;
+  /** 最近一次 SSE 事件到达时间戳，用于活跃度/心跳感知 */
+  lastEventAt: number | null;
+  /** 全局事件流连接状态（多会话感知） */
+  globalConnection: AgentConnectionState;
+  /** 有未读事件的非活跃会话 ID 集合 */
+  unreadSessionIds: string[];
 }
 
 export type AgentRuntimeAction =
@@ -70,6 +76,9 @@ export type AgentRuntimeAction =
   | { type: 'session_preferences_updated'; session: AgentSession }
   | { type: 'session_missing'; sessionId: string }
   | { type: 'stream_event'; event: AgentSessionEvent }
+  | { type: 'global_stream_event'; event: AgentSessionEvent }
+  | { type: 'global_connection_changed'; connection: AgentConnectionState; attempt: number }
+  | { type: 'clear_unread'; sessionId: string }
   | { type: 'connection_changed'; connection: AgentConnectionState; attempt: number }
   | { type: 'malformed_event'; raw: string }
   | { type: 'operation_started'; operation: AgentOperation }
@@ -99,6 +108,9 @@ export const initialAgentRuntimeState: AgentRuntimeState = {
   diagnostics: EMPTY_AGENT_DIAGNOSTICS,
   currentActivity: null,
   recoveredAt: null,
+  lastEventAt: null,
+  globalConnection: 'idle',
+  unreadSessionIds: [],
 };
 
 const MAX_SEEN_EVENTS = 2000;
@@ -157,6 +169,7 @@ export function agentRuntimeReducer(
         workspace: null,
         connection: 'idle',
         lastEventId: '',
+        lastEventAt: null,
         seenEventIds: [],
         unknownEvents: [],
         malformedEvents: [],
@@ -177,11 +190,15 @@ export function agentRuntimeReducer(
         session: action.sessionId === state.session?.id ? state.session : null,
         workspace: action.sessionId === state.workspace?.session.id ? state.workspace : null,
         lastEventId: '',
+        lastEventAt: null,
         seenEventIds: [],
         unknownEvents: [],
         malformedEvents: [],
         error: null,
         currentActivity: null,
+        unreadSessionIds: action.sessionId
+          ? state.unreadSessionIds.filter((id) => id !== action.sessionId)
+          : state.unreadSessionIds,
         streamRevision: state.streamRevision + 1,
         diagnostics: {
           ...EMPTY_AGENT_DIAGNOSTICS,
@@ -287,6 +304,7 @@ export function agentRuntimeReducer(
           : state.workspace,
         recentSessions: session ? mergeRecent(state.recentSessions, session) : state.recentSessions,
         lastEventId: action.event.id || state.lastEventId,
+        lastEventAt: Date.now(),
         seenEventIds,
         unknownEvents,
         diagnostics,
@@ -308,6 +326,48 @@ export function agentRuntimeReducer(
               detail: String(action.attempt),
             })
           : state.diagnostics,
+      };
+    }
+    case 'global_connection_changed': {
+      return {
+        ...state,
+        globalConnection: action.connection,
+      };
+    }
+    case 'global_stream_event': {
+      const eventSessionId = action.event.session_id;
+      // Skip events for the active session (already handled by stream_event).
+      if (!eventSessionId || eventSessionId === state.session?.id) return state;
+
+      // Update the recentSessions entry's status/title if present.
+      const sessionStatus = action.event.session_status;
+      const titlePayload = action.event.payload?.title as string | undefined;
+      const eventType = action.event.event_type;
+      const recentSessions = state.recentSessions.map((item) => {
+        if (item.id !== eventSessionId) return item;
+        return {
+          ...item,
+          status: (sessionStatus || item.status) as typeof item.status,
+          title: (eventType === 'session_title_updated' && titlePayload) ? titlePayload : item.title,
+          displayTitle: (eventType === 'session_title_updated' && titlePayload)
+            ? (item.preferences.display_title || titlePayload)
+            : item.displayTitle,
+          updatedAt: action.event.created_at || item.updatedAt,
+        };
+      });
+
+      // Mark as unread if the event is significant (not just part_delta/streaming).
+      const significant = !['part_delta', 'model_stream_started', 'model_stream_completed', 'model_stream_failed'].includes(eventType);
+      const unreadSessionIds = significant && !state.unreadSessionIds.includes(eventSessionId)
+        ? [...state.unreadSessionIds, eventSessionId]
+        : state.unreadSessionIds;
+
+      return { ...state, recentSessions, unreadSessionIds };
+    }
+    case 'clear_unread': {
+      return {
+        ...state,
+        unreadSessionIds: state.unreadSessionIds.filter((id) => id !== action.sessionId),
       };
     }
     case 'malformed_event':
@@ -356,6 +416,7 @@ export function agentRuntimeReducer(
         workspace: null,
         connection: 'idle',
         lastEventId: '',
+        lastEventAt: null,
         seenEventIds: [],
         unknownEvents: [],
         malformedEvents: [],

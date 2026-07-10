@@ -28,6 +28,7 @@ export default function AgentTaskComposer({
   const [submissionFailed, setSubmissionFailed] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing', 'waiting_permission', 'waiting_approval'].includes(session.status));
+  const isWaitingApproval = Boolean(session && ['waiting_permission', 'waiting_approval'].includes(session.status));
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
@@ -92,7 +93,7 @@ export default function AgentTaskComposer({
             void submit();
           }
         }}
-        placeholder={session ? '继续描述任务或补充要求' : '输入任务目标'}
+        placeholder={session ? (isRunning ? '补充说明或追加要求，Agent 会结合当前上下文处理' : '继续描述任务或补充要求') : '输入任务目标'}
         autoSize={{ minRows: 3, maxRows: 8 }}
         aria-label="任务目标"
       />
@@ -111,11 +112,15 @@ export default function AgentTaskComposer({
             }))}
           />
           <span aria-live="polite">
-            {busy
-              ? busyLabel
-              : submissionFailed
-                ? '提交失败，内容已恢复，可再次发送'
-                : 'Enter 发送 · Shift+Enter 换行'}
+            {isWaitingApproval
+              ? 'Agent 暂停，等待你审批工具执行'
+              : busy
+                ? busyLabel
+                : isRunning
+                  ? '输入内容可追加到当前任务 · Enter 发送'
+                  : submissionFailed
+                    ? '提交失败，内容已恢复，可再次发送'
+                    : 'Enter 发送 · Shift+Enter 换行'}
           </span>
         </div>
         {isRunning ? (
@@ -129,7 +134,8 @@ export default function AgentTaskComposer({
               aria-label="停止运行"
             />
           </Tooltip>
-        ) : (
+        ) : null}
+        <Tooltip title={isRunning ? '追加消息到当前任务' : '提交任务'}>
           <Button
             type="primary"
             shape="circle"
@@ -137,9 +143,9 @@ export default function AgentTaskComposer({
             disabled={!draft.trim() || busy}
             loading={busy}
             onClick={() => void submit()}
-            aria-label="提交任务"
+            aria-label={isRunning ? '追加消息' : '提交任务'}
           />
-        )}
+        </Tooltip>
       </div>
     </div>
   );

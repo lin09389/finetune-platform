@@ -39,6 +39,7 @@ function isolatedTransport(): AgentTransport {
     cancelAsyncTask: vi.fn(),
     reportDiagnostics: vi.fn().mockResolvedValue({ accepted: 0 }),
     connectStream: vi.fn().mockReturnValue({ close: vi.fn() }),
+    connectGlobalStream: vi.fn().mockReturnValue({ close: vi.fn() }),
   } as AgentTransport;
 }
 

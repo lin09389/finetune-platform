@@ -69,7 +69,36 @@ class DeepAgentsEventMapper:
                 "part": part,
             },
         )
+        self._maybe_auto_title(content)
         return part
+
+    def _maybe_auto_title(self, summary: str) -> None:
+        """Auto-update session title from summary if it's still the default.
+
+        Uses the first meaningful line of the summary (truncated to 56 chars)
+        instead of an LLM call -- zero latency, no extra dependency.
+        Only fires when the title is the generic placeholder.
+        """
+        try:
+            session = self.repository.get_session(self.session_id)
+            if not session:
+                return
+            current_title = str(session.get("title") or "")
+            if current_title and current_title not in {"Agent Session", "新任务", ""}:
+                return
+            for line in summary.strip().splitlines():
+                clean = line.strip().lstrip("#").strip()
+                if clean:
+                    new_title = clean[:56]
+                    self.repository.update_session(self.session_id, title=new_title)
+                    self.publish(
+                        "session_title_updated",
+                        f"会话标题已更新: {new_title}",
+                        {"session_id": self.session_id, "title": new_title},
+                    )
+                    return
+        except Exception:
+            pass
 
     def _start_text_part(self, event: dict[str, Any] | None = None) -> None:
         if self.active_text_part_id:

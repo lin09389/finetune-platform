@@ -40,6 +40,7 @@ function readSessionPreferences(): SessionPreferences {
 interface AgentSessionRailProps {
   sessions: RecentAgentSession[];
   activeSessionId: string | null;
+  unreadSessionIds?: string[];
   onNew: () => void;
   onSelect: (sessionId: string) => void;
   onUpdatePreferences?: (
@@ -52,6 +53,7 @@ interface AgentSessionRailProps {
 export default function AgentSessionRail({
   sessions,
   activeSessionId,
+  unreadSessionIds,
   onNew,
   onSelect,
   onUpdatePreferences,
@@ -213,6 +215,9 @@ export default function AgentSessionRail({
                   <span className={styles.sessionMeta}>
                     <span className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`} />
                     {SESSION_STATUS_LABELS[session.status] || session.status}
+                    {unreadSessionIds?.includes(session.id) ? (
+                      <span className={styles.unreadDot} aria-label="有新动态" />
+                    ) : null}
                   </span>
                 </button>
                 <Tooltip title={pinned ? '取消置顶' : '置顶'}>

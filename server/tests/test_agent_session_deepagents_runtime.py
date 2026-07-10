@@ -30,6 +30,7 @@ from agent_session.runtime_contract import AgentRuntimeContract
 from agent_session.runtime_factory import DeepAgentsRuntimeFactory
 from agent_session.service import AgentSessionService
 from agent_session.session_state_machine import AgentSessionStateMachine
+from core.config import settings
 from fastapi import BackgroundTasks
 
 
@@ -144,7 +145,7 @@ def test_agent_session_uses_saved_deepseek_cloud_default(monkeypatch: pytest.Mon
         if key == "cloud_deepseek_key":
             return {
                 "api_key": "secret",
-                "default_model": "deepseek-chat",
+                "default_model": "deepseek-v4-flash",
                 "base_url": "https://api.deepseek.com",
             }
         if key == "cloud_custom_provider_index":
@@ -157,7 +158,7 @@ def test_agent_session_uses_saved_deepseek_cloud_default(monkeypatch: pytest.Mon
     session = service.create_session(AgentSessionCreate(title="saved cloud model"))
 
     assert session.provider == "deepseek"
-    assert session.model == "deepseek-chat"
+    assert session.model == "deepseek-v4-flash"
     assert session.metadata["model_configured"] is True
 
 
@@ -745,6 +746,44 @@ def test_local_async_subtask_completion_writes_parent_summary(monkeypatch, tmp_p
     assert emitted[-1]["event_type"] == "async_subtask_completed"
 
 
+@pytest.mark.parametrize("waiting_status", ["waiting_approval", "waiting_permission"])
+def test_local_async_subtask_runner_keeps_waiting_child_running(monkeypatch, tmp_path: Path, waiting_status: str):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    child = repository.create_session(
+        {"agent_id": "explore", "title": "child", "project_path": str(tmp_path), "status": "running"}
+    )
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "explore",
+            "status": "running",
+            "input_json": {"description": "inspect code"},
+        }
+    )
+
+    async def fake_run_prompt(self, session_id, prompt, *, context_files=None):
+        return self.repository.update_session(session_id, status=waiting_status, metadata={})
+
+    monkeypatch.setattr(DeepAgentsSessionRunner, "run_prompt", fake_run_prompt)
+    emitted = []
+    service = AsyncSubagentService(
+        repository,
+        notify_event=lambda _session_id, event: emitted.append(event),
+        model_call=lambda _messages: "ok",
+    )
+
+    asyncio.run(service._run_task(task["id"], child["id"], "inspect code"))
+
+    updated = repository.get_subtask(task["id"])
+    assert updated["status"] == "running"
+    assert updated["error"] is None
+    assert updated["completed_at"] is None
+    assert updated["result_json"]["child_status"] == waiting_status
+    assert emitted[-1]["event_type"] == "async_subtask_waiting_permission"
+
+
 def test_async_subagent_service_cancel_prevents_stale_child_completion(monkeypatch, tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
@@ -1120,6 +1159,29 @@ def test_agent_session_prompt_requires_configured_model_before_user_part(monkeyp
     assert service.repository.list_events(session.id) == []
 
 
+def test_agent_session_rejects_local_service_before_creating_user_part(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(
+        AgentSessionCreate(
+            title="local service model",
+            project_path=str(Path.cwd()),
+            provider="local",
+            model="qwen3:8b",
+        )
+    )
+
+    assert session.metadata["model_configured"] is False
+    assert session.metadata["model_configuration"]["tool_calling_supported"] is False
+
+    with pytest.raises(AgentConfigurationError, match="不支持 Agent 所需的工具调用"):
+        service.start_prompt_background(session.id, AgentPromptRequest(content="run"), BackgroundTasks())
+
+    stored = service.get_session(session.id)
+    assert stored.status == "idle"
+    assert stored.metadata["next_action"] == "configure_model"
+    assert stored.parts == []
+
+
 def test_agent_session_prompt_start_is_idempotent_while_running(tmp_path: Path):
     service = AgentSessionService(
         AgentSessionRepository(str(tmp_path / "agents.db")),
@@ -1203,6 +1265,65 @@ def test_agent_session_restart_recovery_marks_stale_running_sessions(tmp_path: P
     assert stale.metadata["recovered_after_restart"] is True
     assert any(part.type == "summary" and "服务重启" in part.content for part in stale.parts)
     assert done.status == "completed"
+
+
+def test_detached_prompts_use_non_daemon_threads(tmp_path: Path, monkeypatch):
+    service = AgentSessionService(
+        AgentSessionRepository(str(tmp_path / "agents.db")),
+        model_call=lambda _messages: asyncio.sleep(0, result="ok"),
+    )
+    session = service.create_session(AgentSessionCreate(title="detached", project_path=str(settings.base_dir)))
+    captured: dict[str, object] = {}
+
+    class ThreadSpy:
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr("agent_session.services.background_task_manager.threading.Thread", ThreadSpy)
+
+    response = asyncio.run(service.start_prompt_detached(session.id, AgentPromptRequest(content="run")))
+
+    assert response.status == "running"
+    assert captured["daemon"] is False
+    assert captured["started"] is True
+
+
+def test_shutdown_persists_interruption_for_running_prompt_task(tmp_path: Path, monkeypatch):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="shutdown", project_path=str(settings.base_dir)))
+    prompt_id = "prompt-shutdown"
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={"active_prompt_id": prompt_id, "background_run": True},
+    )
+    started = asyncio.Event()
+
+    async def wait_forever(_session_id, _request):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(service, "prompt", wait_forever)
+
+    async def exercise_shutdown():
+        task = asyncio.create_task(
+            service._run_prompt_background(session.id, AgentPromptRequest(content="run"), prompt_id)
+        )
+        await started.wait()
+        await service.shutdown_async_subtasks()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise_shutdown())
+
+    stopped = service.get_session(session.id)
+    assert stopped.status == "interrupted"
+    assert stopped.metadata["active_prompt_id"] is None
+    assert stopped.metadata["background_run"] is False
+    assert any(part.type == "summary" and "服务正在关闭" in part.content for part in stopped.parts)
 
 
 @pytest.mark.parametrize("waiting_status", ["waiting_approval", "waiting_permission"])

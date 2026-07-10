@@ -127,7 +127,14 @@ export default function AgentWorkbenchPage({
   const agentRuntimeLabel = effectiveAgentProvider && effectiveAgentModel
     ? `Agent 模型 ${effectiveAgentProvider}:${effectiveAgentModel}`
     : 'Agent 模型自动选择';
+  const pendingPermissionPartId = state.workspace?.pending_permission?.part_id || null;
+  const permissionBusy = Boolean(pendingPermissionPartId
+    && state.operations[`permission:${pendingPermissionPartId}`]);
   const subagentAttentionCount = state.workspace?.async_tasks.metrics.attention || 0;
+  const subagentRunningCount = state.workspace?.async_tasks.metrics.running || 0;
+  const planNodes = state.workspace?.execution_plan?.nodes || [];
+  const planTotal = planNodes.length;
+  const planCompleted = planNodes.filter((n) => n.status === 'completed').length;
   const recoveredAt = state.recoveredAt;
 
   useEffect(() => {
@@ -291,6 +298,7 @@ export default function AgentWorkbenchPage({
       embedded={embedded}
       sessions={state.recentSessions}
       activeSessionId={state.activeSessionId}
+      unreadSessionIds={state.unreadSessionIds}
       onNew={() => {
         confirmDiscardWorkspaceChanges(() => {
           actions.newSession();
@@ -444,6 +452,10 @@ export default function AgentWorkbenchPage({
                 timelineEmpty={timeline.length === 0}
                 connection={state.connection}
                 connectionLabel={connectionLabel}
+                lastEventAt={state.lastEventAt}
+                subagentRunningCount={subagentRunningCount}
+                planCompleted={planCompleted}
+                planTotal={planTotal}
               />
               <Suspense fallback={<div className={styles.panelLoading}>正在加载运行记录...</div>}>
                 <AgentRunTimeline
@@ -452,6 +464,13 @@ export default function AgentWorkbenchPage({
                   errorMessage={state.error}
                   activity={currentActivity}
                   loading={Boolean(state.activeSessionId) && !state.session}
+                  pendingPermission={state.workspace?.pending_permission || null}
+                  onDecidePermission={decidePermission}
+                  permissionBusy={permissionBusy}
+                  onOpenFile={(filePath) => {
+                    setRequestedFilePath(filePath);
+                    openWorkspaceTab('files');
+                  }}
                 />
               </Suspense>
             </div>

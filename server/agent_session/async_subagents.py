@@ -311,14 +311,31 @@ class AsyncSubagentService:
                             notify_parent=False,
                         )
                     return
-                status = "completed" if result.get("status") == "completed" else "failed"
-                summary = self._latest_summary(child_session_id) or f"子任务状态：{result.get('status')}"
+                child_status = str(result.get("status") or "")
+                summary = self._latest_summary(child_session_id) or f"子任务状态：{child_status}"
                 result_json = {
                     "summary": summary,
-                    "child_status": result.get("status"),
+                    "child_status": child_status,
                     "child_session_id": child_session_id,
                     "recovered": recovered,
                 }
+                if child_status in CHILD_WAITING_STATUSES:
+                    updated = self.repository.update_subtask(
+                        task_id,
+                        status="running",
+                        result_json=result_json,
+                        error=None,
+                    )
+                    self._publish_parent_part(
+                        str(updated.get("parent_session_id") or ""),
+                        updated,
+                        "running",
+                        summary,
+                        "async_subtask_waiting_permission",
+                    )
+                    return
+
+                status = "completed" if child_status == "completed" else "failed"
                 updated = self.repository.update_subtask(
                     task_id,
                     status=status,
