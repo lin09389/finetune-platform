@@ -11,6 +11,7 @@ interface AgentTaskComposerProps {
   session: AgentSession | null;
   busy: boolean;
   busyLabel?: string;
+  submissionBlockedReason?: string;
   onSubmit: (content: string, agentId: string) => Promise<unknown>;
   onInterrupt: () => Promise<unknown>;
 }
@@ -20,6 +21,7 @@ export default function AgentTaskComposer({
   session,
   busy,
   busyLabel,
+  submissionBlockedReason,
   onSubmit,
   onInterrupt,
 }: AgentTaskComposerProps) {
@@ -112,7 +114,9 @@ export default function AgentTaskComposer({
             }))}
           />
           <span aria-live="polite">
-            {isWaitingApproval
+            {submissionBlockedReason && !session
+              ? submissionBlockedReason
+              : isWaitingApproval
               ? 'Agent 暂停，等待你审批工具执行'
               : busy
                 ? busyLabel
@@ -135,12 +139,12 @@ export default function AgentTaskComposer({
             />
           </Tooltip>
         ) : null}
-        <Tooltip title={isRunning ? '追加消息到当前任务' : '提交任务'}>
+        <Tooltip title={submissionBlockedReason && !session ? submissionBlockedReason : (isRunning ? '追加消息到当前任务' : '提交任务')}>
           <Button
             type="primary"
             shape="circle"
             icon={<ArrowUpOutlined />}
-            disabled={!draft.trim() || busy}
+            disabled={!draft.trim() || busy || Boolean(submissionBlockedReason && !session)}
             loading={busy}
             onClick={() => void submit()}
             aria-label={isRunning ? '追加消息' : '提交任务'}

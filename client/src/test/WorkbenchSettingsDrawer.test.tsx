@@ -15,7 +15,7 @@ describe('WorkbenchSettingsDrawer', () => {
     const { rerender } = render(
       <WorkbenchSettingsDrawer
         open
-        settings={{ projectPath: 'C:/repo', autonomyMode: 'safe_auto' }}
+        settings={{ projectPath: 'C:/repo', workspaceId: 'ws_repo', taskMode: 'build', autonomyMode: 'safe_auto' }}
         sessionActive={false}
         onClose={vi.fn()}
         onChange={vi.fn()}
@@ -28,7 +28,7 @@ describe('WorkbenchSettingsDrawer', () => {
     rerender(
       <WorkbenchSettingsDrawer
         open
-        settings={{ projectPath: 'C:/repo', autonomyMode: 'safe_auto' }}
+        settings={{ projectPath: 'C:/repo', workspaceId: 'ws_repo', taskMode: 'build', autonomyMode: 'safe_auto' }}
         sessionActive
         onClose={vi.fn()}
         onChange={vi.fn()}

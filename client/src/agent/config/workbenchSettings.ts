@@ -2,6 +2,8 @@ import type { AgentSessionCreate } from '../../services/api';
 
 export interface AgentWorkbenchSettings {
   projectPath: string;
+  workspaceId: string | null;
+  taskMode: NonNullable<AgentSessionCreate['task_mode']>;
   autonomyMode: NonNullable<AgentSessionCreate['autonomy_mode']>;
 }
 
@@ -9,6 +11,8 @@ const STORAGE_KEY = 'finetune.agent-workbench.settings.v1';
 
 export const DEFAULT_WORKBENCH_SETTINGS: AgentWorkbenchSettings = {
   projectPath: ((import.meta as any).env?.VITE_AGENT_DEFAULT_PROJECT_PATH || '') as string,
+  workspaceId: null,
+  taskMode: 'build',
   autonomyMode: 'safe_auto',
 };
 
@@ -21,8 +25,13 @@ export function readAgentWorkbenchSettings(
     const autonomyMode = ['safe_auto', 'confirm_all', 'read_only'].includes(String(parsed.autonomyMode))
       ? parsed.autonomyMode as AgentWorkbenchSettings['autonomyMode']
       : DEFAULT_WORKBENCH_SETTINGS.autonomyMode;
+    const taskMode = ['build', 'train', 'hybrid'].includes(String(parsed.taskMode))
+      ? parsed.taskMode as AgentWorkbenchSettings['taskMode']
+      : DEFAULT_WORKBENCH_SETTINGS.taskMode;
     return {
       projectPath: typeof parsed.projectPath === 'string' ? parsed.projectPath : DEFAULT_WORKBENCH_SETTINGS.projectPath,
+      workspaceId: typeof parsed.workspaceId === 'string' && parsed.workspaceId.trim() ? parsed.workspaceId : null,
+      taskMode,
       autonomyMode,
     };
   } catch {

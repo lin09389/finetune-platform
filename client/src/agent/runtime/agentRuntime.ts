@@ -1,6 +1,7 @@
 import type {
   AgentInfo,
   AgentSession,
+  AgentSessionCreate,
   AgentSessionEvent,
   AgentSessionPreferences,
   AgentWorkspace,
@@ -18,6 +19,14 @@ import {
   type AgentDiagnosticsSnapshot,
 } from '../diagnostics/agentDiagnostics';
 import { activityFromEvent, type AgentActivity } from '../selectors/currentActivity';
+
+export type TaskMode = NonNullable<AgentSessionCreate['task_mode']>;
+
+export interface SelectedWorkspace {
+  id: string;
+  label: string;
+  projectPath: string;
+}
 
 export interface RecentAgentSession {
   id: string;
@@ -42,6 +51,8 @@ export interface AgentRuntimeState {
   activeSessionId: string | null;
   session: AgentSession | null;
   workspace: AgentWorkspace | null;
+  selectedWorkspace: SelectedWorkspace | null;
+  taskMode: TaskMode;
   connection: AgentConnectionState;
   reconnectAttempt: number;
   lastEventId: string;
@@ -72,6 +83,7 @@ export type AgentRuntimeAction =
   | { type: 'recent_sessions_loaded'; sessions: AgentSession[] }
   | { type: 'session_selected'; sessionId: string | null }
   | { type: 'workspace_loaded'; workspace: AgentWorkspace }
+  | { type: 'task_context_changed'; workspace: SelectedWorkspace | null; taskMode: TaskMode }
   | { type: 'session_loaded'; session: AgentSession }
   | { type: 'session_preferences_updated'; session: AgentSession }
   | { type: 'session_missing'; sessionId: string }
@@ -94,6 +106,8 @@ export const initialAgentRuntimeState: AgentRuntimeState = {
   activeSessionId: null,
   session: null,
   workspace: null,
+  selectedWorkspace: null,
+  taskMode: 'build',
   connection: 'idle',
   reconnectAttempt: 0,
   lastEventId: '',
@@ -218,6 +232,12 @@ export function agentRuntimeReducer(
           sessionId: action.workspace.session.id,
           updatedAt: action.workspace.session.updated_at,
         },
+      };
+    case 'task_context_changed':
+      return {
+        ...state,
+        selectedWorkspace: action.workspace,
+        taskMode: action.taskMode,
       };
     case 'session_loaded':
       return {

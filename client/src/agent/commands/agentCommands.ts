@@ -14,6 +14,8 @@ export interface SubmitAgentTaskOptions {
   content: string;
   agentId?: string;
   projectPath?: string;
+  workspaceId?: string;
+  taskMode?: AgentSessionCreate['task_mode'];
   provider?: string;
   model?: string;
   autonomyMode?: AgentSessionCreate['autonomy_mode'];
@@ -196,6 +198,8 @@ export class AgentCommandExecutor {
       title: content.slice(0, 56),
       agent_id: command.options.agentId || 'build',
       project_path: command.options.projectPath?.trim() || undefined,
+      workspace_id: command.options.workspaceId,
+      task_mode: command.options.taskMode,
       provider: command.options.provider,
       model: command.options.model,
       autonomy_mode: command.options.autonomyMode || 'safe_auto',

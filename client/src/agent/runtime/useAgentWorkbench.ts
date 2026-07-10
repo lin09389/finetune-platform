@@ -15,6 +15,7 @@ import {
 } from '../commands/agentCommands';
 import { agentTransport, type AgentTransport } from '../transport/agentTransport';
 import { agentRuntimeReducer, initialAgentRuntimeState } from './agentRuntime';
+import type { SelectedWorkspace, TaskMode } from './agentRuntime';
 import { persistAgentRuntime, readPersistedAgentRuntime } from './sessionPersistence';
 import { persistDiagnosticsSnapshot } from '../diagnostics/agentDiagnostics';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
@@ -280,12 +281,25 @@ export function useAgentWorkbench(
   const submitTask = useCallback(async (options: SubmitAgentTaskOptions) => {
     const content = options.content.trim();
     if (!content) return null;
+    if (!state.session && !state.selectedWorkspace) {
+      throw new AgentCommandFailure('请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。');
+    }
     return executeCommand({
       type: 'submit',
       currentSession: state.session,
-      options: { ...options, content },
+      options: {
+        ...options,
+        content,
+        workspaceId: state.session ? options.workspaceId : state.selectedWorkspace?.id,
+        projectPath: state.session ? options.projectPath : state.selectedWorkspace?.projectPath,
+        taskMode: state.session ? options.taskMode : state.taskMode,
+      },
     });
-  }, [executeCommand, state.session]);
+  }, [executeCommand, state.selectedWorkspace, state.session, state.taskMode]);
+
+  const setTaskContext = useCallback((workspace: SelectedWorkspace | null, taskMode: TaskMode) => {
+    dispatch({ type: 'task_context_changed', workspace, taskMode });
+  }, []);
 
   const interrupt = useCallback(async () => {
     if (!state.activeSessionId) return null;
@@ -349,6 +363,7 @@ export function useAgentWorkbench(
       newSession,
       refresh,
       submitTask,
+      setTaskContext,
       interrupt,
       decidePermission,
       recoverNode,

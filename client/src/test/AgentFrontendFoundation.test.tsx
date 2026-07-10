@@ -2,16 +2,28 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import AgentTaskContextBar from '../agent/components/AgentTaskContextBar';
 import AgentWorkbenchRoute from '../agent/workbench/AgentWorkbenchRoute';
 import type { AgentTransport } from '../agent/transport/agentTransport';
-import type { AgentSession, AgentSessionCreate } from '../services/api';
+import type { AgentSession, AgentSessionCreate, AgentWorkspace } from '../services/api';
 import baselineFixture from '../agent/testing/fixtures/agent-session-baseline.json';
 import {
   AGENT_PROTOCOL_BASELINE_VERSION,
   REQUIRED_STREAM_ENVELOPE_FIELDS,
   type AgentProtocolBaselineFixture,
 } from '../agent/protocol/foundation';
+
+const workspaceApiMocks = vi.hoisted(() => ({
+  listWorkspaces: vi.fn(),
+  validateWorkspacePath: vi.fn(),
+}));
+
+vi.mock('../services/api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../services/api')>(),
+  listWorkspaces: workspaceApiMocks.listWorkspaces,
+  validateWorkspacePath: workspaceApiMocks.validateWorkspacePath,
+}));
 
 const agentRoot = path.resolve(process.cwd(), 'src/agent');
 const forbiddenImports = [
@@ -44,6 +56,22 @@ function isolatedTransport(): AgentTransport {
   } as AgentTransport;
 }
 
+function agentSessionFixture(): AgentSession {
+  return {
+    id: 'session-demo',
+    agent_id: 'build',
+    status: 'idle',
+    title: 'Demo task',
+    project_path: 'C:/repo/demo',
+    workspace_id: 'ws_demo',
+    task_mode: 'hybrid',
+    parts: [],
+    preferences: { pinned: false, archived: false },
+    created_at: '2026-07-10T00:00:00Z',
+    updated_at: '2026-07-10T00:00:00Z',
+  };
+}
+
 function sourceFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(directory, entry.name);
@@ -53,6 +81,41 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe('Agent frontend Phase 1 foundation', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    workspaceApiMocks.validateWorkspacePath.mockResolvedValue({
+      ok: true,
+      resolved_path: 'C:/repo/demo',
+      allowed: true,
+      exists: true,
+      is_dir: true,
+      needs_register: false,
+      message: null,
+      error_code: null,
+    });
+    workspaceApiMocks.listWorkspaces.mockResolvedValue([
+      { id: 'ws_demo', name: 'Demo project', local_path: 'C:/repo/demo', status: 'active' },
+    ]);
+  });
+
+  it('shows the selected Workspace and task mode before creating a task', () => {
+    const onWorkspaceChange = vi.fn();
+    const onModeChange = vi.fn();
+    render(
+      <AgentTaskContextBar
+        workspace={{ id: 'ws_demo', label: 'Demo project', projectPath: 'C:/repo/demo' }}
+        mode="hybrid"
+        onWorkspaceChange={onWorkspaceChange}
+        onModeChange={onModeChange}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Demo project/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('任务模式')).toHaveValue('hybrid');
+    fireEvent.change(screen.getByLabelText('任务模式'), { target: { value: 'train' } });
+    expect(onModeChange).toHaveBeenCalledWith('train');
+  });
+
   it('exposes the workspace task-context client contract', () => {
     const request: AgentSessionCreate = {
       agent_id: 'build',
@@ -108,6 +171,74 @@ describe('Agent frontend Phase 1 foundation', () => {
     expect(sessionResizeHandle).toHaveAttribute('aria-valuenow', '216');
     fireEvent.click(screen.getByRole('button', { name: '环境' }));
     expect(screen.getByText('环境信息')).toBeInTheDocument();
+  });
+
+  it('creates a session with the confirmed Workspace path, id, and selected mode', async () => {
+    localStorage.setItem('finetune.agent-workbench.settings.v1', JSON.stringify({
+      projectPath: 'C:/repo/demo',
+      workspaceId: 'ws_demo',
+      taskMode: 'hybrid',
+      autonomyMode: 'safe_auto',
+    }));
+    const transport = isolatedTransport();
+    const session = agentSessionFixture();
+    vi.mocked(transport.createSession).mockResolvedValue(session);
+    vi.mocked(transport.prompt).mockResolvedValue(session);
+    vi.mocked(transport.getWorkspace).mockResolvedValue({
+      session,
+      timeline: [],
+      artifacts: [],
+      changed_files: [],
+      next_actions: [],
+      recent_events: [],
+      status_text: {},
+      plan: { todos: [], source: 'empty' },
+      todos: [],
+      diagnostics: {},
+      async_tasks: { tasks: [], metrics: {} },
+    } as unknown as AgentWorkspace);
+
+    render(
+      <MemoryRouter initialEntries={['/agent']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AgentWorkbenchRoute transport={transport} persistence={{ read: () => ({ version: 1, activeSessionId: null, sessions: [] }), write: vi.fn() }} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Demo project/ })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('任务模式'), { target: { value: 'hybrid' } });
+    expect(screen.getByLabelText('任务模式')).toHaveValue('hybrid');
+    fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '训练并验证 LoRA' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交任务' }));
+
+    await waitFor(() => expect(transport.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      workspace_id: 'ws_demo',
+      project_path: 'C:/repo/demo',
+      task_mode: 'hybrid',
+    })));
+  });
+
+  it('blocks a new Build task until a Workspace has been confirmed', async () => {
+    workspaceApiMocks.validateWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      resolved_path: null,
+      allowed: false,
+      exists: false,
+      is_dir: false,
+      needs_register: false,
+      message: '路径不存在。',
+      error_code: 'path_missing',
+    });
+    const transport = isolatedTransport();
+    render(
+      <MemoryRouter initialEntries={['/agent']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <AgentWorkbenchRoute transport={transport} persistence={{ read: () => ({ version: 1, activeSessionId: null, sessions: [] }), write: vi.fn() }} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText('请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '构建项目' } });
+    expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled();
+    expect(transport.createSession).not.toHaveBeenCalled();
   });
 
   it('keeps the sanitized baseline fixture aligned with the stream envelope', () => {

@@ -14,7 +14,11 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import type { AgentHitlDecision } from '../../services/api';
+import {
+  listWorkspaces,
+  validateWorkspacePath,
+  type AgentHitlDecision,
+} from '../../services/api';
 import { useOptionalRuntimeContext } from '../../runtime/RuntimeContext';
 import { useResponsive } from '../../hooks/useResponsive';
 import AgentAttentionRail from '../components/AgentAttentionRail';
@@ -24,6 +28,7 @@ import AgentResizeHandle from '../components/AgentResizeHandle';
 import AgentRightDock from '../components/AgentRightDock';
 import AgentSessionRail from '../components/AgentSessionRail';
 import AgentTaskComposer from '../components/AgentTaskComposer';
+import AgentTaskContextBar from '../components/AgentTaskContextBar';
 import AgentTerminalDock from '../components/AgentTerminalDock';
 import AgentWorkspaceView from '../components/AgentWorkspaceView';
 import AgentActivityBar from '../components/AgentActivityBar';
@@ -44,6 +49,7 @@ import {
 } from '../config/panelLayout';
 import { useAgentWorkbench } from '../runtime/useAgentWorkbench';
 import type { AgentRuntimePersistence } from '../runtime/useAgentWorkbench';
+import type { SelectedWorkspace, TaskMode } from '../runtime/agentRuntime';
 import {
   selectAttentionCount,
   selectConnectionLabel,
@@ -71,6 +77,15 @@ const TASK_CENTER_TABS: Array<{ key: AgentTaskCenterTab; label: string }> = [
   { key: 'environment', label: '环境' },
 ];
 
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function workspaceLabel(path: string): string {
+  const segments = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  return segments[segments.length - 1] || 'Workspace';
+}
+
 export interface AgentWorkbenchPageProps {
   transport?: AgentTransport;
   persistence?: AgentRuntimePersistence;
@@ -81,6 +96,7 @@ export default function AgentWorkbenchPage({
   persistence,
 }: AgentWorkbenchPageProps = {}) {
   const { state, actions } = useAgentWorkbench(transport, persistence);
+  const { setTaskContext } = actions;
   const runtime = useOptionalRuntimeContext();
   const { isDesktop } = useResponsive();
   const [panelLayout, setPanelLayout] = useState(readAgentPanelLayout);
@@ -96,6 +112,49 @@ export default function AgentWorkbenchPage({
   const rightDockRef = useRef<HTMLElement | null>(null);
   const resize = usePanelResize({ panelLayout, setPanelLayout, rightDockRef, isDesktop });
 
+  const resolveSelectedWorkspace = useCallback(async (projectPath: string, preferredWorkspaceId: string | null) => {
+    try {
+      const validation = await validateWorkspacePath(projectPath.trim() || null);
+      if (!validation.ok || !validation.resolved_path) {
+        setTaskContext(null, settings.taskMode);
+        return;
+      }
+      const workspaces = await listWorkspaces();
+      const normalizedPath = normalizeWorkspacePath(validation.resolved_path);
+      const workspace = workspaces.find((item) => (
+        item.id === preferredWorkspaceId
+        && item.local_path
+        && normalizeWorkspacePath(item.local_path) === normalizedPath
+      )) || workspaces.find((item) => (
+        item.local_path && normalizeWorkspacePath(item.local_path) === normalizedPath
+      ));
+      if (!workspace?.local_path) {
+        setTaskContext(null, settings.taskMode);
+        return;
+      }
+      const selectedWorkspace: SelectedWorkspace = {
+        id: workspace.id,
+        label: workspace.name || workspaceLabel(workspace.local_path),
+        projectPath: validation.resolved_path,
+      };
+      setTaskContext(selectedWorkspace, settings.taskMode);
+      setSettings((current) => current.workspaceId === workspace.id
+        ? current
+        : { ...current, workspaceId: workspace.id });
+    } catch {
+      setTaskContext(null, settings.taskMode);
+    }
+  }, [setTaskContext, settings.taskMode]);
+
+  useEffect(() => {
+    void resolveSelectedWorkspace(settings.projectPath, settings.workspaceId);
+  }, [resolveSelectedWorkspace, settings.projectPath, settings.workspaceId]);
+
+  const selectTaskMode = useCallback((taskMode: TaskMode) => {
+    setSettings((current) => ({ ...current, taskMode }));
+    setTaskContext(state.selectedWorkspace, taskMode);
+  }, [setTaskContext, state.selectedWorkspace]);
+
   const timeline = useMemo(() => selectTimeline(state), [state]);
   const connectionLabel = selectConnectionLabel(state);
   const statusLabel = selectWorkspaceStatus(state);
@@ -109,6 +168,9 @@ export default function AgentWorkbenchPage({
     ? state.operations[`submit:${state.activeSessionId}`]
       || state.operations[`interrupt:${state.activeSessionId}`]
     : state.operations['submit:new'];
+  const taskContextBlockedReason = !state.session && !state.selectedWorkspace
+    ? '请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。'
+    : undefined;
   const subagentOperationKey = state.activeSessionId
     ? `start-subtask:${state.activeSessionId}`
     : null;
@@ -475,7 +537,14 @@ export default function AgentWorkbenchPage({
               </Suspense>
             </div>
           </div>
+          <AgentTaskContextBar
+            workspace={state.selectedWorkspace}
+            mode={state.taskMode}
+            onWorkspaceChange={() => setSettingsOpen(true)}
+            onModeChange={selectTaskMode}
+          />
           <AgentTaskComposer
+            submissionBlockedReason={taskContextBlockedReason}
             agents={state.agents}
             session={state.session}
             busy={Boolean(composerOperation)}
@@ -483,7 +552,6 @@ export default function AgentWorkbenchPage({
             onSubmit={(content, agentId) => actions.submitTask({
               content,
               agentId,
-              projectPath: settings.projectPath,
               provider: effectiveAgentProvider,
               model: effectiveAgentModel,
               autonomyMode: settings.autonomyMode,
