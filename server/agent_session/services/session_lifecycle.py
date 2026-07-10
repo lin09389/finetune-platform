@@ -19,6 +19,7 @@ from agent_session.state import ensure_session_state
 from core.config import settings
 from security.encryption import secure_storage
 from cloud_models import CloudProviderRepository
+from api.workspace import resolve_agent_workspace
 from workspace.path_policy import require_valid_project_path, resolve_default_project_path
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ class SessionLifecycleService:
         return self.validate_project_path(project_path)
 
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
-        project_path = self._validate_project_path(request.project_path)
+        project_path, workspace_id = resolve_agent_workspace(request.workspace_id, request.project_path)
         agent = self._require_direct_agent(request.agent_id)
         provider, model, model_configured = self.resolve_session_model_availability(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
@@ -52,6 +53,8 @@ class SessionLifecycleService:
             "enabled_skill_sources": enabled_skill_sources,
             "model_configured": model_configured,
             "model_configuration": self.get_model_configuration_status(provider, model, model_configured),
+            "workspace": {"id": workspace_id, "path": project_path},
+            "task_mode": request.task_mode,
         }
         if user_id:
             metadata["user_id"] = user_id
@@ -67,7 +70,7 @@ class SessionLifecycleService:
             }
         )
         session["parts"] = []
-        return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(session))
+        return self._session_response(session)
 
     def _require_direct_agent(self, agent_id: str):
         agent = self.service.agent_registry.get(agent_id)
@@ -161,7 +164,7 @@ class SessionLifecycleService:
         if not session:
             raise ValueError("Agent session not found")
         session["parts"] = self.service.repository.list_parts(session_id)
-        return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(session))
+        return self._session_response(session)
 
     def update_session_preferences(
         self,
@@ -187,7 +190,7 @@ class SessionLifecycleService:
         metadata["ui_preferences"] = preferences
         updated = self.service.repository.update_session(session_id, metadata=metadata)
         updated["parts"] = self.service.repository.list_parts(session_id)
-        return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(updated))
+        return self._session_response(updated)
 
     def list_sessions(self, user_id: str, include_all: bool = False, limit: int = 100) -> list[AgentSessionResponse]:
         sessions = self.service.repository.list_sessions(limit)
@@ -196,8 +199,20 @@ class SessionLifecycleService:
             owner = str((session.get("metadata") or {}).get("user_id") or "").strip()
             if include_all or not owner or owner == user_id:
                 session["parts"] = []
-                visible.append(AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(session)))
+                visible.append(self._session_response(session))
         return visible
+
+    def _session_response(self, session: dict[str, Any]) -> AgentSessionResponse:
+        """Map persisted task-context metadata onto every session response."""
+        hydrated = self.service.event_service._attach_recovery_diagnostics(session)
+        metadata = dict(hydrated.get("metadata") or {})
+        workspace = metadata.get("workspace")
+        workspace = workspace if isinstance(workspace, dict) else {}
+        workspace_id = workspace.get("id")
+        task_mode = metadata.get("task_mode")
+        hydrated["workspace_id"] = str(workspace_id).strip() if workspace_id else None
+        hydrated["task_mode"] = task_mode if task_mode in {"build", "train", "hybrid"} else None
+        return AgentSessionResponse(**hydrated)
 
     def get_overview(self, session_id: str) -> AgentSessionOverviewResponse:
         session = self.get_session(session_id)

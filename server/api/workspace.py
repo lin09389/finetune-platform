@@ -19,6 +19,7 @@ from rag.vector_store import get_vector_store
 from workspace.local_paths import normalize_local_workspace_path, get_allowed_workspace_roots
 from workspace.path_policy import (
     list_allowed_roots,
+    require_valid_project_path,
     resolve_default_project_path,
     validate_agent_project_path,
 )
@@ -56,6 +57,10 @@ workspaces: dict[str, dict[str, Any]] = _load_workspace_store()
 DEFAULT_WORKSPACE_ID = "current_project"
 
 
+class AgentWorkspaceNotFoundError(ValueError):
+    """Raised when an Agent task references a Workspace that no longer exists."""
+
+
 def _default_project_path() -> str:
     return resolve_default_project_path(settings)
 
@@ -74,6 +79,31 @@ def _default_workspace_payload() -> dict[str, Any]:
         "local_path": _default_project_path(),
         "status": "default",
     }
+
+
+def resolve_agent_workspace(workspace_id: str | None, project_path: str | None) -> tuple[str, str | None]:
+    """Resolve a Workspace reference into the path safe for an Agent session.
+
+    A supplied Workspace ID is authoritative: its persisted local path is
+    revalidated through the shared path policy and any concurrent client path
+    is ignored.  Legacy calls without a Workspace continue to validate their
+    explicit project path through that same policy.
+    """
+    canonical_workspace_id = str(workspace_id or "").strip() or None
+    if not canonical_workspace_id:
+        return require_valid_project_path(project_path, settings), None
+
+    if canonical_workspace_id == DEFAULT_WORKSPACE_ID:
+        workspace_path = _default_project_path()
+    else:
+        workspace = workspaces.get(canonical_workspace_id)
+        if not workspace:
+            raise AgentWorkspaceNotFoundError("Workspace not found")
+        workspace_path = str(workspace.get("local_path") or "").strip()
+        if not workspace_path:
+            raise ValueError("Workspace does not have a local_path")
+
+    return require_valid_project_path(workspace_path, settings), canonical_workspace_id
 
 
 class WorkspaceCreate(BaseModel):

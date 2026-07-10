@@ -162,6 +162,54 @@ def test_agent_session_uses_saved_deepseek_cloud_default(monkeypatch: pytest.Mon
     assert session.metadata["model_configured"] is True
 
 
+def test_agent_session_persists_validated_workspace_task_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from api import workspace as workspace_api
+
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    saved_workspace = tmp_path / "saved"
+    saved_workspace.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(
+        workspace_api,
+        "workspaces",
+        {"ws_saved": {"id": "ws_saved", "name": "Saved", "local_path": str(saved_workspace)}},
+    )
+
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(
+        AgentSessionCreate(
+            title="workspace task",
+            workspace_id="ws_saved",
+            task_mode="hybrid",
+            project_path=str(tmp_path / "untrusted-client-path"),
+        )
+    )
+
+    assert session.project_path == str(saved_workspace.resolve())
+    assert session.workspace_id == "ws_saved"
+    assert session.task_mode == "hybrid"
+    assert session.metadata["workspace"] == {"id": "ws_saved", "path": str(saved_workspace.resolve())}
+    assert session.metadata["task_mode"] == "hybrid"
+
+    restored = service.get_session(session.id)
+    assert restored.workspace_id == "ws_saved"
+    assert restored.task_mode == "hybrid"
+
+
+def test_agent_session_rejects_unknown_workspace_before_persistence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from api import workspace as workspace_api
+
+    monkeypatch.setattr(workspace_api, "workspaces", {})
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+
+    with pytest.raises(workspace_api.AgentWorkspaceNotFoundError):
+        service.create_session(AgentSessionCreate(title="missing workspace", workspace_id="ws_missing"))
+
+    assert service.repository.list_sessions() == []
+
+
 def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-runtime-{uuid.uuid4().hex[:8]}"
     workspace.mkdir()

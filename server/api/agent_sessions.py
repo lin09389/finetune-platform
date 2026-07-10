@@ -31,6 +31,7 @@ from agent_session.models import (
     AgentWorkspaceResponse,
 )
 from agent_session.service import AgentSessionService
+from api.workspace import AgentWorkspaceNotFoundError
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
@@ -190,6 +191,8 @@ async def create_agent_session(
 ):
     try:
         return await run_sync(service.create_session, request, current_user.user_id)
+    except AgentWorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

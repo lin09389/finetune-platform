@@ -254,3 +254,81 @@ def test_default_path_validate_http(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     assert resp.json()["resolved_path"] == str(tmp_path.resolve())
+
+
+def test_resolve_agent_workspace_resolves_default_workspace_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+
+    project_path, workspace_id = workspace_api.resolve_agent_workspace("current_project", None)
+
+    assert project_path == str(tmp_path.resolve())
+    assert workspace_id == "current_project"
+
+
+def test_resolve_agent_workspace_uses_saved_local_path_not_client_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    saved_workspace = tmp_path / "saved"
+    saved_workspace.mkdir()
+    client_path = tmp_path / "client-supplied"
+    client_path.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(
+        workspace_api,
+        "workspaces",
+        {"ws_saved": {"id": "ws_saved", "name": "Saved", "local_path": str(saved_workspace)}},
+    )
+
+    project_path, workspace_id = workspace_api.resolve_agent_workspace("ws_saved", str(client_path))
+
+    assert project_path == str(saved_workspace.resolve())
+    assert workspace_id == "ws_saved"
+
+
+def test_resolve_agent_workspace_rejects_unknown_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(workspace_api, "workspaces", {})
+
+    with pytest.raises(workspace_api.AgentWorkspaceNotFoundError):
+        workspace_api.resolve_agent_workspace("ws_missing", None)
+
+
+def test_resolve_agent_workspace_rejects_unregistered_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    outside = tmp_path.parent / f"unsafe-workspace-{tmp_path.name}"
+    outside.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(
+        workspace_api,
+        "workspaces",
+        {"ws_unsafe": {"id": "ws_unsafe", "name": "Unsafe", "local_path": str(outside)}},
+    )
+    monkeypatch.setattr("workspace.local_paths.load_workspace_metadata", lambda: {})
+    monkeypatch.setattr("workspace.path_policy.load_workspace_metadata", lambda: {})
+
+    try:
+        with pytest.raises(ValueError, match="不在允许"):
+            workspace_api.resolve_agent_workspace("ws_unsafe", None)
+    finally:
+        outside.rmdir()
