@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import AgentWorkbenchRoute from '../agent/workbench/AgentWorkbenchRoute';
 import type { AgentTransport } from '../agent/transport/agentTransport';
+import type { AgentSession, AgentSessionCreate } from '../services/api';
 import baselineFixture from '../agent/testing/fixtures/agent-session-baseline.json';
 import {
   AGENT_PROTOCOL_BASELINE_VERSION,
@@ -52,6 +53,29 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe('Agent frontend Phase 1 foundation', () => {
+  it('exposes the workspace task-context client contract', () => {
+    const request: AgentSessionCreate = {
+      agent_id: 'build',
+      workspace_id: 'ws_demo',
+      task_mode: 'hybrid',
+    };
+    const response = {
+      id: 'session-demo',
+      agent_id: 'build',
+      status: 'idle',
+      title: 'Demo',
+      workspace_id: request.workspace_id,
+      task_mode: request.task_mode,
+      parts: [],
+      preferences: { pinned: false, archived: false },
+      created_at: '2026-07-10T00:00:00',
+      updated_at: '2026-07-10T00:00:00',
+    } satisfies AgentSession;
+
+    expect(response.workspace_id).toBe('ws_demo');
+    expect(response.task_mode).toBe('hybrid');
+  });
+
   it('renders the independent Workbench shell when enabled', async () => {
     const transport = isolatedTransport();
     render(

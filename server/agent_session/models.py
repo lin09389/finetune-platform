@@ -11,6 +11,7 @@ AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked"
 AgentAsyncTaskHealthStatus = Literal["ok", "waiting", "attention", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
 AgentExecutionRecoveryAction = Literal["retry_node", "resume_node", "restart_subagent", "manual_review"]
+TaskMode = Literal["build", "train", "hybrid"]
 
 
 class AgentSessionCreate(BaseModel):
@@ -18,6 +19,8 @@ class AgentSessionCreate(BaseModel):
     agent_id: str = "build"
     title: str | None = None
     project_path: str | None = None
+    workspace_id: str | None = None
+    task_mode: TaskMode | None = None
     provider: str | None = None
     model: str | None = None
     autonomy_mode: str | None = None
@@ -160,6 +163,8 @@ class AgentSessionResponse(BaseModel):
     status: AgentSessionStatus
     title: str
     project_path: str | None = None
+    workspace_id: str | None = None
+    task_mode: TaskMode | None = None
     provider: str | None = None
     model: str | None = None
     preferences: AgentSessionPreferences = Field(default_factory=AgentSessionPreferences)

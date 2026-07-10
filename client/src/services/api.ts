@@ -533,6 +533,8 @@ export interface AgentSessionCreate {
   agent_id?: string;
   title?: string;
   project_path?: string;
+  workspace_id?: string;
+  task_mode?: 'build' | 'train' | 'hybrid';
   provider?: string;
   model?: string;
   autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
@@ -837,6 +839,8 @@ export interface AgentSession {
     | 'failed';
   title: string;
   project_path?: string;
+  workspace_id?: string;
+  task_mode?: 'build' | 'train' | 'hybrid';
   provider?: string;
   model?: string;
   metadata?: Record<string, any> & {

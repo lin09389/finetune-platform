@@ -1,8 +1,37 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from agent_session.model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
+from agent_session.models import AgentSessionCreate, AgentSessionResponse
+
+
+def test_agent_session_create_round_trips_workspace_task_context():
+    request = AgentSessionCreate(agent_id="build", workspace_id="ws_demo", task_mode="hybrid")
+
+    response = AgentSessionResponse.model_validate(
+        {
+            "id": "session-demo",
+            "agent_id": request.agent_id,
+            "status": "idle",
+            "title": "Demo",
+            "workspace_id": request.workspace_id,
+            "task_mode": request.task_mode,
+            "created_at": "2026-07-10T00:00:00",
+            "updated_at": "2026-07-10T00:00:00",
+        }
+    )
+
+    assert request.workspace_id == "ws_demo"
+    assert request.task_mode == "hybrid"
+    assert response.workspace_id == "ws_demo"
+    assert response.task_mode == "hybrid"
+
+
+def test_agent_session_create_rejects_unknown_task_mode():
+    with pytest.raises(ValidationError):
+        AgentSessionCreate(agent_id="build", task_mode="advise")
 
 
 def test_resolve_official_model_from_provider_model_string():
