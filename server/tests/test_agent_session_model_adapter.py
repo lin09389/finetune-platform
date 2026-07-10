@@ -34,6 +34,27 @@ def test_agent_session_create_rejects_unknown_task_mode():
         AgentSessionCreate(agent_id="build", task_mode="advise")
 
 
+def test_agent_session_task_context_is_optional_for_legacy_clients():
+    request = AgentSessionCreate(agent_id="build", project_path="C:/legacy-project")
+    response = AgentSessionResponse.model_validate(
+        {
+            "id": "legacy-session",
+            "agent_id": request.agent_id,
+            "status": "idle",
+            "title": "Legacy",
+            "project_path": request.project_path,
+            "metadata": {},
+            "created_at": "2026-07-10T00:00:00",
+            "updated_at": "2026-07-10T00:00:00",
+        }
+    )
+
+    assert request.workspace_id is None
+    assert request.task_mode is None
+    assert response.workspace_id is None
+    assert response.task_mode is None
+
+
 def test_resolve_official_model_from_provider_model_string():
     context = type("Context", (), {"provider": "", "model": "openrouter:z-ai/glm-5.1"})()
 

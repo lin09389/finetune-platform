@@ -50,6 +50,9 @@ Finetune Platform 不是一个只跑 demo 的训练脚本集合，而是一套�
 
 - `/agent` 是默认入口，提供沉浸式 Agent Workbench。
 - Agent Session 通过 FastAPI + SSE 管理会话生命周期、事件、状态和输出 parts。
+- 新建任务会先确认工作区，再选择 `Build`、`Train` 或 `Hybrid` 模式；已确认的工作区 ID 与校验后的项目路径会随会话持久化。
+- Build/Train/Hybrid 任务未确认工作区时不会在 Workbench 中提交。文件、命令和训练相关副作用都以该会话绑定的工作区为根；时间线只显示工作区名称，不显示绝对路径。
+- 旧版 `POST /agent-sessions` 调用仍可只传 `project_path`，已有会话无需迁移即可读取。
 - DeepAgents 作为执行引擎，项目目录以虚拟 `/workspace/` 挂载。
 - 支持人类审批门控：文件写入、工具调用或敏感动作可进入等待审批状态，再从后台恢复执行。
 - 内置 Build、Explore、Review Agent manifest，可扩展自己的 Agent 定义。
@@ -254,7 +257,7 @@ uv export --extra inference --no-dev --no-hashes --format requirements-txt -o se
 | `GET /training/progress/stream` | 训练进度 SSE |
 | `POST /inference/*` | 推理服务 |
 | `GET /chat/sessions` | 聊天会话 |
-| `POST /agent-sessions` | 创建 Agent Session |
+| `POST /agent-sessions` | 创建 Agent Session；新任务可选传 `workspace_id` 与 `task_mode`（`build` / `train` / `hybrid`） |
 | `POST /agent-sessions/{id}/prompt` | 向 Agent Session 发送任务 |
 | `GET /agent-sessions/{id}/events/stream` | Agent 事件 SSE |
 | `POST /agent-permissions/{permission_id}/approve` | 审批 Agent 权限请求 |

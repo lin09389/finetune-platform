@@ -50,6 +50,9 @@ The backend `GET /api/info` endpoint is the source of truth for capability tiers
 
 - `/agent` is the default entry and opens the immersive Agent Workbench.
 - Agent Session manages lifecycle, events, status, and output parts through FastAPI and SSE.
+- New tasks first confirm a Workspace, then select `Build`, `Train`, or `Hybrid`; the Workspace ID and validated project path are persisted with the session.
+- The Workbench does not submit a Build/Train/Hybrid task until its Workspace is confirmed. File, command, and training side effects are rooted in that session Workspace, while the timeline shows only its label rather than an absolute path.
+- Existing `POST /agent-sessions` clients may still send only `project_path`, and stored sessions remain readable without migration.
 - DeepAgents powers execution, with the project mounted as a virtual `/workspace/`.
 - Human-in-the-loop approval is supported for sensitive writes, tool calls, and actions before background resume.
 - Built-in Build, Explore, and Review Agent manifests can be extended with custom definitions.
@@ -250,7 +253,7 @@ uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.
 | `GET /training/progress/stream` | Training progress SSE |
 | `POST /inference/*` | Inference service |
 | `GET /chat/sessions` | Chat sessions |
-| `POST /agent-sessions` | Create an Agent Session |
+| `POST /agent-sessions` | Create an Agent Session; new tasks may include `workspace_id` and `task_mode` (`build` / `train` / `hybrid`) |
 | `POST /agent-sessions/{id}/prompt` | Send a task to an Agent Session |
 | `GET /agent-sessions/{id}/events/stream` | Agent event SSE |
 | `POST /agent-permissions/{permission_id}/approve` | Approve an Agent permission request |

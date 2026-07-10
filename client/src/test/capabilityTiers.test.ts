@@ -15,6 +15,10 @@ describe('capability tiers helpers', () => {
     expect(ROUTE_CAPABILITY['/memory']?.tier).toBe('beta');
   });
 
+  it('keeps /agent as the GA Agent Workbench entry route', () => {
+    expect(ROUTE_CAPABILITY['/agent']).toEqual({ id: 'chat_sessions', tier: 'ga' });
+  });
+
   it('treats legacy /modelhub as GA models (redirect target of unified runtime center)', () => {
     expect(ROUTE_CAPABILITY['/models']?.id).toBe('models');
     expect(ROUTE_CAPABILITY['/models']?.tier).toBe('ga');
