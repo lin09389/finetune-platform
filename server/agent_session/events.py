@@ -10,6 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _TERMINAL_EVENT_TYPES = {"session_completed", "session_failed", "session_interrupted"}
+TASK_CONTEXT_INITIALIZED_EVENT = "task_context_initialized"
 
 
 @dataclass(frozen=True)

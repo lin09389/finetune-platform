@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agent_session.events import TASK_CONTEXT_INITIALIZED_EVENT
 from agent_session.execution_plan_events import apply_execution_event_to_session
 from agent_session.models import AgentArtifactResponse, AgentSessionPreferences
 
@@ -74,6 +75,26 @@ class EventBroadcastService:
         event = self.service.repository.add_event(session_id, event_type, message, enriched)
         self._notify_event(session_id, event)
         return event
+
+    def publish_task_context_initialized(
+        self,
+        session_id: str,
+        *,
+        workspace_id: str | None,
+        workspace_label: str,
+        task_mode: str | None,
+    ) -> dict[str, Any]:
+        """Publish the display-safe task context before the session can run."""
+        return self._event(
+            session_id,
+            TASK_CONTEXT_INITIALIZED_EVENT,
+            "Task context initialized",
+            {
+                "workspace_id": workspace_id,
+                "workspace_label": workspace_label,
+                "task_mode": task_mode,
+            },
+        )
 
     def build_stream_chunk(self, event: dict[str, Any]) -> dict[str, Any]:
         payload = dict(event.get("payload") or {})

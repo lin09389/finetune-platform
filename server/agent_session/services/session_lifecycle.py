@@ -70,6 +70,12 @@ class SessionLifecycleService:
             }
         )
         session["parts"] = []
+        self.service.publish_task_context_initialized(
+            session["id"],
+            workspace_id=workspace_id,
+            workspace_label=Path(project_path).name or "Workspace",
+            task_mode=request.task_mode,
+        )
         return self._session_response(session)
 
     def _require_direct_agent(self, agent_id: str):

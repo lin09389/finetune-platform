@@ -4,7 +4,11 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+from agent_session.models import AgentSessionCreate
 from agent_session.project_chat import DeepAgentsProjectChatRunner, can_use_deepagents_project_chat
+from agent_session.repository import AgentSessionRepository
+from agent_session.service import AgentSessionService
 
 
 def test_project_chat_can_read_workspace_files(tmp_path: Path):
@@ -130,3 +134,33 @@ def test_project_chat_only_auto_enables_for_official_provider_model():
     assert can_use_deepagents_project_chat("deepseek", "deepseek-v4-flash")
     assert can_use_deepagents_project_chat("openrouter", "z-ai/glm-5.1")
     assert not can_use_deepagents_project_chat("minimax", "abab6.5")
+
+
+def test_agent_task_context_event_keeps_absolute_path_out_of_timeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from api import workspace as workspace_api
+
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    workspace_path = tmp_path / "timeline-visible-label"
+    workspace_path.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(
+        workspace_api,
+        "workspaces",
+        {"ws_timeline": {"id": "ws_timeline", "name": "Timeline", "local_path": str(workspace_path)}},
+    )
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+
+    session = service.create_session(
+        AgentSessionCreate(workspace_id="ws_timeline", task_mode="build", project_path=str(tmp_path / "ignored"))
+    )
+    event = next(item for item in service.list_events(session.id) if item["event_type"] == "task_context_initialized")
+    chunk = service.build_stream_chunk(event)
+
+    assert event["message"] == "Task context initialized"
+    assert event["payload"]["workspace_id"] == "ws_timeline"
+    assert event["payload"]["workspace_label"] == "timeline-visible-label"
+    assert event["payload"]["task_mode"] == "build"
+    assert str(workspace_path.resolve()) not in json.dumps(event, ensure_ascii=False)
+    assert chunk["payload"]["workspace_label"] == "timeline-visible-label"

@@ -193,6 +193,11 @@ def test_agent_session_persists_validated_workspace_task_context(tmp_path: Path,
     assert session.metadata["workspace"] == {"id": "ws_saved", "path": str(saved_workspace.resolve())}
     assert session.metadata["task_mode"] == "hybrid"
 
+    context_event = next(event for event in service.list_events(session.id) if event["event_type"] == "task_context_initialized")
+    assert context_event["payload"]["workspace_id"] == "ws_saved"
+    assert context_event["payload"]["workspace_label"] == "saved"
+    assert context_event["payload"]["task_mode"] == "hybrid"
+
     restored = service.get_session(session.id)
     assert restored.workspace_id == "ws_saved"
     assert restored.task_mode == "hybrid"
@@ -1204,7 +1209,7 @@ def test_agent_session_prompt_requires_configured_model_before_user_part(monkeyp
     assert stored.metadata["failure_kind"] == "configuration_error"
     assert stored.metadata["next_action"] == "configure_model"
     assert stored.parts == []
-    assert service.repository.list_events(session.id) == []
+    assert [event["event_type"] for event in service.repository.list_events(session.id)] == ["task_context_initialized"]
 
 
 def test_agent_session_rejects_local_service_before_creating_user_part(tmp_path: Path):

@@ -100,6 +100,21 @@ class AgentSessionService:
     def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.event_service._event(session_id, event_type, message, payload)
 
+    def publish_task_context_initialized(
+        self,
+        session_id: str,
+        *,
+        workspace_id: str | None,
+        workspace_label: str,
+        task_mode: str | None,
+    ) -> dict[str, Any]:
+        return self.event_service.publish_task_context_initialized(
+            session_id,
+            workspace_id=workspace_id,
+            workspace_label=workspace_label,
+            task_mode=task_mode,
+        )
+
     def _attach_recovery_diagnostics(self, session: dict[str, Any]) -> dict[str, Any]:
         return self.event_service._attach_recovery_diagnostics(session)
 
