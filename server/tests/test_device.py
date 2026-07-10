@@ -52,3 +52,5 @@ class TestDeviceAPI:
         assert data["endpoints"]["memory"] == "/memory"
         assert "capability_tiers" in data
         assert "experimental" in data["capability_tiers"]
+        assert data["agent_model_runtime"]["local_tool_calling_supported"] is False
+        assert isinstance(data["agent_model_runtime"]["cloud_model_configured"], bool)

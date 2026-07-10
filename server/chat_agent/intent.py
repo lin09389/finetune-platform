@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from ai.providers import resolve_saved_provider
 from security.encryption import secure_storage
+from cloud_models import CloudProviderRepository
 
 
 IntentMode = Literal["chat", "agent"]
@@ -227,17 +228,15 @@ class ChatAgentIntentClassifier:
         )
 
     def _resolve_provider_data(self, provider: str | None) -> tuple[str, dict[str, Any]]:
+        repository = CloudProviderRepository(secure_storage)
         if provider:
-            key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+            key_data = repository.get(provider)
             return provider, key_data
 
-        keys = secure_storage.list_keys()
-        for key in sorted(keys):
-            if key.startswith("cloud_") and key.endswith("_key"):
-                provider_id = key.removeprefix("cloud_").removesuffix("_key")
-                key_data = secure_storage.get(key) or {}
-                if isinstance(key_data, dict) and key_data.get("api_key"):
-                    return provider_id, key_data
+        for provider_id in repository.configured_provider_ids():
+            key_data = repository.get(provider_id)
+            if key_data.get("api_key"):
+                return provider_id, key_data
         raise RuntimeError("未找到已保存的云端 API 配置")
 
     def _try_parse_json_object(self, content: str) -> dict[str, Any] | None:

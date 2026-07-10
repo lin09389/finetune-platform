@@ -17,14 +17,36 @@ from typing import Any
 import re
 
 from core.db_manager import get_db_pool
+from core.config import settings
 
 _SAFE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 logger = logging.getLogger(__name__)
 
-APP_DB_PATH = os.getenv("FINETUNE_PLATFORM_DB_PATH", "data/app.db")
+def resolve_storage_path(path: str | os.PathLike[str], *, base_dir: Path | None = None) -> str:
+    """Resolve a configured storage path independently of the process CWD.
+
+    The API process, workers, and CLI utilities can legitimately start from
+    different working directories.  Resolving relative paths against the
+    configured server base directory keeps them on one SQLite database.
+    """
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = (base_dir or settings.base_dir) / candidate
+    return str(candidate.resolve())
+
+
+APP_DB_PATH = resolve_storage_path(os.getenv("FINETUNE_PLATFORM_DB_PATH", "data/app.db"))
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
-BACKUP_DIR = Path("data/backups")
+BACKUP_DIR = Path(resolve_storage_path("data/backups"))
+
+
+def get_langgraph_checkpoint_db_path() -> str:
+    """Return the canonical dedicated LangGraph checkpoint database path."""
+    configured = os.getenv("LANGGRAPH_CHECKPOINT_DB", "").strip()
+    if configured:
+        return resolve_storage_path(configured)
+    return str(Path(APP_DB_PATH).with_name("langgraph_checkpoints.db"))
 
 
 def _json_dumps(value: Any) -> str:
@@ -1609,7 +1631,7 @@ def backup_all(backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
     # 所有可能的数据库文件
     db_files = [
         APP_DB_PATH,
-        "data/langgraph_checkpoints.db",
+        get_langgraph_checkpoint_db_path(),
     ]
 
     for db_path in db_files:
@@ -1636,6 +1658,272 @@ def backup_all(backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
 
     results["backup_dir"] = str(dest_dir)
     return results
+
+
+def cleanup_langgraph_checkpoints(
+    *,
+    checkpoint_db_path: str | Path | None = None,
+    app_db_path: str | Path = APP_DB_PATH,
+    max_age_days: int = 30,
+    vacuum: bool = False,
+) -> dict[str, Any]:
+    """Delete expired checkpoints for terminal Agent sessions only.
+
+    LangGraph's SQLite schema does not store a timestamp with each checkpoint.
+    We therefore use the owning Agent session's ``updated_at`` as the retention
+    boundary and deliberately leave unknown and active sessions untouched.  The
+    latter is important because a checkpoint may be required to resume a
+    waiting/running graph.  Physical compaction is opt-in because VACUUM takes
+    an exclusive lock and can be expensive for a large checkpoint file.
+    """
+    if max_age_days < 0:
+        raise ValueError("max_age_days must be non-negative")
+
+    checkpoint_path = Path(checkpoint_db_path or get_langgraph_checkpoint_db_path())
+    application_path = Path(app_db_path)
+    result: dict[str, Any] = {
+        "checkpoint_db_path": str(checkpoint_path),
+        "app_db_path": str(application_path),
+        "retention_days": max_age_days,
+        "deleted_threads": 0,
+        "deleted_checkpoints": 0,
+        "deleted_writes": 0,
+        "deleted_blobs": 0,
+        "protected_active_threads": 0,
+        "skipped": False,
+        "vacuumed": False,
+    }
+    if not checkpoint_path.exists() or not application_path.exists():
+        result["skipped"] = True
+        result["reason"] = "checkpoint or application database does not exist"
+        return result
+
+    cutoff = datetime.now().timestamp() - (max_age_days * 86400)
+    terminal_statuses = {"completed", "failed", "interrupted", "needs_manual_review"}
+    active_statuses = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+
+    try:
+        with sqlite3.connect(str(application_path), timeout=10.0) as app_conn:
+            tables = {
+                row[0]
+                for row in app_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            if "agent_sessions" not in tables:
+                result["skipped"] = True
+                result["reason"] = "agent_sessions table does not exist"
+                return result
+            sessions = app_conn.execute(
+                "SELECT id, status, updated_at FROM agent_sessions"
+            ).fetchall()
+    except sqlite3.Error as exc:
+        result["skipped"] = True
+        result["reason"] = f"could not read agent sessions: {exc}"
+        return result
+
+    expired_thread_ids: list[str] = []
+    protected_active = 0
+    for session_id, status, updated_at in sessions:
+        thread_id = f"agent_session:{session_id}:deepagents"
+        if status in active_statuses:
+            protected_active += 1
+            continue
+        if status not in terminal_statuses or not updated_at:
+            continue
+        try:
+            updated_timestamp = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        if updated_timestamp < cutoff:
+            expired_thread_ids.append(thread_id)
+    result["protected_active_threads"] = protected_active
+    if not expired_thread_ids:
+        return result
+
+    try:
+        with sqlite3.connect(str(checkpoint_path), timeout=30.0) as checkpoint_conn:
+            checkpoint_conn.execute("PRAGMA busy_timeout = 30000")
+            tables = {
+                row[0]
+                for row in checkpoint_conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            if "checkpoints" not in tables:
+                result["skipped"] = True
+                result["reason"] = "checkpoints table does not exist"
+                return result
+            write_tables = [table for table in ("writes", "checkpoint_writes") if table in tables]
+            blob_tables = []
+            for table in ("blobs", "checkpoint_blobs"):
+                if table not in tables:
+                    continue
+                columns = {
+                    row[1]
+                    for row in checkpoint_conn.execute(f"PRAGMA table_info({table})")
+                }
+                if "thread_id" in columns:
+                    blob_tables.append(table)
+            placeholders = ", ".join("?" for _ in expired_thread_ids)
+            for table in write_tables:
+                cursor = checkpoint_conn.execute(
+                    f"DELETE FROM {table} WHERE thread_id IN ({placeholders})",
+                    expired_thread_ids,
+                )
+                result["deleted_writes"] += max(cursor.rowcount, 0)
+            for table in blob_tables:
+                cursor = checkpoint_conn.execute(
+                    f"DELETE FROM {table} WHERE thread_id IN ({placeholders})",
+                    expired_thread_ids,
+                )
+                result["deleted_blobs"] += max(cursor.rowcount, 0)
+            cursor = checkpoint_conn.execute(
+                f"DELETE FROM checkpoints WHERE thread_id IN ({placeholders})",
+                expired_thread_ids,
+            )
+            result["deleted_checkpoints"] = max(cursor.rowcount, 0)
+            result["deleted_threads"] = len(expired_thread_ids)
+            checkpoint_conn.commit()
+            if vacuum and result["deleted_checkpoints"]:
+                checkpoint_conn.execute("VACUUM")
+                result["vacuumed"] = True
+    except sqlite3.Error as exc:
+        result["skipped"] = True
+        result["reason"] = f"checkpoint cleanup failed: {exc}"
+    return result
+
+
+def import_legacy_agent_session_database(
+    legacy_db_path: str | Path,
+    *,
+    destination_db_path: str | Path = APP_DB_PATH,
+) -> dict[str, Any]:
+    """Import Agent-session records from a legacy SQLite database explicitly.
+
+    This is intentionally *not* called during startup.  It gives operators a
+    safe, repeatable migration path for databases created before storage paths
+    became absolute.  Existing destination primary keys always win.  Child
+    records are imported only for sessions newly copied in this invocation, so
+    a colliding session can never receive another database's transcript.
+    """
+    legacy_path = Path(legacy_db_path).expanduser().resolve()
+    destination_path = Path(destination_db_path).expanduser().resolve()
+    result: dict[str, Any] = {
+        "legacy_db_path": str(legacy_path),
+        "destination_db_path": str(destination_path),
+        "imported": {},
+        "skipped": {},
+    }
+    if legacy_path == destination_path:
+        raise ValueError("legacy and destination databases must be different")
+    if not legacy_path.is_file():
+        raise FileNotFoundError(f"legacy database does not exist: {legacy_path}")
+    if not destination_path.is_file():
+        raise FileNotFoundError(f"destination database does not exist: {destination_path}")
+
+    def table_names(conn: sqlite3.Connection, schema: str) -> set[str]:
+        return {
+            row[0]
+            for row in conn.execute(
+                f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table'"
+            )
+        }
+
+    def table_columns(conn: sqlite3.Connection, schema: str, table: str) -> list[str]:
+        if not _SAFE_COLUMN_RE.match(table):
+            raise ValueError(f"unsafe table name: {table}")
+        return [row[1] for row in conn.execute(f"PRAGMA {schema}.table_info({table})")]
+
+    def quoted_columns(columns: list[str], prefix: str | None = None) -> str:
+        for column in columns:
+            if not _SAFE_COLUMN_RE.match(column):
+                raise ValueError(f"unsafe column name: {column}")
+        return ", ".join(f'{prefix + "." if prefix else ""}"{column}"' for column in columns)
+
+    with sqlite3.connect(str(destination_path), timeout=30.0) as conn:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("ATTACH DATABASE ? AS legacy", (str(legacy_path),))
+        try:
+            destination_tables = table_names(conn, "main")
+            legacy_tables = table_names(conn, "legacy")
+            if "agent_sessions" not in destination_tables or "agent_sessions" not in legacy_tables:
+                result["skipped"]["agent_sessions"] = "agent_sessions table is absent in source or destination"
+                return result
+
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                destination_columns = table_columns(conn, "main", "agent_sessions")
+                legacy_columns = table_columns(conn, "legacy", "agent_sessions")
+                if "id" not in destination_columns or "id" not in legacy_columns:
+                    raise RuntimeError("agent_sessions.id is required for legacy import")
+                conn.execute(
+                    """
+                    CREATE TEMP TABLE _legacy_import_session_ids AS
+                    SELECT legacy_sessions.id
+                    FROM legacy.agent_sessions AS legacy_sessions
+                    LEFT JOIN main.agent_sessions AS current_sessions
+                        ON current_sessions.id = legacy_sessions.id
+                    WHERE current_sessions.id IS NULL
+                    """
+                )
+
+                def import_table(table: str, parent_join: str | None = None) -> None:
+                    if table not in destination_tables or table not in legacy_tables:
+                        result["skipped"][table] = "table is absent in source or destination"
+                        return
+                    target_columns = table_columns(conn, "main", table)
+                    source_columns = set(table_columns(conn, "legacy", table))
+                    columns = [column for column in target_columns if column in source_columns]
+                    if "id" not in columns:
+                        result["skipped"][table] = "id column is absent in source or destination"
+                        return
+                    select_join = parent_join or ""
+                    before = conn.total_changes
+                    conn.execute(
+                        f"""
+                        INSERT OR IGNORE INTO main.{table} ({quoted_columns(columns)})
+                        SELECT {quoted_columns(columns, 'source')}
+                        FROM legacy.{table} AS source
+                        {select_join}
+                        """
+                    )
+                    result["imported"][table] = conn.total_changes - before
+
+                import_table(
+                    "agent_sessions",
+                    "JOIN temp._legacy_import_session_ids AS allowed ON allowed.id = source.id",
+                )
+                session_join = "JOIN temp._legacy_import_session_ids AS allowed ON allowed.id = source.session_id"
+                import_table("agent_parts", session_join)
+                import_table("agent_events", session_join)
+
+                if "agent_subtasks" in destination_tables and "agent_subtasks" in legacy_tables:
+                    conn.execute(
+                        """
+                        CREATE TEMP TABLE _legacy_import_subtask_ids AS
+                        SELECT source.id
+                        FROM legacy.agent_subtasks AS source
+                        JOIN temp._legacy_import_session_ids AS allowed
+                            ON allowed.id = source.parent_session_id
+                        LEFT JOIN main.agent_subtasks AS current_tasks ON current_tasks.id = source.id
+                        WHERE current_tasks.id IS NULL
+                        """
+                    )
+                    import_table(
+                        "agent_subtasks",
+                        "JOIN temp._legacy_import_subtask_ids AS allowed ON allowed.id = source.id",
+                    )
+                    import_table(
+                        "agent_subtask_events",
+                        "JOIN temp._legacy_import_subtask_ids AS allowed ON allowed.id = source.task_id",
+                    )
+                else:
+                    result["skipped"]["agent_subtasks"] = "table is absent in source or destination"
+                    result["skipped"]["agent_subtask_events"] = "table is absent in source or destination"
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        finally:
+            conn.execute("DETACH DATABASE legacy")
+    return result
 
 
 def cleanup_old_backups(backup_dir: str | Path = BACKUP_DIR, keep_days: int = 7) -> int:

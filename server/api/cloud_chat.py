@@ -16,17 +16,20 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ai.gateway import AnthropicMessagesProvider, OpenAICompatibleProvider, get_provider, list_providers
+from ai.gateway import list_providers
 from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
 from agent_session.service import AgentSessionService
 from agent_session.project_chat import DeepAgentsProjectChatRunner, ProjectChatResult, can_use_deepagents_project_chat
 from context.deepagents import build_deepagents_context_pack
 from security.audit_log import audit_logger
 from security.encryption import secure_storage
+from cloud_models import CloudModelService, CloudProviderRepository
+from cloud_models.resolver import resolve_provider
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["云端 AI"])
+cloud_model_service = CloudModelService(CloudProviderRepository(secure_storage))
 
 LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
@@ -282,26 +285,21 @@ async def _try_project_chat(
 
 
 def _custom_provider_ids() -> list[str]:
-    index = secure_storage.get("cloud_custom_provider_index") or {}
-    ids = index.get("providers", [])
-    return [provider_id for provider_id in ids if isinstance(provider_id, str)]
+    return cloud_model_service.repository.custom_provider_ids()
 
 
 def _save_custom_provider_id(provider_id: str) -> None:
-    ids = set(_custom_provider_ids())
-    ids.add(provider_id)
-    secure_storage.store("cloud_custom_provider_index", {"providers": sorted(ids)})
+    cloud_model_service.repository.add_custom_provider_id(provider_id)
 
 
 def _delete_custom_provider_id(provider_id: str) -> None:
-    ids = [item for item in _custom_provider_ids() if item != provider_id]
-    secure_storage.store("cloud_custom_provider_index", {"providers": ids})
+    cloud_model_service.repository.remove_custom_provider_id(provider_id)
 
 
 def _custom_provider_infos() -> list[dict[str, Any]]:
     providers: list[dict[str, Any]] = []
     for provider_id in _custom_provider_ids():
-        key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
+        key_data = cloud_model_service.repository.get(provider_id)
         if not key_data:
             continue
         providers.append({
@@ -342,36 +340,7 @@ def _resolve_provider_instance(
     base_url: str = "",
     version: str = "",
 ):
-    # Sanitize DeepSeek base URL if it contains the invalid /anthropic path
-    if base_url and "api.deepseek.com" in base_url and "/anthropic" in base_url:
-        base_url = base_url.replace("/anthropic", "")
-    if key_data and "base_url" in key_data and key_data["base_url"]:
-        if "api.deepseek.com" in key_data["base_url"] and "/anthropic" in key_data["base_url"]:
-            key_data = dict(key_data)
-            key_data["base_url"] = key_data["base_url"].replace("/anthropic", "")
-
-    provider_instance = get_provider(
-        provider_id,
-        group_id=group_id or key_data.get("group_id", ""),
-        base_url=base_url or key_data.get("base_url", ""),
-        version=version,
-    )
-    if provider_instance is not None:
-        return provider_instance
-
-    interface_format = key_data.get("interface_format", "openai-compatible")
-    provider_base_url = base_url or key_data.get("base_url", "")
-    if interface_format in {"openai-compatible", "openai-chat-completions"} and provider_base_url:
-        return OpenAICompatibleProvider(
-            base_url=provider_base_url,
-            default_model=key_data.get("default_model", ""),
-        )
-    if interface_format == "anthropic-messages":
-        return AnthropicMessagesProvider(
-            base_url=provider_base_url,
-            default_model=key_data.get("default_model", ""),
-        )
-    return None
+    return resolve_provider(provider_id, key_data, group_id=group_id, base_url=base_url, version=version)
 
 
 async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -600,33 +569,18 @@ async def cloud_chat(request: CloudChatRequest):
     """云端 AI 聊天"""
     try:
         start_time = time.time()
-        api_key = request.api_key
-        group_id = request.group_id or ""
-        base_url = request.base_url or ""
-
-        if not api_key:
-            key_data = secure_storage.get(f"cloud_{request.provider}_key")
-            if key_data:
-                api_key = key_data.get("api_key", "")
-                group_id = group_id or key_data.get("group_id", "")
-                base_url = base_url or key_data.get("base_url", "")
-
-        if not api_key:
-            raise HTTPException(status_code=400, detail="必须提供 api_key 或 key_id")
-
-        key_data = secure_storage.get(f"cloud_{request.provider}_key") or {}
-        provider = _resolve_provider_instance(
-            request.provider,
-            key_data,
-            group_id=group_id,
-            base_url=base_url,
-            version=request.version or "",
-        )
-
-        if provider is None:
-            raise HTTPException(status_code=400, detail=f"不支持的服务商：{request.provider}")
-
-        model = request.model or key_data.get("default_model") or provider.get_default_model()
+        try:
+            resolved = cloud_model_service.resolve(
+                request.provider,
+                model=request.model,
+                api_key=request.api_key,
+                group_id=request.group_id or "",
+                base_url=request.base_url or "",
+                version=request.version or "",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        api_key, base_url, provider, model = resolved.api_key, resolved.base_url, resolved.provider, resolved.model
         project_chat = await _try_project_chat(request, model=model, api_key=api_key, base_url=base_url)
         if project_chat is not None:
             audit_logger.log(
@@ -717,36 +671,24 @@ async def cloud_chat_stream(request: CloudChatRequest):
     async def generate():
         try:
             start_time = time.time()
-            # 获取 API Key（优先使用请求中的，否则从安全存储获取）
-            api_key = request.api_key
-            group_id = request.group_id or ""
-            base_url = request.base_url or ""
-
+            # Keep the resolver seam for existing SSE integrations while the
+            # repository owns all persisted configuration access.
+            key_data = cloud_model_service.repository.get(request.provider)
+            api_key = str(request.api_key or key_data.get("api_key") or "")
             if not api_key:
-                # 从安全存储获取
-                key_data = secure_storage.get(f"cloud_{request.provider}_key")
-                if key_data:
-                    api_key = key_data.get("api_key", "")
-                    group_id = group_id or key_data.get("group_id", "")
-                    base_url = base_url or key_data.get("base_url", "")
-
-            if not api_key:
-                yield f"data: {json.dumps({'error': f'未配置 {request.provider} 的 API Key，请先在设置中配置'})}\n\n"
+                yield f"data: {_sse_json({'error': f'未配置 {request.provider} 的 API Key，请先在设置中配置'})}\n\n"
                 return
-
-            key_data = secure_storage.get(f"cloud_{request.provider}_key") or {}
+            base_url = str(request.base_url or key_data.get("base_url") or "")
             provider = _resolve_provider_instance(
                 request.provider,
                 key_data,
-                group_id=group_id,
+                group_id=request.group_id or key_data.get("group_id", ""),
                 base_url=base_url,
                 version=request.version or "",
             )
-
             if provider is None:
-                yield f"data: {json.dumps({'error': f'不支持的服务商：{request.provider}'})}\n\n"
+                yield f"data: {_sse_json({'error': f'不支持的服务商：{request.provider}'})}\n\n"
                 return
-
             model = request.model or key_data.get("default_model") or provider.get_default_model()
             context_options = request.context or {}
             session_options = request.session or {}
@@ -870,7 +812,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
 async def set_api_key(request: APIKeyRequest):
     """设置服务商 API Key（加密存储）"""
     try:
-        existing_key_data = secure_storage.get(f"cloud_{request.provider}_key") or {}
+        existing_key_data = cloud_model_service.repository.get(request.provider)
         api_key = request.api_key.strip() if request.api_key else existing_key_data.get("api_key", "")
         if not api_key:
             raise HTTPException(status_code=400, detail="新增供应商时必须填写 API Key")
@@ -894,10 +836,12 @@ async def set_api_key(request: APIKeyRequest):
         if request.base_url:
             key_data["base_url"] = request.base_url
 
-        secure_storage.store(f"cloud_{request.provider}_key", key_data)
         built_in_ids = {provider.get("id") for provider in list_providers()}
-        if request.provider not in built_in_ids:
-            _save_custom_provider_id(request.provider)
+        cloud_model_service.repository.save(
+            request.provider,
+            key_data,
+            custom=request.provider not in built_in_ids,
+        )
 
         audit_logger.log(
             action="set_api_key",
@@ -923,7 +867,7 @@ async def set_api_key(request: APIKeyRequest):
 async def get_api_key_status(provider: str):
     """获取 API Key 状态"""
     try:
-        key_data = secure_storage.get(f"cloud_{provider}_key")
+        key_data = cloud_model_service.repository.get(provider)
 
         if key_data is None:
             return APIKeyStatus(
@@ -961,7 +905,7 @@ async def list_api_keys():
         })
 
         for provider in providers:
-            key_data = secure_storage.get(f"cloud_{provider}_key")
+            key_data = cloud_model_service.repository.get(provider)
             if key_data:
                 masked_key = _mask_secret(key_data.get("api_key", "")) or None
 
@@ -992,7 +936,7 @@ async def list_api_keys():
 async def get_api_key_data(provider: str):
     """获取 API Key 详细数据"""
     try:
-        key_data = secure_storage.get(f"cloud_{provider}_key")
+        key_data = cloud_model_service.repository.get(provider)
         if key_data:
             # 不返回 API Key 明文
             return {
@@ -1016,8 +960,7 @@ async def get_api_key_data(provider: str):
 async def delete_api_key(provider: str):
     """删除 API Key"""
     try:
-        secure_storage.delete(f"cloud_{provider}_key")
-        _delete_custom_provider_id(provider)
+        cloud_model_service.repository.delete(provider)
 
         audit_logger.log(
             action="delete_api_key",
@@ -1036,7 +979,7 @@ async def delete_api_key(provider: str):
 async def test_provider(provider: str, group_id: str = "", base_url: str = "", version: str = ""):
     """测试服务商连接"""
     try:
-        key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+        key_data = cloud_model_service.repository.get(provider)
         provider_instance = _resolve_provider_instance(provider, key_data, group_id=group_id, base_url=base_url, version=version)
 
         if provider_instance is None:
@@ -1065,7 +1008,7 @@ async def test_provider(provider: str, group_id: str = "", base_url: str = "", v
     except HTTPException:
         raise
     except Exception as e:
-        api_key = (secure_storage.get(f"cloud_{provider}_key") or {}).get("api_key", "")
+        api_key = cloud_model_service.repository.get(provider).get("api_key", "")
         safe_error = _sanitize_error_message(str(e), api_key)
         logger.error("测试服务商连接失败：%s", safe_error)
         raise HTTPException(status_code=500, detail=f"测试失败：{safe_error}")
@@ -1074,7 +1017,7 @@ async def test_provider(provider: str, group_id: str = "", base_url: str = "", v
 @router.post("/test/{provider}/stream", dependencies=[Depends(require_local_request)])
 async def test_provider_stream(provider: str, group_id: str = "", base_url: str = "", version: str = ""):
     """测试服务商是否能返回真实流式增量。"""
-    key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+    key_data = cloud_model_service.repository.get(provider)
     api_key = key_data.get("api_key", "")
     if not api_key:
         raise HTTPException(status_code=400, detail=f"未配置 {provider} 的 API Key")
@@ -1124,7 +1067,7 @@ async def test_provider_stream(provider: str, group_id: str = "", base_url: str 
         "streaming_chunks": chunks,
         "streaming_model": model,
     })
-    secure_storage.store(f"cloud_{provider}_key", updated_key_data)
+    cloud_model_service.repository.update(provider, **updated_key_data)
 
     response = {
         "success": supported,
@@ -1148,7 +1091,7 @@ async def test_provider_stream(provider: str, group_id: str = "", base_url: str 
 async def list_models(provider: str, group_id: str = "", base_url: str = "", version: str = ""):
     """获取服务商支持的模型列表"""
     try:
-        key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+        key_data = cloud_model_service.repository.get(provider)
         provider_instance = _resolve_provider_instance(provider, key_data, group_id=group_id, base_url=base_url, version=version)
 
         if provider_instance is None:

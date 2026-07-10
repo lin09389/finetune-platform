@@ -59,6 +59,23 @@ def _initialize_storage() -> None:
         logger.info("SQLite storage initialized, JSON data migration skipped on startup")
 
 
+def _cleanup_expired_langgraph_checkpoints() -> None:
+    """Optionally prune only expired checkpoints from terminal Agent sessions."""
+    if not settings.langgraph_checkpoint_cleanup_on_startup:
+        return
+    from core.storage import cleanup_langgraph_checkpoints
+
+    try:
+        result = cleanup_langgraph_checkpoints(
+            max_age_days=settings.langgraph_checkpoint_retention_days,
+            vacuum=settings.langgraph_checkpoint_vacuum_on_cleanup,
+        )
+        logger.info("LangGraph checkpoint cleanup complete: %s", result)
+    except Exception as exc:
+        # Retention is hygiene, never a prerequisite for serving requests.
+        logger.warning("LangGraph checkpoint cleanup skipped: %s", exc)
+
+
 def _cleanup_tmp_residue() -> None:
     """启动时清理中断上传留下的临时目录残留。
 
@@ -318,6 +335,7 @@ def create_lifespan(profile: ApplicationProfile) -> Callable:
         logger.info("Initializing %s application...", profile.value)
         _warn_about_auth_configuration()
         _initialize_storage()
+        _cleanup_expired_langgraph_checkpoints()
         _cleanup_tmp_residue()
 
         grpc_server = None

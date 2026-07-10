@@ -8,6 +8,7 @@ from typing import Any
 
 from core.config import get_settings
 from security.encryption import secure_storage
+from cloud_models import CloudModelService, CloudProviderRepository
 
 
 def _configuration():
@@ -16,26 +17,21 @@ def _configuration():
     model = settings.inference_cloud_fallback_model
     if not settings.inference_cloud_fallback_enabled or not provider_id or not model:
         return None
-    key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
-    if not isinstance(key_data, dict) or not key_data.get("api_key"):
+    try:
+        resolved = CloudModelService(CloudProviderRepository(secure_storage)).resolve(provider_id, model=model)
+    except ValueError:
         return None
-    from ai.providers import resolve_saved_provider
-
-    provider = resolve_saved_provider(provider_id, key_data)
-    if provider is None:
-        return None
-    return provider, provider_id, model, key_data
+    return resolved
 
 
 async def cloud_fallback_response(payload: dict[str, Any]) -> dict[str, Any] | None:
     configured = _configuration()
     if configured is None:
         return None
-    provider, provider_id, model, key_data = configured
-    result = await provider.chat(
+    result = await configured.provider.chat(
         messages=payload.get("messages") or [],
-        model=model,
-        api_key=key_data["api_key"],
+        model=configured.model,
+        api_key=configured.api_key,
         temperature=payload.get("temperature", 0.7),
         max_tokens=payload.get("max_completion_tokens") or payload.get("max_tokens") or 2000,
         timeout=get_settings().inference_service_read_timeout_seconds,
@@ -45,7 +41,7 @@ async def cloud_fallback_response(payload: dict[str, Any]) -> dict[str, Any] | N
         "id": f"chatcmpl-fallback-{uuid.uuid4().hex}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": model,
+        "model": configured.model,
         "choices": [
             {
                 "index": 0,
@@ -54,7 +50,7 @@ async def cloud_fallback_response(payload: dict[str, Any]) -> dict[str, Any] | N
             }
         ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        "fallback": {"provider": provider_id, "reason": "local_service_unavailable"},
+        "fallback": {"provider": configured.provider_id, "reason": "local_service_unavailable"},
     }
 
 
@@ -62,15 +58,14 @@ async def cloud_fallback_stream(payload: dict[str, Any]) -> AsyncIterator[bytes]
     configured = _configuration()
     if configured is None:
         return None
-    provider, provider_id, model, key_data = configured
     completion_id = f"chatcmpl-fallback-{uuid.uuid4().hex}"
 
     async def generate() -> AsyncIterator[bytes]:
         try:
-            async for chunk in provider.chat_stream(
+            async for chunk in configured.provider.chat_stream(
                 messages=payload.get("messages") or [],
-                model=model,
-                api_key=key_data["api_key"],
+                model=configured.model,
+                api_key=configured.api_key,
                 temperature=payload.get("temperature", 0.7),
                 max_tokens=payload.get("max_completion_tokens") or payload.get("max_tokens") or 2000,
                 timeout=get_settings().inference_service_read_timeout_seconds,
@@ -82,9 +77,9 @@ async def cloud_fallback_stream(payload: dict[str, Any]) -> AsyncIterator[bytes]
                     "id": completion_id,
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
-                    "model": model,
+                    "model": configured.model,
                     "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
-                    "fallback": {"provider": provider_id, "reason": "local_service_unavailable"},
+                    "fallback": {"provider": configured.provider_id, "reason": "local_service_unavailable"},
                 }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode()
             yield b"data: [DONE]\n\n"

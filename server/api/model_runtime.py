@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.model_center import get_model_suggestions, list_local_models
+from agent_session.model_capabilities import local_agent_tool_calling_status
 from api.models import get_models_list
 from core.config import get_settings
 from core.hardware_profile import build_hardware_profile
@@ -103,7 +104,9 @@ def _model_capabilities(model_id: str, backend: str, config: dict[str, Any] | No
     lowered = model_id.lower()
     capabilities = ["inference"]
     if backend == BackendType.OLLAMA.value:
-        capabilities.extend(["chat", "agent"])
+        capabilities.append("chat")
+        if local_agent_tool_calling_status("ollama", get_settings())["supported"]:
+            capabilities.append("agent")
     elif backend == BackendType.HUGGINGFACE.value:
         capabilities.extend(["chat", "fine_tune", "evaluation"])
     elif backend == BackendType.LLAMACPP.value:
@@ -143,7 +146,7 @@ def _readiness_for_model(backend: str, backend_available: bool, capabilities: li
     return {
         "state": "ready",
         "label": "本地推理就绪",
-        "message": "可用于推理、评估或训练链路；Agent 工具调用建议优先使用 Ollama 模型。",
+        "message": "可用于推理、评估或训练链路；当前本地推理服务不支持 Agent 工具调用。",
         "fix_action": None,
     }
 
@@ -248,7 +251,7 @@ def _normalize_local_models(
             "size_label": _format_bytes(model.get("size")),
             "capabilities": capabilities,
             "readiness": _readiness_for_model(backend, backend_available.get(backend, False), capabilities),
-            "recommended_for": ["agent", "chat"],
+            "recommended_for": ["agent", "chat"] if "agent" in capabilities else ["chat"],
             "metadata": {
                 "modified_at": model.get("modified_at"),
             },
@@ -289,7 +292,7 @@ def _derive_summary(models: list[dict[str, Any]], backend_available: dict[str, b
         headline = "Agent 和本地对话已就绪"
     elif local_ready:
         state = "degraded"
-        headline = "本地模型可用，Agent 建议接入 Ollama"
+        headline = "本地模型可用；Agent 需要支持工具调用的模型"
     else:
         state = "setup_required"
         headline = "还没有可直接运行的本地模型"
@@ -320,7 +323,7 @@ def _agent_defaults(models: list[dict[str, Any]]) -> dict[str, Any]:
         "provider": None,
         "model": None,
         "model_string": None,
-        "message": "Agent 需要支持 LangChain 工具调用的 provider:model；本地优先建议启动 Ollama 并拉取 chat 模型。",
+        "message": "Agent 需要支持工具调用的 provider:model；当前本地推理服务仅支持文本聊天，请配置云端模型。",
     }
 
 
@@ -341,10 +344,10 @@ def _quick_actions(summary: dict[str, Any], agent: dict[str, Any]) -> list[dict[
     ]
     if not agent.get("ready"):
         actions.insert(0, {
-            "id": "setup_ollama",
-            "label": "配置 Agent 本地模型",
+            "id": "configure_agent_model",
+            "label": "配置 Agent 模型",
             "kind": "primary",
-            "target": "ollama://setup",
+            "target": "/cloud-api",
         })
     else:
         actions.insert(0, {
@@ -431,6 +434,15 @@ async def get_model_runtime_overview():
 async def set_model_runtime_selection(request: ModelRuntimeSelectionRequest):
     """Set the product-level model selection and switch the inference backend."""
     from api.inference.scheduler import BackendType, get_scheduler
+
+    if request.scope == "agent":
+        tool_status = local_agent_tool_calling_status(request.backend, get_settings())
+        if not tool_status["supported"]:
+            raise HTTPException(status_code=400, detail={
+                "message": tool_status["message"],
+                "code": "agent_tool_calling_unsupported",
+                "next_action": "configure_cloud_model",
+            })
 
     try:
         get_scheduler().set_default_backend(request.backend)

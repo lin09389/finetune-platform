@@ -43,8 +43,8 @@ LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 logger = setup_logging(
     log_dir=LOG_DIR,
-    log_level=os.getenv("LOG_LEVEL", "INFO"),
-    enable_json=os.getenv("LOG_FORMAT", "text") == "json",
+    log_level=settings.log_level,
+    enable_json=settings.log_format == "json",
 )
 logger.info("=" * 50)
 logger.info("Finetune Platform Backend Starting")
@@ -354,6 +354,15 @@ async def api_info():
     from apps.capability_registry import build_info_capability_payload
 
     tier_payload = build_info_capability_payload(settings)
+    from agent_session.model_capabilities import (
+        local_agent_tool_calling_status,
+        saved_cloud_agent_model_configured,
+    )
+    from security.encryption import secure_storage
+    from cloud_models import CloudProviderRepository
+
+    local_agent_tools = local_agent_tool_calling_status("local", settings)
+    cloud_model_configured = saved_cloud_agent_model_configured(CloudProviderRepository(secure_storage))
     return {
         "name": "Finetune Platform API",
         "version": "2.1.0",
@@ -378,6 +387,12 @@ async def api_info():
             "service_url": settings.inference_service_url,
             "worker_command": "uv run python -m server.inference_server",
             "cloud_fallback_enabled": settings.inference_cloud_fallback_enabled,
+        },
+        "agent_model_runtime": {
+            "cloud_model_configured": cloud_model_configured,
+            "local_tool_calling_supported": local_agent_tools["supported"],
+            "local_tool_calling_message": local_agent_tools["message"],
+            "inference_execution_mode": local_agent_tools["execution_mode"],
         },
         "endpoints": tier_payload["endpoints"],
     }

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     host: str = Field(default="127.0.0.1", description="服务主机")
     port: int = Field(default=8000, ge=1, le=65535, description="服务端口")
+    log_level: str = Field(default="INFO", description="应用日志级别")
+    log_format: Literal["text", "json"] = Field(
+        default="text",
+        description="应用日志格式（LOG_FORMAT）：text 或 json",
+    )
 
     environment: Literal["development", "staging", "production"] = Field(
         default="development",
@@ -107,6 +112,19 @@ class Settings(BaseSettings):
     agent_session_langgraph_enabled: bool = Field(default=True, description="是否启用 agent_session LangGraph 主路径")
     agent_cloud_model_timeout_seconds: int = Field(default=180, ge=10, le=900, description="Agent 云端模型请求超时（秒）")
     agent_cloud_model_max_retries: int = Field(default=2, ge=0, le=10, description="Agent 云端模型请求最大重试次数")
+    langgraph_checkpoint_retention_days: int = Field(
+        default=30,
+        ge=0,
+        description="终态 Agent LangGraph checkpoint 的保留天数（0 表示启动清理时立即过期）",
+    )
+    langgraph_checkpoint_cleanup_on_startup: bool = Field(
+        default=False,
+        description="是否在启动时清理超过保留期的终态 Agent LangGraph checkpoint",
+    )
+    langgraph_checkpoint_vacuum_on_cleanup: bool = Field(
+        default=False,
+        description="checkpoint 清理后是否 VACUUM 回收磁盘空间（可能耗时并持有独占锁）",
+    )
     agent_default_project_path: str | None = Field(
         default=None,
         description="Agent 默认项目路径（本地开发可设为绝对路径；未设置则自动推断到仓库根目录）",

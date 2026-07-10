@@ -29,7 +29,8 @@ class CloudBackend(InferenceBackend):
         },
         "deepseek": {
             "base_url": "https://api.deepseek.com/v1",
-            "default_model": "deepseek-chat"
+            # deepseek-chat/reasoner are deprecated 2026-07-24; official names are v4-flash/v4-pro.
+            "default_model": "deepseek-v4-flash",
         }
     }
 

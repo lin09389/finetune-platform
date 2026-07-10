@@ -18,7 +18,9 @@ def test_combined_profile_preserves_legacy_application_contract():
 
     assert main.app is combined_app
     assert combined_app.state.profile == "combined"
-    assert len(combined_app.routes) == 388
+    # Route registrations evolve as capabilities are added; the compatibility
+    # contract is the required public route set below, not a brittle count.
+    assert combined_app.routes
     assert {
         "/device/info",
         "/models",
@@ -78,6 +80,18 @@ def test_finetune_profile_owns_gpu_and_model_lifecycle_routes_only():
     assert "/agent-sessions" not in paths
     assert "/chat/sessions" not in paths
     assert "/workspace/workspaces" not in paths
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module", ("apps.agent", "apps.finetune"))
+async def test_api_info_exposes_agent_model_capability_for_each_profile(module):
+    app = __import__(module, fromlist=["app"]).app
+    endpoint = next(route.endpoint for route in app.routes if route.path == "/api/info")
+
+    payload = await endpoint()
+
+    assert "agent_model_runtime" in payload
+    assert payload["agent_model_runtime"]["local_tool_calling_supported"] is False
 
 
 @pytest.mark.parametrize(

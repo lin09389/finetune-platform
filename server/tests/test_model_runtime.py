@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib import import_module
 
 import pytest
+from fastapi import HTTPException
 
 model_runtime = import_module("api.model_runtime")
 
@@ -87,12 +88,12 @@ async def test_model_runtime_overview_guides_setup_when_no_models(monkeypatch):
     assert payload["schema_version"] == "model.runtime.overview.v1"
     assert payload["summary"]["state"] == "setup_required"
     assert payload["agent"]["ready"] is False
-    assert payload["quick_actions"][0]["id"] == "setup_ollama"
+    assert payload["quick_actions"][0]["id"] == "configure_agent_model"
     assert payload["recommended_models"][0]["repo_id"] == "Qwen/Qwen2.5-0.5B-Instruct"
 
 
 @pytest.mark.asyncio
-async def test_model_runtime_overview_promotes_ollama_model_for_agent(monkeypatch):
+async def test_model_runtime_overview_does_not_advertise_service_ollama_for_agent(monkeypatch):
     async def _backends():
         return {
             "current": "ollama",
@@ -117,31 +118,32 @@ async def test_model_runtime_overview_promotes_ollama_model_for_agent(monkeypatc
 
     payload = await model_runtime.get_model_runtime_overview()
 
-    assert payload["summary"]["state"] == "ready"
+    assert payload["summary"]["state"] == "degraded"
     assert payload["agent"] == {
-        "ready": True,
-        "provider": "ollama",
-        "model": "qwen2.5:7b",
-        "model_string": "ollama:qwen2.5:7b",
-        "message": "Agent Workbench 会优先使用该 Ollama 模型。",
+        "ready": False,
+        "provider": None,
+        "model": None,
+        "model_string": None,
+        "message": "Agent 需要支持工具调用的 provider:model；当前本地推理服务仅支持文本聊天，请配置云端模型。",
     }
-    assert payload["local_models"][0]["recommended_for"] == ["agent", "chat"]
+    assert payload["local_models"][0]["recommended_for"] == ["chat"]
+    assert "agent" not in payload["local_models"][0]["capabilities"]
 
 
 @pytest.mark.asyncio
-async def test_model_runtime_selection_switches_backend(reset_selection):
-    payload = await model_runtime.set_model_runtime_selection(
-        model_runtime.ModelRuntimeSelectionRequest(
-            backend="ollama",
-            model_id="qwen2.5:7b",
-            scope="agent",
+async def test_model_runtime_selection_rejects_service_ollama_for_agent(reset_selection):
+    with pytest.raises(HTTPException) as exc_info:
+        await model_runtime.set_model_runtime_selection(
+            model_runtime.ModelRuntimeSelectionRequest(
+                backend="ollama",
+                model_id="qwen2.5:7b",
+                scope="agent",
+            )
         )
-    )
 
-    assert reset_selection.default_backend == "ollama"
-    assert payload["selected"]["backend"] == "ollama"
-    assert payload["selected"]["model_id"] == "qwen2.5:7b"
-    assert payload["agent"]["model_string"] == "ollama:qwen2.5:7b"
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "agent_tool_calling_unsupported"
+    assert reset_selection.default_backend == "huggingface"
 
 
 def test_model_runtime_normalizes_model_center_entries_without_config():
