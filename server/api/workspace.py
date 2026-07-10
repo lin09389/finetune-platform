@@ -17,6 +17,11 @@ from core.config import settings
 from core.db_manager import run_sync
 from rag.vector_store import get_vector_store
 from workspace.local_paths import normalize_local_workspace_path, get_allowed_workspace_roots
+from workspace.path_policy import (
+    list_allowed_roots,
+    resolve_default_project_path,
+    validate_agent_project_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +57,7 @@ DEFAULT_WORKSPACE_ID = "current_project"
 
 
 def _default_project_path() -> str:
-    base_dir = settings.base_dir.resolve()
-    workspace = base_dir.parent if base_dir.name == "server" else base_dir
-    return str(workspace)
+    return resolve_default_project_path(settings)
 
 
 def _default_workspace_payload() -> dict[str, Any]:
@@ -425,6 +428,27 @@ async def get_workspace_tree(
     budget = {"remaining": limit}
     nodes = _build_tree(root, root, depth=0, max_depth=max_depth, budget=budget)
     return WorkspaceTreeResponse(root=str(root), nodes=nodes, truncated=budget["remaining"] <= 0)
+
+
+class WorkspacePathValidateRequest(BaseModel):
+    path: str | None = Field(default=None, description="Candidate project path (empty = default)")
+
+
+@router.get("/allowed-roots")
+async def get_allowed_workspace_roots_endpoint():
+    """List default project path and allowed workspace roots for Agent/UI pickers."""
+    roots = list_allowed_roots(settings)
+    return {
+        "default_project_path": resolve_default_project_path(settings),
+        "roots": [item.as_dict() for item in roots],
+    }
+
+
+@router.post("/validate-path")
+async def validate_workspace_path(data: WorkspacePathValidateRequest):
+    """Validate a candidate Agent project path (existence, directory, allowlist)."""
+    result = validate_agent_project_path(data.path, settings)
+    return result.as_dict()
 
 
 @router.get("/browse-folder")

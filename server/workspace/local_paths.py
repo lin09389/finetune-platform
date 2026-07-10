@@ -10,16 +10,49 @@ WORKSPACE_METADATA_FILE = Path("data/workspaces/metadata.json")
 WORKSPACE_ROOT_ENV_KEYS = ("WORKSPACE_ROOT", "PROJECT_ROOT")
 
 
-def load_workspace_metadata() -> dict[str, dict]:
-    if not WORKSPACE_METADATA_FILE.exists():
-        return {}
+def workspace_metadata_candidates() -> list[Path]:
+    """Return candidate metadata paths (cwd-relative + server base_dir layouts)."""
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(path: Path) -> None:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        if resolved not in seen:
+            seen.add(resolved)
+            candidates.append(resolved)
+
+    _add(WORKSPACE_METADATA_FILE)
     try:
-        data = json.loads(WORKSPACE_METADATA_FILE.read_text(encoding="utf-8"))
+        from core.config import settings
+
+        base = Path(settings.base_dir).resolve()
+        _add(base / "data" / "workspaces" / "metadata.json")
+        if base.name == "server":
+            _add(base.parent / "data" / "workspaces" / "metadata.json")
     except Exception:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {key: value for key, value in data.items() if isinstance(value, dict)}
+        pass
+    return candidates
+
+
+def load_workspace_metadata() -> dict[str, dict]:
+    """Load and merge workspace metadata from known layout locations."""
+    merged: dict[str, dict] = {}
+    for path in workspace_metadata_candidates():
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key, value in data.items():
+            if isinstance(value, dict):
+                merged[str(key)] = value
+    return merged
 
 
 def iter_registered_workspace_roots() -> list[Path]:
