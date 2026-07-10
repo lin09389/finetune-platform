@@ -9,7 +9,7 @@
 import type { AgentSessionEvent } from '../../services/api';
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
 
-export type AgentActivityKind = 'thinking' | 'tool' | 'command' | 'context' | 'phase' | 'streaming';
+export type AgentActivityKind = 'thinking' | 'tool' | 'command' | 'context' | 'phase' | 'streaming' | 'permission';
 
 export interface AgentActivity {
   /** 用户可读的活动摘要，如「正在调用工具 read_file」 */
@@ -109,6 +109,10 @@ export function activityFromEvent(
     }
     case 'command_completed':
     case 'command_failed':
+      return undefined;
+    case 'permission_asked':
+      return { label: '等待审批工具执行', startedAt: now, kind: 'permission' };
+    case 'permission_decided':
       return undefined;
     // 会话终态：清除全部活动
     case 'session_completed':
