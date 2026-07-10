@@ -15,6 +15,14 @@ describe('capability tiers helpers', () => {
     expect(ROUTE_CAPABILITY['/memory']?.tier).toBe('beta');
   });
 
+  it('treats legacy /modelhub as GA models (redirect target of unified runtime center)', () => {
+    expect(ROUTE_CAPABILITY['/models']?.id).toBe('models');
+    expect(ROUTE_CAPABILITY['/models']?.tier).toBe('ga');
+    expect(ROUTE_CAPABILITY['/modelhub']?.id).toBe('models');
+    expect(ROUTE_CAPABILITY['/modelhub']?.tier).toBe('ga');
+    expect(isExperimentalRoute('/modelhub')).toBe(false);
+  });
+
   it('does not treat cloud-api as experimental (backend cloud_chat is always-on auxiliary)', () => {
     expect(isExperimentalRoute('/cloud-api')).toBe(false);
     expect(ROUTE_CAPABILITY['/cloud-api']?.tier).toBe('beta');

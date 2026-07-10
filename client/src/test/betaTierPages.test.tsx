@@ -34,7 +34,6 @@ vi.mock('antd', async () => {
   };
 });
 
-import ModelHub from '../pages/ModelHub';
 import ProjectContext from '../pages/ProjectContext';
 import WorkspaceManager from '../pages/WorkspaceManager';
 
@@ -42,22 +41,6 @@ describe('beta tier page copy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockImplementation((url: string) => {
-      if (url.includes('/model-center/source')) {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({ current_source: 'modelscope', default_source: 'modelscope' }),
-        });
-      }
-      if (url.includes('/model-center/suggestions')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ suggestions: [], default_source: 'modelscope' }),
-        });
-      }
-      if (url.includes('/model-center/local')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      }
       if (url.includes('/workspace/workspaces')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
       }
@@ -68,15 +51,6 @@ describe('beta tier page copy', () => {
         });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    });
-  });
-
-  it('shows beta capability framing on ModelHub', async () => {
-    render(<ModelHub />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Beta 能力：搜索、下载并管理本地模型/i)).toBeInTheDocument();
-      expect(screen.getByText(/搜索结果、下载速度和可访问性会随/i)).toBeInTheDocument();
     });
   });
 

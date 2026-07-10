@@ -227,7 +227,7 @@ uv export --extra inference --no-dev --no-hashes --format requirements-txt -o se
 | `/agent` | Agent 工作台，默认入口 |
 | `/dashboard` | 平台概览 |
 | `/device` | 设备与显存监控 |
-| `/models` | 本地模型管理 |
+| `/models` | 模型运行中心（本地列表 / 下载 / 运行时就绪） |
 | `/datasets` | 数据集管理 |
 | `/training` | 训练任务 |
 | `/chat` | 纯聊天界面 |
@@ -237,7 +237,7 @@ uv export --extra inference --no-dev --no-hashes --format requirements-txt -o se
 | `/deployment` | 部署包 |
 | `/workspace` | 工作区管理 |
 | `/memory` | 记忆系统 |
-| `/modelhub` | 模型中心 |
+| `/modelhub` | 兼容重定向 → `/models` |
 | `/project-context` | 项目上下文 |
 | `/mcp`、`/gateway`、`/heartbeat`、`/cua-control` | 实验能力 |
 

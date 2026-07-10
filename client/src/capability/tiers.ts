@@ -24,6 +24,8 @@ export const ROUTE_CAPABILITY: Record<string, { id: string; tier: CapabilityTier
   '/dashboard': { id: 'device', tier: 'ga' },
   '/device': { id: 'device', tier: 'ga' },
   '/models': { id: 'models', tier: 'ga' },
+  // Legacy SPA path; App redirects /modelhub → /models
+  '/modelhub': { id: 'models', tier: 'ga' },
   '/datasets': { id: 'datasets', tier: 'ga' },
   '/training': { id: 'training', tier: 'ga' },
   '/history': { id: 'training', tier: 'ga' },

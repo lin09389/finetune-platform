@@ -148,7 +148,8 @@ const routes = [
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
   { path: '/memory', element: <MemoryPage /> },
-  { path: '/modelhub', element: <ModelRuntimeCenter /> },
+  // Legacy alias: old /modelhub bookmarked URLs redirect to unified center
+  { path: '/modelhub', element: <Navigate to="/models" replace /> },
   { path: '/inference', element: <Inference /> },
   { path: '/evaluation', element: <Evaluation /> },
   { path: '/deployment', element: <Deployment /> },

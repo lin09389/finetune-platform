@@ -223,7 +223,7 @@ uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.
 | `/agent` | Agent Workbench, default entry |
 | `/dashboard` | Platform overview |
 | `/device` | Device and VRAM monitoring |
-| `/models` | Local model management |
+| `/models` | Model runtime center (list / download / readiness) |
 | `/datasets` | Dataset management |
 | `/training` | Training tasks |
 | `/chat` | Chat-only interface |
@@ -233,7 +233,7 @@ uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.
 | `/deployment` | Deployment packages |
 | `/workspace` | Workspace management |
 | `/memory` | Memory system |
-| `/modelhub` | Model center |
+| `/modelhub` | Legacy redirect → `/models` |
 | `/project-context` | Project context |
 | `/mcp`, `/gateway`, `/heartbeat`, `/cua-control` | Experimental capabilities |
 
