@@ -8,6 +8,8 @@ from typing import Any
 
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
+from core.tracing import get_correlation_id
+
 
 class CustomJsonFormatter(JsonFormatter):
     """Custom JSON log formatter"""
@@ -69,3 +71,29 @@ def log_inference_event(logger: logging.Logger, message: str, **fields: Any) -> 
     """记录结构化推理日志字段。"""
     extra_payload = " ".join(f"{key}={value}" for key, value in fields.items())
     logger.info(f"{message} {extra_payload}".strip())
+
+
+def log_request_completed(
+    logger: logging.Logger,
+    *,
+    method: str,
+    status_code: int,
+    duration_ms: float,
+    profile: str,
+) -> None:
+    """Log a completed request with fixed, non-sensitive structured fields.
+
+    Paths, query parameters, account/session identifiers, authorization values,
+    request bodies, and prompt text are intentionally not accepted here.
+    """
+
+    logger.info(
+        "http_request_completed",
+        extra={
+            "correlation_id": get_correlation_id(),
+            "http_method": method,
+            "http_status_code": status_code,
+            "duration_ms": round(duration_ms, 3),
+            "application_profile": profile,
+        },
+    )

@@ -16,11 +16,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from core.config import settings
-from core.logging import setup_logging
-from core.tracing import trace_id_var, user_id_var
+from core.logging import log_request_completed, setup_logging
+from core.telemetry import (
+    PROMETHEUS_CONTENT_TYPE,
+    configure_telemetry,
+    get_telemetry_registry,
+)
+from core.tracing import correlation_id_var, trace_id_var, user_id_var
 from security.rate_limiter import get_rate_limiter
 
 from .lifespan import create_lifespan
@@ -73,6 +78,7 @@ _PUBLIC_PATHS = {
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
+    "/metrics",
 }
 _LOCAL_AGENT_AUTH_FALLBACK_PREFIXES = (
     "/agents",
@@ -210,12 +216,22 @@ async def authentication_middleware(request: Request, call_next):
 
 
 async def trace_middleware(request: Request, call_next):
-    trace_id = request.headers.get("X-Trace-Id", str(uuid.uuid4()))
-    trace_id_var.set(trace_id)
-    user_id_var.set(request.headers.get("X-User-Id", "anonymous"))
-    response = await call_next(request)
-    response.headers["X-Trace-Id"] = trace_id
-    return response
+    supplied = request.headers.get("X-Correlation-Id") or request.headers.get("X-Trace-Id")
+    correlation_id = supplied if supplied and re.fullmatch(r"[A-Za-z0-9._-]{1,128}", supplied) else str(uuid.uuid4())
+    correlation_token = correlation_id_var.set(correlation_id)
+    trace_token = trace_id_var.set(correlation_id)
+    user_token = user_id_var.set(request.headers.get("X-User-Id", "anonymous"))
+    try:
+        response = await call_next(request)
+        # Legacy clients can keep consuming X-Trace-Id.  Both names identify
+        # the same request so new integrations have one correlation primitive.
+        response.headers["X-Trace-Id"] = correlation_id
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
+    finally:
+        correlation_id_var.reset(correlation_token)
+        trace_id_var.reset(trace_token)
+        user_id_var.reset(user_token)
 
 
 async def security_middleware(request: Request, call_next):
@@ -278,10 +294,52 @@ async def security_middleware(request: Request, call_next):
 
 
 async def logging_middleware(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    response.headers["X-Process-Time"] = f"{time.time() - start_time:.4f}"
+    start_time = time.perf_counter()
+    app = request.scope.get("app")
+    profile = str(getattr(getattr(app, "state", None), "profile", "other"))
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_seconds = time.perf_counter() - start_time
+        log_request_completed(
+            logger,
+            method=request.method,
+            status_code=500,
+            duration_ms=duration_seconds * 1000,
+            profile=profile,
+        )
+        get_telemetry_registry().record_http_request(
+            method=request.method,
+            status_code=500,
+            duration_seconds=duration_seconds,
+            profile=profile,
+        )
+        raise
+    duration_seconds = time.perf_counter() - start_time
+    response.headers["X-Process-Time"] = f"{duration_seconds:.4f}"
+    log_request_completed(
+        logger,
+        method=request.method,
+        status_code=response.status_code,
+        duration_ms=duration_seconds * 1000,
+        profile=profile,
+    )
+    get_telemetry_registry().record_http_request(
+        method=request.method,
+        status_code=response.status_code,
+        duration_seconds=duration_seconds,
+        profile=profile,
+    )
     return response
+
+
+async def metrics_endpoint() -> Response:
+    """Expose bounded process-local aggregates in Prometheus 0.0.4 text."""
+
+    return Response(
+        content=get_telemetry_registry().render_prometheus(),
+        headers={"Content-Type": PROMETHEUS_CONTENT_TYPE},
+    )
 
 
 async def security_headers_middleware(request: Request, call_next):
@@ -485,20 +543,23 @@ def _register_common_behavior(app: FastAPI, profile: ApplicationProfile) -> None
         allow_origins=_cors_origins,
         allow_credentials=_allow_credentials,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        expose_headers=["X-Correlation-Id", "X-Process-Time", "X-Trace-Id"],
         allow_headers=[
             "Authorization",
             "Content-Type",
             "X-Backend",
             "X-Requested-With",
             "X-Trace-Id",
+            "X-Correlation-Id",
         ],
     )
     app.middleware("http")(authentication_middleware)
     app.middleware("http")(experimental_isolation_middleware)
-    app.middleware("http")(trace_middleware)
     app.middleware("http")(security_middleware)
     app.middleware("http")(logging_middleware)
     app.middleware("http")(security_headers_middleware)
+    # Register last so correlation context exists for every custom middleware.
+    app.middleware("http")(trace_middleware)
 
     app.add_api_route("/", root, methods=["GET"])
     profile_health = health_check
@@ -508,6 +569,7 @@ def _register_common_behavior(app: FastAPI, profile: ApplicationProfile) -> None
 
         profile_health = agent_health_check
     app.add_api_route("/health", profile_health, methods=["GET"], name="health_check")
+    app.add_api_route("/metrics", metrics_endpoint, methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/info", api_info, methods=["GET"])
     app.add_api_route(
         "/experimental/status",
@@ -526,6 +588,7 @@ def _register_common_behavior(app: FastAPI, profile: ApplicationProfile) -> None
 
 def create_application(profile: ApplicationProfile | str) -> FastAPI:
     resolved = coerce_profile(profile)
+    configure_telemetry(settings.observability_max_series)
     title_suffix = "" if resolved is ApplicationProfile.COMBINED else f" ({resolved.value})"
     app = FastAPI(
         title=f"Finetune Platform API{title_suffix}",

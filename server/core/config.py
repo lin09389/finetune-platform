@@ -33,6 +33,12 @@ class Settings(BaseSettings):
         default="text",
         description="应用日志格式（LOG_FORMAT）：text 或 json",
     )
+    observability_max_series: int = Field(
+        default=256,
+        ge=16,
+        le=4096,
+        description="本地 Prometheus 聚合指标允许的最大时间序列数（OBSERVABILITY_MAX_SERIES）",
+    )
 
     environment: Literal["development", "staging", "production"] = Field(
         default="development",
