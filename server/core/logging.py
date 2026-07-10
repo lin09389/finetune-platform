@@ -39,7 +39,7 @@ def setup_logging(
 
     if enable_json:
         formatter = CustomJsonFormatter(
-            '%(timestamp)s %(level)s %(name)s %(message)s'
+            '%(asctime)s %(levelname)s %(name)s %(message)s'
         )
     else:
         formatter = logging.Formatter(

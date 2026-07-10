@@ -97,6 +97,18 @@ def test_settings_production_accepts_strong_secrets(monkeypatch):
     assert s.inference_internal_api_key == "prod-inference-key-xyz"
 
 
+def test_settings_reads_log_format_from_env_file(tmp_path):
+    from core.config import Settings
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("LOG_FORMAT=json\nLOG_LEVEL=warning\n", encoding="utf-8")
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.log_format == "json"
+    assert settings.log_level == "warning"
+
+
 # ---------------------------------------------------------------------------
 # Agent local auth fallback
 # ---------------------------------------------------------------------------
