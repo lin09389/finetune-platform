@@ -4,11 +4,13 @@ import type {
   AgentSessionCreate,
   AgentSessionEvent,
   AgentSessionPreferences,
+  AgentSessionUiTimelineItem,
   AgentWorkspace,
 } from '../../services/api';
 import {
   applyEventToSession,
   isKnownAgentEvent,
+  taskContextFromEvent,
   toUnknownAgentEvent,
   type AgentConnectionState,
   type AgentUnknownEvent,
@@ -35,6 +37,7 @@ export interface RecentAgentSession {
   status: AgentSession['status'];
   agentId: string;
   projectPath?: string;
+  taskMode?: AgentSession['task_mode'];
   updatedAt: string;
   preferences: AgentSessionPreferences;
 }
@@ -51,6 +54,7 @@ export interface AgentRuntimeState {
   activeSessionId: string | null;
   session: AgentSession | null;
   workspace: AgentWorkspace | null;
+  taskContextTimeline: AgentSessionUiTimelineItem[];
   selectedWorkspace: SelectedWorkspace | null;
   taskMode: TaskMode;
   connection: AgentConnectionState;
@@ -106,6 +110,7 @@ export const initialAgentRuntimeState: AgentRuntimeState = {
   activeSessionId: null,
   session: null,
   workspace: null,
+  taskContextTimeline: [],
   selectedWorkspace: null,
   taskMode: 'build',
   connection: 'idle',
@@ -144,8 +149,31 @@ function toRecentSession(session: AgentSession): RecentAgentSession {
     status: session.status,
     agentId: session.agent_id,
     projectPath: session.project_path,
+    taskMode: session.task_mode,
     updatedAt: session.updated_at,
     preferences,
+  };
+}
+
+function taskContextTimelineItem(event: AgentSessionEvent): AgentSessionUiTimelineItem | null {
+  const context = taskContextFromEvent(event);
+  if (!context) return null;
+  const modeLabel = context.taskMode
+    ? context.taskMode.charAt(0).toUpperCase() + context.taskMode.slice(1)
+    : '任务';
+  return {
+    id: `task-context:${event.id}`,
+    session_id: event.session_id,
+    type: 'task_context',
+    status: 'completed',
+    title: '任务上下文',
+    content: `工作区：${context.workspaceLabel} · ${modeLabel}`,
+    created_at: event.created_at,
+    payload: {
+      workspace_id: context.workspaceId,
+      workspace_label: context.workspaceLabel,
+      task_mode: context.taskMode,
+    },
   };
 }
 
@@ -181,6 +209,7 @@ export function agentRuntimeReducer(
         activeSessionId: null,
         session: null,
         workspace: null,
+        taskContextTimeline: [],
         connection: 'idle',
         lastEventId: '',
         lastEventAt: null,
@@ -203,6 +232,7 @@ export function agentRuntimeReducer(
         activeSessionId: action.sessionId,
         session: action.sessionId === state.session?.id ? state.session : null,
         workspace: action.sessionId === state.workspace?.session.id ? state.workspace : null,
+        taskContextTimeline: [],
         lastEventId: '',
         lastEventAt: null,
         seenEventIds: [],
@@ -279,6 +309,13 @@ export function agentRuntimeReducer(
       if (state.seenEventIds.includes(action.event.id)) return state;
       const seenEventIds = [...state.seenEventIds, action.event.id].slice(-MAX_SEEN_EVENTS);
       const session = applyEventToSession(state.session, action.event);
+      const taskContextItem = taskContextTimelineItem(action.event);
+      const taskContextTimeline = taskContextItem
+        ? [
+            ...state.taskContextTimeline.filter((item) => item.id !== taskContextItem.id),
+            taskContextItem,
+          ]
+        : state.taskContextTimeline;
       const unknownEvents = isKnownAgentEvent(action.event.event_type)
         ? state.unknownEvents
         : [...state.unknownEvents, toUnknownAgentEvent(action.event)].slice(-MAX_DIAGNOSTIC_EVENTS);
@@ -322,6 +359,7 @@ export function agentRuntimeReducer(
         workspace: session && state.workspace
           ? { ...state.workspace, session }
           : state.workspace,
+        taskContextTimeline,
         recentSessions: session ? mergeRecent(state.recentSessions, session) : state.recentSessions,
         lastEventId: action.event.id || state.lastEventId,
         lastEventAt: Date.now(),
@@ -434,6 +472,7 @@ export function agentRuntimeReducer(
         activeSessionId: null,
         session: null,
         workspace: null,
+        taskContextTimeline: [],
         connection: 'idle',
         lastEventId: '',
         lastEventAt: null,

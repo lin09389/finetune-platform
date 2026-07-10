@@ -4,7 +4,11 @@ import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentTaskContextBar from '../agent/components/AgentTaskContextBar';
+import AgentSessionRail from '../agent/components/AgentSessionRail';
 import AgentWorkbenchRoute from '../agent/workbench/AgentWorkbenchRoute';
+import { decodeAgentSessionEvent } from '../agent/protocol/agentProtocol';
+import { agentRuntimeReducer, initialAgentRuntimeState, type RecentAgentSession } from '../agent/runtime/agentRuntime';
+import { selectTimeline } from '../agent/selectors/workbenchSelectors';
 import type { AgentTransport } from '../agent/transport/agentTransport';
 import type { AgentSession, AgentSessionCreate, AgentWorkspace } from '../services/api';
 import baselineFixture from '../agent/testing/fixtures/agent-session-baseline.json';
@@ -239,6 +243,70 @@ describe('Agent frontend Phase 1 foundation', () => {
     fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '构建项目' } });
     expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled();
     expect(transport.createSession).not.toHaveBeenCalled();
+  });
+
+  it('decodes task context as a compact timeline item without exposing the project path', () => {
+    const session = agentSessionFixture();
+    const event = decodeAgentSessionEvent({
+      id: 'evt-context',
+      session_id: session.id,
+      event_type: 'task_context_initialized',
+      message: 'Task context initialized',
+      payload: {
+        workspace_id: 'ws_demo',
+        workspace_label: 'Demo project',
+        task_mode: 'hybrid',
+      },
+      created_at: '2026-07-10T00:00:01Z',
+      session_status: 'idle',
+    });
+
+    expect(event).not.toBeNull();
+    const next = agentRuntimeReducer(
+      { ...initialAgentRuntimeState, activeSessionId: session.id, session },
+      { type: 'stream_event', event: event! },
+    );
+    const context = selectTimeline(next).find((item) => item.type === 'task_context');
+
+    expect(next.unknownEvents).toEqual([]);
+    expect(context).toMatchObject({
+      title: '任务上下文',
+      content: '工作区：Demo project · Hybrid',
+      payload: { workspace_id: 'ws_demo', workspace_label: 'Demo project', task_mode: 'hybrid' },
+    });
+    expect(JSON.stringify(context)).not.toContain('C:/repo/demo');
+  });
+
+  it('shows a mode badge only for sessions that carry task context', () => {
+    const oldSession: RecentAgentSession = {
+      id: 'legacy-session',
+      title: 'Legacy session',
+      displayTitle: 'Legacy session',
+      status: 'completed',
+      agentId: 'build',
+      updatedAt: '2026-07-10T00:00:00Z',
+      preferences: { pinned: false, archived: false },
+    };
+    const contextualSession: RecentAgentSession = {
+      ...oldSession,
+      id: 'contextual-session',
+      title: 'Contextual session',
+      displayTitle: 'Contextual session',
+      taskMode: 'hybrid',
+    };
+
+    render(
+      <AgentSessionRail
+        sessions={[oldSession, contextualSession]}
+        activeSessionId={null}
+        onNew={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Hybrid')).toBeInTheDocument();
+    expect(screen.getAllByText('Legacy session')).toHaveLength(1);
+    expect(screen.queryAllByText('Build')).toHaveLength(0);
   });
 
   it('keeps the sanitized baseline fixture aligned with the stream envelope', () => {

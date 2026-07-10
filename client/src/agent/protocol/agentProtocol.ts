@@ -15,6 +15,12 @@ export interface AgentUnknownEvent {
   createdAt: string;
 }
 
+export interface AgentTaskContextEvent {
+  workspaceId?: string;
+  workspaceLabel: string;
+  taskMode?: 'build' | 'train' | 'hybrid';
+}
+
 const KNOWN_EVENT_TYPES = new Set([
   'session_snapshot',
   'session_started',
@@ -60,6 +66,7 @@ const KNOWN_EVENT_TYPES = new Set([
   'context_preparing',
   'context_ready',
   'session_title_updated',
+  'task_context_initialized',
   // Historical events remain readable after the execution-plan migration.
   'task_plan_created',
   'part_created',
@@ -132,6 +139,21 @@ export function decodeAgentSessionEvent(value: unknown): AgentSessionEvent | nul
 
 export function isKnownAgentEvent(eventType: string): boolean {
   return KNOWN_EVENT_TYPES.has(eventType);
+}
+
+/** Decode the display-safe context event without falling back to a raw path. */
+export function taskContextFromEvent(event: AgentSessionEvent): AgentTaskContextEvent | null {
+  if (event.event_type !== 'task_context_initialized') return null;
+  const workspaceLabel = typeof event.payload?.workspace_label === 'string'
+    ? event.payload.workspace_label.trim()
+    : '';
+  if (!workspaceLabel) return null;
+  const taskMode = event.payload?.task_mode;
+  return {
+    workspaceId: typeof event.payload?.workspace_id === 'string' ? event.payload.workspace_id : undefined,
+    workspaceLabel,
+    taskMode: taskMode === 'build' || taskMode === 'train' || taskMode === 'hybrid' ? taskMode : undefined,
+  };
 }
 
 export function toUnknownAgentEvent(event: AgentSessionEvent): AgentUnknownEvent {

@@ -35,6 +35,9 @@ function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
 
 export function selectTimeline(state: AgentRuntimeState): AgentSessionUiTimelineItem[] {
   const byId = new Map<string, AgentSessionUiTimelineItem>();
+  for (const item of state.taskContextTimeline) {
+    if (!state.session || item.session_id === state.session.id) byId.set(item.id, item);
+  }
   for (const item of state.workspace?.timeline || []) {
     byId.set(item.part_id || item.id, item);
   }

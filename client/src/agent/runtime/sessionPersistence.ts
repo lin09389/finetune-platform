@@ -29,6 +29,9 @@ export function readPersistedAgentRuntime(storage: Pick<Storage, 'getItem'> = lo
       ))
       .map((session) => ({
         ...session,
+        taskMode: ['build', 'train', 'hybrid'].includes(String(session.taskMode))
+          ? session.taskMode
+          : undefined,
         displayTitle: session.displayTitle || session.title,
         preferences: session.preferences || {
           display_title: null,

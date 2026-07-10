@@ -7,6 +7,7 @@ import {
   ExclamationCircleOutlined,
   FileDoneOutlined,
   FileTextOutlined,
+  FolderOpenOutlined,
   LoadingOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
@@ -24,6 +25,7 @@ import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
 
 function itemIcon(item: AgentSessionUiTimelineItem) {
   if (isUserMessage(item)) return <UserOutlined />;
+  if (item.type === 'task_context') return <FolderOpenOutlined />;
   if (item.status === 'running' || item.status === 'pending') return <LoadingOutlined spin />;
   if (item.status === 'failed' || item.status === 'blocked') return <ExclamationCircleOutlined />;
   if (item.type === 'permission') return <SafetyCertificateOutlined />;
@@ -176,6 +178,7 @@ function itemTitle(item: AgentSessionUiTimelineItem) {
       summary: '运行总结',
       error: '执行错误',
       diff: '文件变更',
+      task_context: '任务上下文',
     }[item.type] ||
     item.type
   );

@@ -16,6 +16,11 @@ import styles from '../workbench/AgentWorkbench.module.css';
 
 const PINNED_SESSIONS_KEY = 'finetune.agent.pinned-sessions.v1';
 const SESSION_PREFERENCES_KEY = 'finetune.agent.session-preferences.v1';
+const TASK_MODE_LABELS = {
+  build: 'Build',
+  train: 'Train',
+  hybrid: 'Hybrid',
+} as const;
 
 interface SessionPreferences {
   aliases: Record<string, string>;
@@ -215,6 +220,11 @@ export default function AgentSessionRail({
                   <span className={styles.sessionMeta}>
                     <span className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`} />
                     {SESSION_STATUS_LABELS[session.status] || session.status}
+                    {session.taskMode ? (
+                      <span className={styles.sessionTaskMode} title={`任务模式：${TASK_MODE_LABELS[session.taskMode]}`}>
+                        {TASK_MODE_LABELS[session.taskMode]}
+                      </span>
+                    ) : null}
                     {unreadSessionIds?.includes(session.id) ? (
                       <span className={styles.unreadDot} aria-label="有新动态" />
                     ) : null}
