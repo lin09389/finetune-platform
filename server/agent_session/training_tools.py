@@ -7,7 +7,7 @@ import re
 from typing import Any, Literal
 
 from agent_training.errors import AgentTrainingError
-from agent_training.models import ApprovedTrainingAction, TrainingProposalRequest
+from agent_training.models import ApprovedTrainingAction, TrainingProposalRequest, training_activity_for
 from agent_training.service import AgentTrainingService
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -141,35 +141,18 @@ def safe_training_payload(value: Any) -> Any:
 
 
 def _proposal_projection(proposal: Any) -> dict[str, Any]:
-    return safe_training_payload(
-        {
-            "proposal_id": proposal.proposal_id,
-            "status": proposal.status,
-            "model_id": proposal.config.model_id,
-            "dataset_id": proposal.config.dataset_id,
-            "method": proposal.config.method,
-            "blockers": proposal.blockers,
-            "warnings": proposal.warnings,
-            "suggestions": proposal.suggestions,
-            "required_vram_gb": proposal.required_vram_gb,
-        }
-    )
+    return _tool_result_from_activity(proposal)
 
 
 def _summary_projection(summary: Any) -> dict[str, Any]:
+    return _tool_result_from_activity(summary)
+
+
+def _tool_result_from_activity(value: Any) -> dict[str, Any]:
+    """Keep LLM tool output compatible while deriving it from the timeline DTO."""
+
     return safe_training_payload(
-        {
-            "task_id": summary.task_id,
-            "status": summary.status,
-            "model_id": summary.model_id,
-            "dataset_id": summary.dataset_id,
-            "method": summary.method,
-            "task_goal": summary.task_goal,
-            "started_at": summary.started_at,
-            "completed_at": summary.completed_at,
-            "final_loss": summary.final_loss,
-            "elapsed_time": summary.elapsed_time,
-        }
+        training_activity_for(value).model_dump(exclude={"kind", "source_tool", "summary"})
     )
 
 
@@ -228,15 +211,7 @@ def build_training_tools(
             submission = training_service.submit_training(
                 ApprovedTrainingAction(proposal_id=proposal_id, approved=True)
             )
-            return _json_tool_result(
-                safe_training_payload(
-                    {
-                        "proposal_id": submission.proposal_id,
-                        "task_id": submission.task_id,
-                        "status": submission.status,
-                    }
-                )
-            )
+            return _json_tool_result(_tool_result_from_activity(submission))
         except Exception as exc:
             return _json_tool_result(_error_projection(exc))
 

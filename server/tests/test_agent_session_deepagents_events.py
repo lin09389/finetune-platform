@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.execution_context import AgentDefinition
 from agent_session.execution_plan import build_initial_execution_plan
@@ -29,6 +31,11 @@ class FakeRepository:
         event = {"id": f"event-{len(self.events) + 1}", "session_id": session_id, "type": event_type, "message": message, "payload": payload}
         self.events.append(event)
         return event
+
+    def update_part(self, part_id, **updates):
+        part = next(part for part in self.parts if part["id"] == part_id)
+        part.update(updates)
+        return part
 
     def get_session(self, _session_id):
         return self.session
@@ -184,3 +191,70 @@ def test_deepagents_event_mapper_preserves_batched_interrupt_actions():
     assert len(payload["actions"]) == 2
     assert payload["actions"][0]["allowed_decisions"] == ["approve", "edit", "reject"]
     assert payload["actions"][1]["allowed_decisions"] == ["approve", "reject", "respond"]
+
+
+def test_deepagents_event_mapper_persists_safe_training_activity_on_existing_tool_parts():
+    repo = FakeRepository()
+    mapper = DeepAgentsEventMapper(repo, lambda *_args: None, "session-1")
+
+    mapper.handle({"event": "on_tool_start", "name": "propose_training", "run_id": "proposal", "data": {"input": {}}})
+    mapper.handle(
+        {
+            "event": "on_tool_end",
+            "name": "propose_training",
+            "run_id": "proposal",
+            "data": {"output": json.dumps({"proposal_id": "proposal-1", "status": "blocked", "model_id": "tiny-model", "dataset_id": "tiny-dataset", "method": "qlora", "blockers": ["Disk at C:\\private\\output"], "warnings": [], "suggestions": []})},
+        }
+    )
+    mapper.handle({"event": "on_tool_start", "name": "submit_training", "run_id": "submission", "data": {"input": {}}})
+    mapper.handle(
+        {
+            "event": "on_tool_end",
+            "name": "submit_training",
+            "run_id": "submission",
+            "data": {"output": json.dumps({"proposal_id": "proposal-1", "task_id": "task-1", "status": "duplicate"})},
+        }
+    )
+    mapper.handle({"event": "on_tool_start", "name": "get_training_summary", "run_id": "summary", "data": {"input": {}}})
+    mapper.handle(
+        {
+            "event": "on_tool_end",
+            "name": "get_training_summary",
+            "run_id": "summary",
+            "data": {"output": json.dumps({"task_id": "task-1", "status": "failed", "model_id": "tiny-model", "dataset_id": "tiny-dataset", "method": "qlora", "task_goal": "qa", "started_at": "2026-07-11T00:00:00Z"})},
+        }
+    )
+
+    activities = [part["payload"]["training_activity"] for part in repo.parts]
+    assert [activity["kind"] for activity in activities] == ["proposal", "submission", "run_summary"]
+    assert activities[0]["proposal_id"] == "proposal-1"
+    assert activities[1]["task_id"] == "task-1"
+    assert activities[2]["status"] == "failed"
+    assert "private" not in str(activities)
+    assert repo.events[-1]["payload"]["part"]["payload"]["training_activity"] == activities[-1]
+
+
+def test_deepagents_event_mapper_leaves_failed_or_malformed_training_results_generic():
+    repo = FakeRepository()
+    mapper = DeepAgentsEventMapper(repo, lambda *_args: None, "session-1")
+    failed_results = [
+        ("submit_training", {"proposal_id": "proposal-1", "status": "failed", "code": "rejected"}),
+        ("submit_training", {"proposal_id": "proposal-1", "status": "failed", "code": "stale"}),
+        ("get_training_summary", {"task_id": "missing-task", "status": "failed", "code": "missing_run"}),
+        ("propose_training", "not json"),
+    ]
+
+    for index, (name, output) in enumerate(failed_results):
+        run_id = f"run-{index}"
+        mapper.handle({"event": "on_tool_start", "name": name, "run_id": run_id, "data": {"input": {}}})
+        mapper.handle(
+            {
+                "event": "on_tool_end",
+                "name": name,
+                "run_id": run_id,
+                "data": {"output": output if isinstance(output, str) else json.dumps(output)},
+            }
+        )
+
+    assert all("training_activity" not in part["payload"] for part in repo.parts)
+    assert all(part["type"] == "tool_call" for part in repo.parts)

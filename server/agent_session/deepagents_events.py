@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
+
+from agent_training.models import training_activity_from_tool_result
 
 from .execution_plan_events import apply_execution_event_to_session
 from .session_state_machine import AgentSessionStateMachine
@@ -17,6 +20,7 @@ class DeepAgentsEventMapper:
     active_text_part_id: str | None = None
     active_text: str = ""
     tool_parts: dict[str, str] = field(default_factory=dict)
+    tool_part_payloads: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.state_machine = AgentSessionStateMachine(self.repository)
@@ -165,16 +169,18 @@ class DeepAgentsEventMapper:
         if name in TRAINING_TOOL_NAMES:
             payload = safe_training_payload(payload)
         agent_context = self._agent_context(event)
+        part_payload = {"tool": name, "input": payload, "runtime": "deepagents", "run_id": run_id, **agent_context}
         part = self.repository.add_part(
             self.session_id,
             "tool_call",
             status="running",
             title=name,
             content=f"正在调用工具：{name}",
-            payload={"tool": name, "input": payload, "runtime": "deepagents", "run_id": run_id, **agent_context},
+            payload=part_payload,
         )
         if run_id:
             self.tool_parts[run_id] = part.get("id")
+            self.tool_part_payloads[run_id] = part_payload
         self.publish(
             "tool_call_started",
             f"正在调用工具：{name}",
@@ -187,9 +193,13 @@ class DeepAgentsEventMapper:
         output = (event.get("data") or {}).get("output")
         content = getattr(output, "content", output)
         part_id = self.tool_parts.pop(run_id, None)
+        part_payload = self.tool_part_payloads.pop(run_id, {})
         agent_context = self._agent_context(event)
+        activity = self._training_activity(name, content)
+        if activity:
+            part_payload["training_activity"] = activity
         if part_id:
-            part = self.repository.update_part(part_id, status="completed", content=str(content))
+            part = self.repository.update_part(part_id, status="completed", content=str(content), payload=part_payload)
         else:
             part = self.repository.add_part(
                 self.session_id,
@@ -197,7 +207,7 @@ class DeepAgentsEventMapper:
                 status="completed",
                 title=name,
                 content=str(content),
-                payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context},
+                payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context, **({"training_activity": activity} if activity else {})},
             )
         agent_context = self._agent_context_from_part(part) or agent_context
         self.publish(
@@ -384,6 +394,20 @@ class DeepAgentsEventMapper:
             if isinstance(item, dict):
                 normalized.append(dict(item))
         return normalized
+
+    @staticmethod
+    def _training_activity(name: str, content: Any) -> dict[str, Any] | None:
+        """Project only valid successful training output; old or failed output stays generic."""
+
+        if name not in TRAINING_TOOL_NAMES:
+            return None
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (TypeError, ValueError):
+                return None
+        activity = training_activity_from_tool_result(name, content)
+        return activity.model_dump() if activity else None
 
 
 __all__ = ["DeepAgentsEventMapper"]

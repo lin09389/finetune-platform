@@ -14,7 +14,12 @@ from agent_session.training_tools import (
     grant_approved_training_submissions,
     training_tools_enabled_for_session,
 )
-from agent_training.models import TrainingProposal, TrainingRunSummary, TrainingSubmission
+from agent_training.models import (
+    TrainingProposal,
+    TrainingRunSummary,
+    TrainingSubmission,
+    training_activity_from_tool_result,
+)
 
 
 class _Repository:
@@ -143,6 +148,27 @@ def test_submission_requires_a_one_time_official_approval_grant():
     assert approved == {"proposal_id": "proposal-1", "task_id": "task-1", "status": "queued"}
     assert [action.model_dump() for action in service.submissions] == [{"proposal_id": "proposal-1", "approved": True}]
     assert consume_training_submission_grant(repository, "session-train", "proposal-1") is False
+
+
+def test_successful_training_tool_results_reconstruct_strict_timeline_activities():
+    repository = _Repository()
+    service = _TrainingService()
+    propose, submit, summary = build_training_tools(_session(), repository=repository, training_service=service)
+
+    proposal_result = json.loads(
+        asyncio.run(propose.ainvoke({"training_config": {"model_id": "tiny-model", "dataset_id": "tiny-dataset"}}))
+    )
+    grant_approved_training_submissions(
+        repository,
+        {"session_id": "session-train", "id": "permission-1", "payload": {"official_hitl": True, "action_requests": [{"name": "submit_training", "args": {"proposal_id": "proposal-1"}}]}},
+        [{"type": "approve"}],
+    )
+    submission_result = json.loads(asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"})))
+    summary_result = json.loads(asyncio.run(summary.ainvoke({"task_id": "task-1"})))
+
+    assert training_activity_from_tool_result("propose_training", proposal_result).model_dump()["kind"] == "proposal"
+    assert training_activity_from_tool_result("submit_training", submission_result).model_dump()["kind"] == "submission"
+    assert training_activity_from_tool_result("get_training_summary", summary_result).model_dump()["kind"] == "run_summary"
 
 
 def test_submit_training_waits_for_official_hitl_then_submits_once(tmp_path):
