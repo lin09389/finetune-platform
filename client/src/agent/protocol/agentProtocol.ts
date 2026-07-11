@@ -133,7 +133,7 @@ export function selectTrainingActivity(
   if (kind === 'run_summary' && sourceTool === 'get_training_summary') {
     const taskId = nonEmptyString(candidate.task_id);
     const finalLoss = optionalFiniteNumber(candidate.final_loss);
-    const elapsedSeconds = optionalFiniteNumber(candidate.elapsed_seconds);
+    const elapsedSeconds = optionalFiniteNumber(candidate.elapsed_time);
     if (!taskId || (elapsedSeconds !== undefined && elapsedSeconds < 0)) return null;
     return {
       kind,

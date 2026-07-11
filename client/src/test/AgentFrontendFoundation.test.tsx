@@ -379,7 +379,7 @@ describe('Agent frontend Phase 1 foundation', () => {
           status: 'completed',
           summary: '训练已完成。',
           final_loss: 0.18,
-          elapsed_seconds: 125,
+          elapsed_time: 125,
         },
       },
     })).toMatchObject({
