@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import re
 from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from training_engine.schemas import TrainingConfigInput
 
@@ -71,6 +72,21 @@ class TrainingRunSummary(BaseModel):
     checkpoint_path: str | None = None
     final_loss: float | None = None
     elapsed_time: float | None = None
+    phase: str | None = None
+    step: int | None = Field(default=None, ge=0)
+    total_steps: int | None = Field(default=None, gt=0)
+    epoch: float | None = Field(default=None, ge=0)
+    loss: float | None = Field(default=None, ge=0)
+    eta: float | None = Field(default=None, ge=0)
+    updated_at: str | None = None
+    artifact_available: bool | None = None
+
+    @field_validator("final_loss", "elapsed_time", "epoch", "loss", "eta")
+    @classmethod
+    def _finite_non_negative_metric(cls, value: float | None) -> float | None:
+        if value is not None and (not math.isfinite(value) or value < 0):
+            raise ValueError("Training metrics must be finite and non-negative")
+        return value
 
 
 _ABSOLUTE_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)[^\s,;\]\)}]+")
@@ -143,6 +159,14 @@ class TrainingRunSummaryActivity(_TrainingActivityBase):
     completed_at: str | None = None
     final_loss: float | None = None
     elapsed_time: float | None = None
+    phase: str | None = None
+    step: int | None = Field(default=None, ge=0)
+    total_steps: int | None = Field(default=None, gt=0)
+    epoch: float | None = Field(default=None, ge=0)
+    loss: float | None = Field(default=None, ge=0)
+    eta: float | None = Field(default=None, ge=0)
+    updated_at: str | None = None
+    artifact_available: bool | None = None
 
 
 TrainingActivity: TypeAlias = Annotated[
@@ -214,6 +238,14 @@ def training_activity_for(
         completed_at=value.completed_at,
         final_loss=value.final_loss,
         elapsed_time=value.elapsed_time,
+        phase=value.phase,
+        step=value.step,
+        total_steps=value.total_steps,
+        epoch=value.epoch,
+        loss=value.loss,
+        eta=value.eta,
+        updated_at=value.updated_at,
+        artifact_available=value.artifact_available,
     )
 
 

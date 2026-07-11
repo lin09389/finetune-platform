@@ -124,6 +124,14 @@ def test_training_activity_projection_has_stable_ids_and_uses_only_safe_display_
         "completed_at": "2026-07-11T00:01:00Z",
         "final_loss": None,
         "elapsed_time": None,
+        "phase": None,
+        "step": None,
+        "total_steps": None,
+        "epoch": None,
+        "loss": None,
+        "eta": None,
+        "updated_at": None,
+        "artifact_available": None,
     }
     assert "private" not in str([proposal_activity, submission_activity, run_activity])
     assert "super-secret" not in str([proposal_activity, submission_activity, run_activity])
