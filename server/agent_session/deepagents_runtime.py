@@ -391,6 +391,12 @@ class DeepAgentsSessionRunner:
             return True, ""
         last_summary = ""
         while issues := store.completion_issues(policy):
+            if any(issue.get("reason_code") == "diff_coverage_required" for issue in issues):
+                # An Agent cannot reconstruct a missing immutable record after
+                # the write boundary.  Do not send it through a second tool
+                # loop; retain the existing manual-review terminal path.
+                self._mark_trajectory_manual_review(session_id, issues, store)
+                return False, last_summary
             state = store.load()
             correction_count = int(state.get("auto_corrections") or 0)
             if correction_count >= int(policy.get("max_auto_corrections") or 0):

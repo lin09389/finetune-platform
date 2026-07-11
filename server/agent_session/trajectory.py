@@ -17,6 +17,11 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from .coding_diff import (
+    CODING_DIFF_CONTRACT_VERSION,
+    build_coding_diff_payload,
+    workspace_relative_path,
+)
 from .execution_context import AgentDefinition
 
 try:
@@ -399,6 +404,9 @@ class TrajectoryStateStore:
             writes = dict(state.get("writes") or {})
             writes[path] = sequence
             state["writes"] = writes
+            successful_write_sequences = list(state.get("successful_write_sequences") or [])
+            successful_write_sequences.append(sequence)
+            state["successful_write_sequences"] = successful_write_sequences
             state["last_write_sequence"] = sequence
             state["last_verification_sequence"] = 0
             state["verified_paths"] = []
@@ -422,6 +430,48 @@ class TrajectoryStateStore:
             {"step": step, "trajectory_guard": self.public_summary(state)},
         )
         return state
+
+    def persist_coding_diff(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Persist immutable review evidence for an already-recorded write."""
+        sequence = int(payload.get("write_sequence") or 0)
+        if payload.get("contract_version") != CODING_DIFF_CONTRACT_VERSION or sequence <= 0:
+            raise ValueError("Invalid Coding Agent diff payload")
+        if payload.get("review_status") != "ready":
+            raise ValueError("Coding Agent diff payload must be ready for review")
+        relative_path = workspace_relative_path(str(payload.get("path") or ""))
+        if payload.get("path") != relative_path or payload.get("changed_files") != [relative_path]:
+            raise ValueError("Coding Agent diff payload contains an unsafe path")
+        state = self.load()
+        if sequence not in set(state.get("successful_write_sequences") or []):
+            raise ValueError("Coding Agent diff must reference a successful write")
+
+        part = self.repository.add_part(
+            self.session_id,
+            "diff",
+            status="completed",
+            title=f"代码变更：{relative_path}",
+            content=str(payload.get("diff") or ""),
+            payload=payload,
+        )
+        diff_sequences = list(state.get("diff_write_sequences") or [])
+        if sequence not in diff_sequences:
+            diff_sequences.append(sequence)
+        state["diff_write_sequences"] = sorted(diff_sequences)
+        state["latest_diff_part_id"] = part.get("id")
+        self._save(state)
+        self._publish(
+            "coding_diff_ready",
+            f"代码审阅材料已准备：{relative_path}",
+            {
+                "part_id": part.get("id"),
+                "part_type": "diff",
+                "status": "completed",
+                "review_status": "ready",
+                "write_sequence": sequence,
+                "part": part,
+            },
+        )
+        return part
 
     def block(self, tool: str, path: str, reason_code: str, message: str) -> ToolMessage:
         state = self.load()
@@ -564,12 +614,25 @@ class TrajectoryStateStore:
         )
 
     def completion_issues(self, policy: dict[str, Any]) -> list[dict[str, Any]]:
-        if not policy.get("enabled") or not policy.get("require_verification_after_write"):
+        if not policy.get("enabled"):
             return []
         state = self.load()
         writes = dict(state.get("writes") or {})
         if not writes:
             return []
+        successful_write_sequences = {
+            int(sequence)
+            for sequence in state.get("successful_write_sequences") or []
+            if int(sequence) > 0
+        }
+        covered_sequences = {
+            int((part.get("payload") or {}).get("write_sequence") or 0)
+            for part in self.repository.list_parts(self.session_id)
+            if part.get("type") == "diff"
+            and (part.get("payload") or {}).get("contract_version") == CODING_DIFF_CONTRACT_VERSION
+            and (part.get("payload") or {}).get("review_status") == "ready"
+        }
+        uncovered_sequences = sorted(successful_write_sequences - covered_sequences)
         last_write = int(state.get("last_write_sequence") or 0)
         verified = int(state.get("last_verification_sequence") or 0)
         doc_paths = {path for path in writes if Path(path).suffix.lower() in DOCUMENT_EXTENSIONS}
@@ -578,6 +641,21 @@ class TrajectoryStateStore:
         non_doc_paths = set(writes) - doc_paths
         command_verified = verified > last_write
         issues: list[dict[str, Any]] = []
+        if uncovered_sequences:
+            issues.append(
+                {
+                    "reason_code": "diff_coverage_required",
+                    "write_sequences": uncovered_sequences,
+                    "paths": sorted(
+                        str(step.get("path") or "")
+                        for step in state.get("steps") or []
+                        if int(step.get("sequence") or 0) in uncovered_sequences
+                    ),
+                    "message": "成功写入缺少已持久化的代码 diff 审阅材料，不能完成会话。",
+                }
+            )
+        if not policy.get("require_verification_after_write"):
+            return issues
         if non_doc_paths and not command_verified:
             issues.append(
                 {
@@ -623,6 +701,8 @@ class TrajectoryStateStore:
             "read_paths": sorted((current.get("reads") or {}).keys()),
             "directory_paths": sorted((current.get("directories") or {}).keys()),
             "written_paths": sorted((current.get("writes") or {}).keys()),
+            "successful_write_sequences": list(current.get("successful_write_sequences") or []),
+            "diff_write_sequences": list(current.get("diff_write_sequences") or []),
             "verified_paths": list(current.get("verified_paths") or []),
             "reread_required": list(current.get("reread_required") or []),
             "auto_corrections": int(current.get("auto_corrections") or 0),
@@ -656,6 +736,8 @@ class TrajectoryStateStore:
             "reads": {},
             "directories": {},
             "writes": {},
+            "successful_write_sequences": [],
+            "diff_write_sequences": [],
             "verified_paths": [],
             "last_write_sequence": 0,
             "last_verification_sequence": 0,
@@ -766,7 +848,7 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         elif tool in {"glob", "grep"}:
             self.store.record_step("observation", tool=tool, path=path, success=success)
         elif tool in WRITE_TOOLS and path:
-            self.store.record_step(
+            state = self.store.record_step(
                 "write",
                 tool=tool,
                 path=path,
@@ -780,6 +862,17 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                     "static_validation_passed": static_validation.valid if static_validation else None,
                 },
             )
+            if success and snapshot is not None and local_path is not None:
+                after_snapshot = await asyncio.to_thread(self._snapshot, local_path)
+                payload = build_coding_diff_payload(
+                    path=path,
+                    before_existed=snapshot.existed,
+                    before_content=snapshot.content,
+                    after_existed=after_snapshot.existed,
+                    after_content=after_snapshot.content,
+                    write_sequence=int(state.get("sequence") or 0),
+                )
+                self.store.persist_coding_diff(payload)
         elif tool == "execute":
             command = str(args.get("command") or "")
             if is_verification_command(command):

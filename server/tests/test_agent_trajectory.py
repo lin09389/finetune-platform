@@ -5,12 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import ToolMessage
-from langgraph.prebuilt.tool_node import ToolCallRequest
-
-from agent_session.repository import AgentSessionRepository
+from agent_session.coding_diff import build_coding_diff_payload
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.repository import AgentSessionRepository
 from agent_session.trajectory import (
     TrajectoryGuardMiddleware,
     TrajectoryStateStore,
@@ -19,7 +17,8 @@ from agent_session.trajectory import (
     score_trajectory,
     validate_file_syntax,
 )
-
+from langchain_core.messages import ToolMessage
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 POLICY = {
     "enabled": True,
@@ -352,7 +351,17 @@ def test_completion_gate_auto_corrects_with_same_session_state(tmp_path: Path):
     store = TrajectoryStateStore(repository, notify, session["id"])
     store.begin_run()
     store.record_step("read", tool="read_file", path="/workspace/app.py")
-    store.record_step("write", tool="edit_file", path="/workspace/app.py")
+    write_state = store.record_step("write", tool="edit_file", path="/workspace/app.py")
+    store.persist_coding_diff(
+        build_coding_diff_payload(
+            path="/workspace/app.py",
+            before_existed=True,
+            before_content=b"old\n",
+            after_existed=True,
+            after_content=b"new\n",
+            write_sequence=write_state["sequence"],
+        )
+    )
 
     class FakeGraph:
         calls = 0
