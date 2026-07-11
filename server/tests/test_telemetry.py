@@ -39,9 +39,14 @@ def test_registry_bounds_series_and_is_thread_safe():
     assert "finetune_telemetry_dropped_series_total 98" in payload
 
 
-def test_metrics_route_is_available_from_common_behavior_for_every_profile():
+def test_metrics_route_is_available_from_common_behavior_for_every_profile(monkeypatch):
     from apps.factory import _register_common_behavior
     from apps.profiles import ApplicationProfile
+    import apps.factory as factory_module
+
+    # Non-production keeps local scrapers working without a JWT. Production
+    # gates /metrics behind auth when ENABLE_AUTH is on.
+    monkeypatch.setattr(factory_module.settings, "enable_auth", False)
 
     app = FastAPI()
     app.state.profile = "agent"
@@ -52,3 +57,20 @@ def test_metrics_route_is_available_from_common_behavior_for_every_profile():
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
     assert "finetune_http_requests_total" in response.text
+
+
+def test_metrics_requires_auth_in_production_when_auth_is_enabled(monkeypatch):
+    from apps.factory import _register_common_behavior
+    from apps.profiles import ApplicationProfile
+    import apps.factory as factory_module
+
+    monkeypatch.setattr(factory_module.settings, "enable_auth", True)
+    monkeypatch.setattr(factory_module.settings, "environment", "production")
+
+    app = FastAPI()
+    app.state.profile = "agent"
+    _register_common_behavior(app, ApplicationProfile.AGENT)
+
+    response = TestClient(app).get("/metrics")
+
+    assert response.status_code == 401

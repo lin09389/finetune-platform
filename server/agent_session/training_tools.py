@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import threading
 from typing import Any, Literal
 
 from agent_training.errors import AgentTrainingError
@@ -15,6 +17,8 @@ from training_engine.schemas import TrainingConfigInput
 
 TRAINING_TOOL_NAMES = frozenset({"propose_training", "submit_training", "get_training_summary"})
 _ABSOLUTE_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)[^\s,;\]\)}]+")
+_GRANT_LOCKS: dict[str, threading.Lock] = {}
+_GRANT_LOCKS_GUARD = threading.Lock()
 
 
 class ProposeTrainingInput(BaseModel):
@@ -59,6 +63,15 @@ def training_submission_interrupt_metadata(metadata: dict[str, Any] | None) -> d
     return updated
 
 
+def _session_grant_lock(session_id: str) -> threading.Lock:
+    with _GRANT_LOCKS_GUARD:
+        lock = _GRANT_LOCKS.get(session_id)
+        if lock is None:
+            lock = threading.Lock()
+            _GRANT_LOCKS[session_id] = lock
+        return lock
+
+
 def grant_approved_training_submissions(
     repository: Any,
     permission_part: dict[str, Any],
@@ -88,44 +101,70 @@ def grant_approved_training_submissions(
     proposal_ids = [proposal_id for proposal_id in proposal_ids if proposal_id]
     if not proposal_ids:
         return
-    session = repository.get_session(session_id) or {}
-    if not training_tools_enabled_for_session(session):
-        return
-    metadata = dict(session.get("metadata") or {})
-    grants = metadata.get("approved_training_submissions")
-    grants = list(grants) if isinstance(grants, list) else []
-    permission_part_id = str(permission_part.get("id") or "")
-    for proposal_id in proposal_ids:
-        grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
-    metadata["approved_training_submissions"] = grants
-    repository.update_session(session_id, metadata=metadata)
+    with _session_grant_lock(session_id):
+        session = repository.get_session(session_id) or {}
+        if not training_tools_enabled_for_session(session):
+            return
+        metadata = dict(session.get("metadata") or {})
+        grants = metadata.get("approved_training_submissions")
+        grants = list(grants) if isinstance(grants, list) else []
+        permission_part_id = str(permission_part.get("id") or "")
+        for proposal_id in proposal_ids:
+            grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
+        metadata["approved_training_submissions"] = grants
+        repository.update_session(session_id, metadata=metadata)
 
 
 def consume_training_submission_grant(repository: Any, session_id: str, proposal_id: str) -> bool:
     """Consume exactly one matching official approval before calling training."""
 
-    session = repository.get_session(session_id) or {}
-    if not training_tools_enabled_for_session(session):
-        return False
-    metadata = dict(session.get("metadata") or {})
-    grants = metadata.get("approved_training_submissions")
-    if not isinstance(grants, list):
-        return False
-    index = next(
-        (
-            offset
-            for offset, item in enumerate(grants)
-            if isinstance(item, dict) and str(item.get("proposal_id") or "") == proposal_id
-        ),
-        None,
-    )
-    if index is None:
-        return False
-    next_grants = list(grants)
-    next_grants.pop(index)
-    metadata["approved_training_submissions"] = next_grants
-    repository.update_session(session_id, metadata=metadata)
-    return True
+    with _session_grant_lock(session_id):
+        session = repository.get_session(session_id) or {}
+        if not training_tools_enabled_for_session(session):
+            return False
+        metadata = dict(session.get("metadata") or {})
+        grants = metadata.get("approved_training_submissions")
+        if not isinstance(grants, list):
+            return False
+        index = next(
+            (
+                offset
+                for offset, item in enumerate(grants)
+                if isinstance(item, dict) and str(item.get("proposal_id") or "") == proposal_id
+            ),
+            None,
+        )
+        if index is None:
+            return False
+        next_grants = list(grants)
+        next_grants.pop(index)
+        metadata["approved_training_submissions"] = next_grants
+        repository.update_session(session_id, metadata=metadata)
+        return True
+
+
+def restore_training_submission_grant(
+    repository: Any,
+    session_id: str,
+    proposal_id: str,
+    *,
+    permission_part_id: str = "restored-after-failed-submit",
+) -> None:
+    """Return a grant when submission fails after consume but before task creation."""
+
+    proposal_id = str(proposal_id or "").strip()
+    if not session_id or not proposal_id:
+        return
+    with _session_grant_lock(session_id):
+        session = repository.get_session(session_id) or {}
+        if not training_tools_enabled_for_session(session):
+            return
+        metadata = dict(session.get("metadata") or {})
+        grants = metadata.get("approved_training_submissions")
+        grants = list(grants) if isinstance(grants, list) else []
+        grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
+        metadata["approved_training_submissions"] = grants
+        repository.update_session(session_id, metadata=metadata)
 
 
 def safe_training_payload(value: Any) -> Any:
@@ -144,6 +183,34 @@ def _session_owner_id(session: dict[str, Any]) -> str | None:
     metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
     owner_id = str(metadata.get("user_id") or "").strip()
     return owner_id or None
+
+
+def _session_may_read_training_task(
+    repository: Any,
+    *,
+    session_id: str,
+    owner_id: str | None,
+    task_id: str,
+) -> bool:
+    """Restrict summary reads to the Agent session that owns the training link.
+
+    Repositories without a training-link store (simple unit doubles) stay open
+    so pure tool-adapter tests remain focused. Production AgentSessionRepository
+    always exposes get_training_link.
+    """
+
+    getter = getattr(repository, "get_training_link", None)
+    if not callable(getter):
+        return True
+    link = getter(task_id)
+    if not isinstance(link, dict):
+        return False
+    if str(link.get("session_id") or "") != session_id:
+        return False
+    link_owner = str(link.get("owner_id") or "").strip() or None
+    if owner_id and link_owner and owner_id != link_owner:
+        return False
+    return True
 
 
 def _proposal_projection(proposal: Any) -> dict[str, Any]:
@@ -217,12 +284,16 @@ def build_training_tools(
                 )
             )
         try:
-            submission = training_service.submit_training(
+            # Offload blocking preflight + orchestrator work so the Agent event
+            # loop stays responsive; preflight itself is also loop-safe.
+            submission = await asyncio.to_thread(
+                training_service.submit_training,
                 ApprovedTrainingAction(proposal_id=proposal_id, approved=True),
                 owner_id=owner_id,
                 session_id=session_id,
             )
         except Exception as exc:
+            restore_training_submission_grant(repository, session_id, proposal_id)
             return _json_tool_result(_error_projection(exc))
         result = _tool_result_from_activity(submission)
         try:
@@ -241,8 +312,31 @@ def build_training_tools(
         return _json_tool_result(result)
 
     async def get_training_summary(task_id: str) -> str:
+        if not _session_may_read_training_task(
+            repository,
+            session_id=session_id,
+            owner_id=owner_id,
+            task_id=task_id,
+        ):
+            return _json_tool_result(
+                safe_training_payload(
+                    {
+                        "task_id": task_id,
+                        "status": "failed",
+                        "code": "training_run_forbidden",
+                        "error": "Training run is not visible to this Agent session.",
+                    }
+                )
+            )
         try:
-            return _json_tool_result(_summary_projection(training_service.get_training_run_summary(task_id)))
+            return _json_tool_result(
+                _summary_projection(
+                    await asyncio.to_thread(
+                        training_service.get_training_run_summary,
+                        task_id,
+                    )
+                )
+            )
         except Exception as exc:
             return _json_tool_result(_error_projection(exc))
 
@@ -273,6 +367,7 @@ __all__ = [
     "build_training_tools",
     "consume_training_submission_grant",
     "grant_approved_training_submissions",
+    "restore_training_submission_grant",
     "safe_training_payload",
     "training_submission_interrupt_metadata",
     "training_tools_enabled_for_session",

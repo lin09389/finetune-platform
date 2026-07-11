@@ -44,13 +44,19 @@ class _Repository:
 class _TrainingService:
     def __init__(self):
         self.submissions = []
+        self.propose_scopes = []
+        self.submit_scopes = []
+        self.fail_submit_once = False
 
     async def propose_training(self, request, **scope):
         assert request.config.model_id == "tiny-model"
+        self.propose_scopes.append(scope)
         return TrainingProposal(
             proposal_id="proposal-1",
             config=request.config,
             status="ready",
+            owner_id=scope.get("owner_id"),
+            session_id=scope.get("session_id"),
             warnings=["Output would be C:\\private\\output"],
         )
 
@@ -71,6 +77,10 @@ class _TrainingService:
         )
 
     def submit_training(self, action, **scope):
+        self.submit_scopes.append(scope)
+        if self.fail_submit_once:
+            self.fail_submit_once = False
+            raise RuntimeError("orchestrator unavailable")
         self.submissions.append(action)
         return TrainingSubmission(proposal_id=action.proposal_id, task_id="task-1", status="queued")
 
@@ -189,6 +199,100 @@ def test_submission_reports_live_sync_degraded_after_training_side_effect_succee
         "sync_message": "Training started, but live progress is temporarily unavailable.",
     }
     assert [action.proposal_id for action in service.submissions] == ["proposal-1"]
+
+
+def test_tools_forward_owner_and_session_scope_to_the_training_service():
+    repository = _Repository()
+    service = _TrainingService()
+    session = {
+        "id": "session-train",
+        "agent_id": "build",
+        "metadata": {"task_mode": "train", "user_id": "alice"},
+    }
+    propose, submit, _ = build_training_tools(session, repository=repository, training_service=service)
+
+    asyncio.run(propose.ainvoke({"training_config": {"model_id": "tiny-model", "dataset_id": "tiny-dataset"}}))
+    grant_approved_training_submissions(
+        repository,
+        {
+            "session_id": "session-train",
+            "id": "permission-1",
+            "payload": {
+                "official_hitl": True,
+                "action_requests": [{"name": "submit_training", "args": {"proposal_id": "proposal-1"}}],
+            },
+        },
+        [{"type": "approve"}],
+    )
+    asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"}))
+
+    assert service.propose_scopes == [{"owner_id": "alice", "session_id": "session-train"}]
+    assert service.submit_scopes == [{"owner_id": "alice", "session_id": "session-train"}]
+    assert repository.training_links[0]["owner_id"] == "alice"
+
+
+def test_failed_submission_restores_the_one_time_grant_for_retry():
+    repository = _Repository()
+    service = _TrainingService()
+    service.fail_submit_once = True
+    submit = build_training_tools(_session(), repository=repository, training_service=service)[1]
+    grant_approved_training_submissions(
+        repository,
+        {
+            "session_id": "session-train",
+            "id": "permission-1",
+            "payload": {
+                "official_hitl": True,
+                "action_requests": [{"name": "submit_training", "args": {"proposal_id": "proposal-1"}}],
+            },
+        },
+        [{"type": "approve"}],
+    )
+
+    failed = json.loads(asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"})))
+    assert failed["status"] == "failed"
+    assert service.submissions == []
+
+    # Grant was restored; the next attempt can succeed without re-approval.
+    approved = json.loads(asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"})))
+    assert approved == {"proposal_id": "proposal-1", "task_id": "task-1", "status": "queued"}
+
+
+def test_summary_is_denied_when_the_training_link_belongs_to_another_session():
+    class _LinkedRepository(_Repository):
+        def get_training_link(self, task_id):
+            assert task_id == "task-1"
+            return {
+                "task_id": "task-1",
+                "session_id": "session-other",
+                "owner_id": "bob",
+                "proposal_id": "proposal-1",
+            }
+
+    service = _TrainingService()
+    summary = build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)[2]
+    denied = json.loads(asyncio.run(summary.ainvoke({"task_id": "task-1"})))
+
+    assert denied["status"] == "failed"
+    assert denied["code"] == "training_run_forbidden"
+
+
+def test_summary_is_allowed_for_the_session_that_owns_the_training_link():
+    class _LinkedRepository(_Repository):
+        def get_training_link(self, task_id):
+            return {
+                "task_id": "task-1",
+                "session_id": "session-train",
+                "owner_id": None,
+                "proposal_id": "proposal-1",
+            }
+
+    service = _TrainingService()
+    summary = build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)[2]
+    result = json.loads(asyncio.run(summary.ainvoke({"task_id": "task-1"})))
+
+    assert result["task_id"] == "task-1"
+    assert result["status"] == "completed"
 
 
 def test_successful_training_tool_results_reconstruct_strict_timeline_activities():

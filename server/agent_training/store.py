@@ -51,8 +51,8 @@ class TrainingProposalStore:
                     VALUES (?, ?, ?, 0)
                     ON CONFLICT(proposal_id) DO UPDATE SET
                         payload=excluded.payload,
-                        created_at=excluded.created_at,
-                        submission_claimed=0
+                        created_at=excluded.created_at
+                    WHERE agent_training_proposals.submission_claimed = 0
                     """,
                     (proposal.proposal_id, payload, proposal.created_at.isoformat()),
                 )

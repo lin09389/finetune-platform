@@ -109,7 +109,11 @@ def _can_access_workspace(workspace: dict[str, Any], user_id: str | None, is_adm
     if user_id is None:
         return True  # Internal callers and compatibility tests must explicitly opt out of subject scoping.
     owner_id = str(workspace.get("owner_id") or "").strip()
-    return bool(owner_id and (owner_id == user_id or is_admin))
+    if not owner_id:
+        # Legacy metadata written before owner scoping remains usable on
+        # single-machine installs. Explicitly owned workspaces stay isolated.
+        return True
+    return owner_id == user_id or is_admin
 
 
 def _require_accessible_workspace(workspace_id: str, user: TokenPayload) -> dict[str, Any]:

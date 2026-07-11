@@ -266,8 +266,14 @@ class AgentTrainingService:
             ) from exc
 
     def _validate_submission_config(self, config) -> None:
-        """Repeat the complete preflight at approval time before task creation."""
+        """Repeat the complete preflight at approval time before task creation.
+
+        DeepAgents tools run on the asyncio event loop.  ``asyncio.run`` is
+        illegal there, so when a loop is already running the preflight is
+        executed in a short-lived worker thread that owns its own loop.
+        """
         import asyncio
+        from concurrent.futures import ThreadPoolExecutor
 
         try:
             validate_release_supported_features(config)
@@ -277,15 +283,17 @@ class AgentTrainingService:
                 "Training proposal no longer passes release validation; request a new proposal.",
                 details={"error": str(exc)},
             ) from exc
+
+        def _run_preflight():
+            return asyncio.run(TrainingValidator.validate_config(config, self._settings))
+
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            validation = asyncio.run(TrainingValidator.validate_config(config, self._settings))
+            validation = _run_preflight()
         else:
-            raise AgentTrainingError(
-                "submission_requires_worker_thread",
-                "Approved training submission must run outside the event loop so preflight can complete.",
-            )
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                validation = executor.submit(_run_preflight).result()
         if validation.errors:
             raise AgentTrainingError(
                 "proposal_stale",

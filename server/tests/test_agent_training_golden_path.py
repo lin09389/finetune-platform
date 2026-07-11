@@ -25,6 +25,7 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "agent_training_golden_path.
 class _Repository:
     def __init__(self, session: dict[str, object]):
         self.session = session
+        self.training_links: list[dict[str, object]] = []
 
     def get_session(self, session_id: str):
         assert session_id == self.session["id"]
@@ -35,19 +36,25 @@ class _Repository:
         self.session = {**self.session, "metadata": metadata}
         return self.session
 
+    def create_training_link(self, **link):
+        self.training_links.append(link)
+        return link
+
 
 class _TrainingService:
     def __init__(self):
         self.submissions: list[str] = []
 
-    async def propose_training(self, request):
+    async def propose_training(self, request, **scope):
         return TrainingProposal(
             proposal_id="proposal-train-001",
             config=request.config,
             status="ready",
+            owner_id=scope.get("owner_id"),
+            session_id=scope.get("session_id"),
         )
 
-    def submit_training(self, action):
+    def submit_training(self, action, **scope):
         self.submissions.append(action.proposal_id)
         return TrainingSubmission(proposal_id=action.proposal_id, task_id="task-train-001", status="queued")
 

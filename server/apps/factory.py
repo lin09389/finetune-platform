@@ -78,7 +78,6 @@ _PUBLIC_PATHS = {
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
-    "/metrics",
 }
 _LOCAL_AGENT_AUTH_FALLBACK_PREFIXES = (
     "/agents",
@@ -194,6 +193,13 @@ async def authentication_middleware(request: Request, call_next):
     if not settings.enable_auth or request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path.rstrip("/") or "/"
+    # Local-first scrapers may read process metrics without a token. Production
+    # and staging keep the endpoint behind the same JWT gate as other APIs.
+    if path == "/metrics":
+        from security.runtime_policy import is_production_environment
+
+        if not is_production_environment(settings):
+            return await call_next(request)
     if (
         path in _PUBLIC_PATHS
         or path.startswith("/docs/")

@@ -331,6 +331,58 @@ def test_resolve_agent_workspace_rejects_a_workspace_owned_by_another_user(tmp_p
         workspace_api.resolve_agent_workspace("ws_other", None, user_id="user-b")
 
 
+def test_legacy_workspace_without_owner_id_remains_accessible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    saved_workspace = tmp_path / "saved"
+    saved_workspace.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(
+        workspace_api,
+        "workspaces",
+        {
+            "ws_legacy": {
+                "id": "ws_legacy",
+                "name": "Legacy",
+                "local_path": str(saved_workspace),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "workspace.local_paths.load_workspace_metadata",
+        lambda: {
+            "ws_legacy": {
+                "id": "ws_legacy",
+                "name": "Legacy",
+                "local_path": str(saved_workspace),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "workspace.path_policy.load_workspace_metadata",
+        lambda: {
+            "ws_legacy": {
+                "id": "ws_legacy",
+                "name": "Legacy",
+                "local_path": str(saved_workspace),
+            }
+        },
+    )
+
+    project_path, workspace_id = workspace_api.resolve_agent_workspace(
+        "ws_legacy",
+        None,
+        user_id="user-any",
+    )
+
+    assert workspace_id == "ws_legacy"
+    assert project_path == str(saved_workspace.resolve())
+
+
 def test_resolve_agent_workspace_rejects_unknown_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import importlib
 

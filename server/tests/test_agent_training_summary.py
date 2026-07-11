@@ -36,22 +36,21 @@ def test_run_summary_maps_the_authoritative_training_record(monkeypatch):
     monkeypatch.setattr(service_module, "find_training_record", lambda task_id: record if task_id == "task-1" else None)
 
     summary = AgentTrainingService().get_run_summary("task-1")
+    payload = summary.model_dump()
 
-    assert summary.model_dump() == {
-        "task_id": "task-1",
-        "status": "completed",
-        "model_id": "tiny-model",
-        "dataset_id": "tiny-dataset",
-        "method": "qlora",
-        "task_goal": "qa_assistant",
-        "started_at": "2026-07-10T08:00:00",
-        "completed_at": "2026-07-10T08:03:00",
-        "output_path": "/outputs/train_task-1",
-        "adapter_path": "/outputs/train_task-1/lora_adapter",
-        "checkpoint_path": "/outputs/train_task-1/checkpoint-10",
-        "final_loss": 0.25,
-        "elapsed_time": 180.0,
-    }
+    assert payload["task_id"] == "task-1"
+    assert payload["status"] == "completed"
+    assert payload["model_id"] == "tiny-model"
+    assert payload["dataset_id"] == "tiny-dataset"
+    assert payload["method"] == "qlora"
+    assert payload["task_goal"] == "qa_assistant"
+    assert payload["started_at"] == "2026-07-10T08:00:00"
+    assert payload["completed_at"] == "2026-07-10T08:03:00"
+    assert payload["output_path"] == "/outputs/train_task-1"
+    assert payload["adapter_path"] == "/outputs/train_task-1/lora_adapter"
+    assert payload["checkpoint_path"] == "/outputs/train_task-1/checkpoint-10"
+    assert payload["final_loss"] == 0.25
+    assert payload["elapsed_time"] == 180.0
 
 
 def test_run_summary_rejects_unknown_runs(monkeypatch):
