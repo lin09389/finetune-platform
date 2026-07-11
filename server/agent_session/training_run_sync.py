@@ -111,6 +111,7 @@ class TrainingRunReconciler:
         event_limit: int = 100,
         interval_seconds: float = 1.0,
         max_backoff_seconds: float = 15.0,
+        missing_grace_attempts: int = 5,
     ) -> None:
         self.repository = repository
         self.event_source = event_source
@@ -119,6 +120,7 @@ class TrainingRunReconciler:
         self.event_limit = max(1, min(int(event_limit), 1000))
         self.interval_seconds = max(0.05, float(interval_seconds))
         self.max_backoff_seconds = max(self.interval_seconds, float(max_backoff_seconds))
+        self.missing_grace_attempts = max(1, int(missing_grace_attempts))
         self._task: asyncio.Task[None] | None = None
         self._closed = False
 
@@ -154,9 +156,18 @@ class TrainingRunReconciler:
 
     def _reconcile_once(self) -> int:
         updated_links = 0
+        first_error: Exception | None = None
         for link in self.repository.list_training_links_for_reconciliation(limit=self.batch_size):
-            if self._reconcile_link(link):
-                updated_links += 1
+            try:
+                if self._reconcile_link(link):
+                    updated_links += 1
+            except Exception as exc:
+                task_id = str(link.get("task_id") or "")
+                if task_id:
+                    self.repository.record_training_sync_issue(task_id, missing=False)
+                first_error = first_error or exc
+        if first_error is not None:
+            raise RuntimeError("One or more Agent training links could not be reconciled") from first_error
         return updated_links
 
     def _reconcile_link(self, link: dict[str, Any]) -> bool:
@@ -164,13 +175,16 @@ class TrainingRunReconciler:
         if not task_id:
             return False
         after_sequence = int(link.get("last_event_sequence") or 0)
-        events = self.event_source.list_events(task_id, after_sequence, self.event_limit)
-        if not events:
-            return False
         summary = self.event_source.get_run_summary(task_id)
         if summary is None:
-            # A potentially lagging worker store is retried; no invented failure
-            # or path-bearing event payload is persisted.
+            status = self.repository.record_training_sync_issue(
+                task_id,
+                missing=True,
+                missing_after=self.missing_grace_attempts,
+            )
+            return status is not None
+        events = self.event_source.list_events(task_id, after_sequence, self.event_limit)
+        if not events:
             return False
         activity = training_activity_for(summary).model_dump()
         changed = False

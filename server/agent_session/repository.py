@@ -149,6 +149,7 @@ class AgentSessionRepository:
                     part_id TEXT NOT NULL UNIQUE,
                     last_event_sequence INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'queued',
+                    sync_failures INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -160,6 +161,16 @@ class AgentSessionRepository:
             )
         self._ensure_subtask_columns()
         self._ensure_subtask_event_columns()
+        self._ensure_training_link_columns()
+
+    def _ensure_training_link_columns(self) -> None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute("PRAGMA table_info(agent_training_links)").fetchall()
+            existing = {row["name"] for row in rows}
+            if "sync_failures" not in existing:
+                conn.execute(
+                    "ALTER TABLE agent_training_links ADD COLUMN sync_failures INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _ensure_subtask_columns(self) -> None:
         expected = {
@@ -457,7 +468,8 @@ class AgentSessionRepository:
                     ("completed" if terminal else "running", "训练运行", str((activity or payload.get("training_activity") or {}).get("summary") or "Training run updated."), _json(payload), now, link["part_id"]),
                 )
                 changed = conn.execute(
-                    """UPDATE agent_training_links SET last_event_sequence = ?, status = ?, updated_at = ?
+                    """UPDATE agent_training_links
+                       SET last_event_sequence = ?, status = ?, sync_failures = 0, updated_at = ?
                        WHERE task_id = ? AND last_event_sequence < ?""",
                     (sequence, effective_status, now, task_id, sequence),
                 ).rowcount
@@ -466,6 +478,64 @@ class AgentSessionRepository:
             return True
 
         return bool(self.run_write_with_retry(operation))
+
+    def record_training_sync_issue(
+        self,
+        task_id: str,
+        *,
+        missing: bool,
+        missing_after: int = 5,
+    ) -> str | None:
+        """Persist a safe degraded/missing projection without inventing an event cursor."""
+        now = _now()
+        threshold = max(1, int(missing_after))
+
+        def operation() -> str | None:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                link = conn.execute(
+                    "SELECT * FROM agent_training_links WHERE task_id = ?", (task_id,)
+                ).fetchone()
+                if link is None:
+                    return None
+                current = str(link["status"] or "queued")
+                if current in {"completed", "failed", "cancelled", "stopped", "interrupted", "missing"}:
+                    return current
+                failures = int(link["sync_failures"] or 0) + 1
+                next_status = "missing" if missing and failures >= threshold else "degraded"
+                part = conn.execute(
+                    "SELECT payload FROM agent_parts WHERE id = ?", (link["part_id"],)
+                ).fetchone()
+                if part is None:
+                    raise ValueError("Training link timeline part is missing")
+                payload = _load(part["payload"], {})
+                activity = payload.get("training_activity")
+                if not isinstance(activity, dict):
+                    activity = {}
+                activity = dict(activity)
+                activity["status"] = next_status
+                activity["summary"] = (
+                    "Training task record is unavailable and needs review."
+                    if next_status == "missing"
+                    else "Live training progress is temporarily unavailable."
+                )
+                payload["training_activity"] = activity
+                conn.execute(
+                    "UPDATE agent_parts SET status = ?, content = ?, payload = ?, updated_at = ? WHERE id = ?",
+                    (
+                        "completed" if next_status == "missing" else "running",
+                        activity["summary"],
+                        _json(payload),
+                        now,
+                        link["part_id"],
+                    ),
+                )
+                conn.execute(
+                    "UPDATE agent_training_links SET status = ?, sync_failures = ?, updated_at = ? WHERE task_id = ?",
+                    (next_status, failures, now, task_id),
+                )
+                return next_status
+
+        return self.run_write_with_retry(operation)
 
     def add_event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         event_id = f"age_{uuid.uuid4().hex}"

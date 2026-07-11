@@ -169,3 +169,26 @@ def test_local_sqlite_source_returns_ordered_task_events_and_none_for_missing_jo
     assert [event.sequence for event in source.list_events("task-1", 0, 10)] == [1, 2]
     assert source.get_run_summary("missing") is None
     assert source.get_run_summary("task-1").task_id == "task-1"
+
+
+def test_missing_job_uses_bounded_grace_and_persists_safe_terminal_state(tmp_path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    _session(repository, "session-a")
+    link = repository.create_training_link(
+        session_id="session-a", owner_id="alice", proposal_id="proposal-1", task_id="task-1"
+    )
+    reconciler = TrainingRunReconciler(
+        repository=repository,
+        event_source=_Source([], None),
+        missing_grace_attempts=2,
+    )
+
+    assert asyncio.run(reconciler.reconcile_once()) == 1
+    assert repository.get_training_link("task-1")["status"] == "degraded"
+    assert repository.get_part(link["part_id"])["payload"]["training_activity"]["status"] == "degraded"
+    assert asyncio.run(reconciler.reconcile_once()) == 1
+    assert repository.get_training_link("task-1")["status"] == "missing"
+    activity = repository.get_part(link["part_id"])["payload"]["training_activity"]
+    assert activity["status"] == "missing"
+    assert "path" not in str(activity).lower()
+    assert repository.list_training_links_for_reconciliation() == []
