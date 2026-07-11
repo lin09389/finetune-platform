@@ -98,3 +98,20 @@ export const staggerItem: Variants = {
   initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0, transition: transitions.base },
 };
+
+/** Compatibility presets built from the canonical token values. */
+export const messageVariants: Variants = fadeVariants;
+export const cardVariants: Variants = {
+  ...staggerItem,
+  hover: { y: -1, transition: transitions.fast },
+};
+export const slideVariants: Variants = {
+  initial: { opacity: 0, x: -6 },
+  animate: { opacity: 1, x: 0, transition: transitions.base },
+  exit: { opacity: 0, x: 6, transition: transitions.fast },
+};
+export const scaleVariants: Variants = {
+  initial: { opacity: 0, scale: 0.98 },
+  animate: { opacity: 1, scale: 1, transition: transitions.base },
+  exit: { opacity: 0, scale: 0.98, transition: transitions.fast },
+};

@@ -1,12 +1,7 @@
 import { m } from 'framer-motion';
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  containerVariants,
-  itemFromLeft,
-  itemVariants,
-  scaleItem,
-  useMotion,
-} from '../../hooks/useMotion';
+import { buttonVariants, staggerContainer, staggerItem, transitions } from '../../theme/motion-tokens';
+import { useMotionConfig } from '../motion/useMotionConfig';
 
 // ====================================================
 // MotionList — stagger 容器
@@ -19,9 +14,9 @@ interface MotionListProps {
   layout?: boolean | "position" | "size";
 }
 
-export function MotionList({ children, stagger = 0.07, className, style, layout }: MotionListProps) {
-  const { skip } = useMotion();
-  if (skip)
+export function MotionList({ children, stagger: _stagger, className, style, layout }: MotionListProps) {
+  const { shouldReduceMotion, getSafeVariants } = useMotionConfig();
+  if (shouldReduceMotion)
     return (
       <div className={className} style={style}>
         {children}
@@ -32,9 +27,9 @@ export function MotionList({ children, stagger = 0.07, className, style, layout 
       layout={layout}
       className={className}
       style={style}
-      variants={containerVariants(stagger)}
-      initial="hidden"
-      animate="show"
+      variants={getSafeVariants(staggerContainer)}
+      initial="initial"
+      animate="animate"
     >
       {children}
     </m.div>
@@ -57,9 +52,9 @@ interface MotionItemProps {
 }
 
 const variantMap = {
-  up: itemVariants,
-  scale: scaleItem,
-  left: itemFromLeft,
+  up: staggerItem,
+  scale: { ...staggerItem, initial: { opacity: 0, scale: 0.98 } },
+  left: { ...staggerItem, initial: { opacity: 0, x: -6 } },
 };
 
 export function MotionItem({
@@ -71,8 +66,8 @@ export function MotionItem({
   layout,
   layoutId,
 }: MotionItemProps) {
-  const { skip } = useMotion();
-  if (skip)
+  const { shouldReduceMotion, getSafeVariants } = useMotionConfig();
+  if (shouldReduceMotion)
     return (
       <div className={className} style={style} onClick={onClick}>
         {children}
@@ -84,10 +79,11 @@ export function MotionItem({
       layoutId={layoutId}
       className={className}
       style={style}
-      variants={variantMap[variant]}
+      variants={getSafeVariants(variantMap[variant])}
       onClick={onClick}
-      whileHover={onClick ? { opacity: 0.95 } : undefined}
-      whileTap={onClick ? { opacity: 0.85 } : undefined}
+      whileHover={onClick ? { scale: 1.01, y: -1 } : undefined}
+      whileTap={onClick ? { scale: 0.99, y: 0 } : undefined}
+      exit={{ opacity: 0, y: -6, transition: transitions.fast }}
     >
       {children}
     </m.div>
@@ -108,8 +104,8 @@ interface MotionCardProps {
 }
 
 export function MotionCard({ children, className, style, onClick, lift = false, layout, layoutId }: MotionCardProps) {
-  const { skip } = useMotion();
-  if (skip)
+  const { shouldReduceMotion, getSafeVariants } = useMotionConfig();
+  if (shouldReduceMotion)
     return (
       <div className={className} style={style} onClick={onClick}>
         {children}
@@ -121,13 +117,13 @@ export function MotionCard({ children, className, style, onClick, lift = false, 
       layoutId={layoutId}
       className={className}
       style={style}
-      variants={itemVariants}
+      variants={getSafeVariants(staggerItem)}
       onClick={onClick}
       whileHover={
         lift ? { boxShadow: 'var(--shadow-md)' } : { borderColor: 'var(--border-hover)' }
       }
-      whileTap={onClick ? { opacity: 0.85 } : undefined}
-      transition={{ duration: 0.15 }}
+      whileTap={onClick ? { scale: 0.99, y: 0 } : undefined}
+      transition={transitions.fast}
     >
       {children}
     </m.div>
@@ -161,14 +157,14 @@ export function CountUp({
   const frameRef = useRef<number>(0);
   const startRef = useRef<number | null>(null);
   const startValRef = useRef(0);
-  const { skip } = useMotion();
+  const { shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     displayRef.current = display;
   }, [display]);
 
   useEffect(() => {
-    if (skip) {
+    if (shouldReduceMotion) {
       setDisplay(value);
       return;
     }
@@ -191,7 +187,7 @@ export function CountUp({
 
     frameRef.current = requestAnimationFrame(animateNum);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [duration, skip, value]);
+  }, [duration, shouldReduceMotion, value]);
 
   const formatted = display.toFixed(decimals);
   const combinedClassName = `${className || ''} tabular-nums`.trim();
@@ -217,8 +213,8 @@ interface FadeInSectionProps {
 }
 
 export function FadeInSection({ children, delay = 0, className, style, layout, layoutId }: FadeInSectionProps) {
-  const { skip } = useMotion();
-  if (skip)
+  const { shouldReduceMotion } = useMotionConfig();
+  if (shouldReduceMotion)
     return (
       <div className={className} style={style}>
         {children}
@@ -230,9 +226,9 @@ export function FadeInSection({ children, delay = 0, className, style, layout, l
       layoutId={layoutId}
       className={className}
       style={style}
-      initial={{ opacity: 0, y: 16, filter: 'blur(4px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ delay, duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...transitions.base, delay }}
     >
       {children}
     </m.div>
@@ -251,8 +247,8 @@ interface MotionButtonProps {
 }
 
 export function MotionButton({ children, className, style, onClick, disabled }: MotionButtonProps) {
-  const { skip } = useMotion();
-  if (skip || disabled)
+  const { shouldReduceMotion } = useMotionConfig();
+  if (shouldReduceMotion || disabled)
     return (
       <div className={className} style={style} onClick={!disabled ? onClick : undefined}>
         {children}
@@ -263,9 +259,9 @@ export function MotionButton({ children, className, style, onClick, disabled }: 
       className={className}
       style={style}
       onClick={onClick}
-      whileHover={{ opacity: 0.95 }}
-      whileTap={{ opacity: 0.85 }}
-      transition={{ duration: 0.15 }}
+      whileHover="hover"
+      whileTap="tap"
+      variants={buttonVariants}
     >
       {children}
     </m.div>

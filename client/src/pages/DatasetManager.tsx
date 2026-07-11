@@ -7,14 +7,17 @@ import {
   InboxOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
-import { Drawer, Popconfirm, Progress, Space, Tag, message } from 'antd';
+import { Drawer, Popconfirm, Progress, Space, Tag } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GlassCard from '../components/shared/GlassCard';
+import EmptyState from '../components/shared/EmptyState';
+import { SkeletonCard } from '../components/shared/LoadingState';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
 import JSONDataEditor from '../components/shared/JSONDataEditor';
 import { useOperation } from '../hooks/useOperation';
+import { notify } from '../utils/notify';
 import {
   analyzeDataset,
   deleteDataset,
@@ -33,7 +36,7 @@ export default function DatasetManager() {
   const navigate = useNavigate();
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
   const operation = useOperation();
-  const [, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +57,7 @@ export default function DatasetManager() {
       const list = await getDatasetList();
       setDatasets(list);
     } catch (error) {
-      message.error('获取数据集列表失败');
+      notify.error('获取数据集列表失败');
     } finally {
       setLoading(false);
     }
@@ -81,11 +84,11 @@ export default function DatasetManager() {
           const blob = new Blob([byteArray]);
           const file = new File([blob], fileData.name, { type: 'application/json' });
           const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
-          message.success('数据集上传成功');
+          notify.success('数据集上传成功');
           addDataset(result);
           void fetchDatasets();
         } catch (error: unknown) {
-          message.error(getApiErrorMessage(error, '数据集上传失败'));
+          notify.error(getApiErrorMessage(error, '数据集上传失败'));
         } finally {
           setLoading(false);
           setUploadProgress(null);
@@ -103,11 +106,11 @@ export default function DatasetManager() {
       setLoading(true);
       setUploadProgress(0);
       const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
-      message.success('数据集上传成功');
+      notify.success('数据集上传成功');
       addDataset(result);
       void fetchDatasets();
     } catch (error: unknown) {
-      message.error(getApiErrorMessage(error, '数据集上传失败'));
+      notify.error(getApiErrorMessage(error, '数据集上传失败'));
     } finally {
       setLoading(false);
       setUploadProgress(null);
@@ -155,7 +158,7 @@ export default function DatasetManager() {
       });
       setPreviewVisible(true);
     } catch (error) {
-      message.error('预览失败');
+      notify.error('预览失败');
     } finally {
       setPreviewLoading(false);
     }
@@ -169,7 +172,7 @@ export default function DatasetManager() {
       setAnalysisDatasetId(record.id);
       setAnalysisVisible(true);
     } catch (error: unknown) {
-      message.error(getApiErrorMessage(error, '分析失败'));
+      notify.error(getApiErrorMessage(error, '分析失败'));
     }
   };
 
@@ -180,7 +183,7 @@ export default function DatasetManager() {
 
   const openTrainingWithDataset = (datasetId = analysisDatasetId) => {
     if (!datasetId) {
-      message.warning('请先选择一个数据集');
+      notify.warning('请先选择一个数据集');
       return;
     }
 
@@ -198,10 +201,10 @@ export default function DatasetManager() {
         target_format: analysisData.recommended_target_format,
         task_goal: taskGoal,
       });
-      message.success(`已导出 ${result.sample_count} 条标准训练样本`);
+      notify.success(`已导出 ${result.sample_count} 条标准训练样本`);
       void fetchDatasets();
     } catch (error: unknown) {
-      message.error(getApiErrorMessage(error, '转换失败'));
+      notify.error(getApiErrorMessage(error, '转换失败'));
     }
   };
 
@@ -214,9 +217,9 @@ export default function DatasetManager() {
         test_ratio: 0.1,
         seed: 42,
       });
-      message.success('已生成 train / validation / test 切分');
+      notify.success('已生成 train / validation / test 切分');
     } catch (error: unknown) {
-      message.error(getApiErrorMessage(error, '切分失败'));
+      notify.error(getApiErrorMessage(error, '切分失败'));
     }
   };
 
@@ -225,13 +228,13 @@ export default function DatasetManager() {
       window.electronAPI.openFolder(path);
       return;
     }
-    message.info('浏览器模式无法直接打开本地目录，请在桌面端使用此操作。');
+    notify.info('浏览器模式无法直接打开本地目录，请在桌面端使用此操作。');
   };
 
   const getDatasetStripeColor = (format: string) => {
     if (format === 'jsonl') return 'var(--accent-primary)';
-    if (format === 'json') return 'var(--accent-primary)';
-    return 'var(--accent-primary, #6366f1)';
+    if (format === 'json') return 'var(--info)';
+    return 'var(--warning)';
   };
 
   const isElectron = typeof window !== 'undefined' && Boolean(window.electronAPI);
@@ -371,9 +374,22 @@ export default function DatasetManager() {
           后端服务未连接，请先启动服务。
         </div>
       ) : (
-        <MotionList layout className={styles.bentoGrid} stagger={0.08}>
-          {datasets.map(renderDatasetCard)}
-        </MotionList>
+        loading ? (
+          <div className={styles.bentoGrid} aria-label="正在加载数据集">
+            <SkeletonCard count={3} />
+          </div>
+        ) : datasets.length ? (
+          <MotionList layout className={styles.bentoGrid}>
+            {datasets.map(renderDatasetCard)}
+          </MotionList>
+        ) : (
+          <EmptyState
+            type="data"
+            title="还没有数据集"
+            description="上传 JSON 或 JSONL 文件后，可在这里预览、分析并进入训练。"
+            style={{ margin: '36px 0' }}
+          />
+        )
       )}
 
       <Drawer

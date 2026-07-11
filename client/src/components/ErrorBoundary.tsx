@@ -40,7 +40,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: '#f5f5f5',
+            background: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
           }}
         >
           <Result

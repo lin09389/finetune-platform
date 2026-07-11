@@ -16,6 +16,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
+import { motion } from 'framer-motion';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { AgentSessionUiTimelineItem, AgentSessionUiPendingPermission } from '../../services/api';
@@ -270,7 +271,14 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
         </span>
       </button>
       {expanded ? (
-        <div className={styles.executionDetails} id={detailsId}>
+        <motion.div
+          className={styles.executionDetails}
+          id={detailsId}
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+        >
           {output ? (
             <pre>{output}</pre>
           ) : (
@@ -286,7 +294,7 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
             )}
             {duration ? <span>{duration}</span> : null}
           </div>
-        </div>
+        </motion.div>
       ) : null}
     </div>
   );
@@ -328,7 +336,14 @@ export function DiffCard({
         </span>
       </button>
       {expanded ? (
-        <div className={styles.executionDetails} id={detailsId}>
+        <motion.div
+          className={styles.executionDetails}
+          id={detailsId}
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+        >
           {files.length > 0 ? (
             <ul>
               {files.slice(0, 5).map((file) => (
@@ -354,7 +369,7 @@ export function DiffCard({
             </ul>
           ) : null}
           {diff ? <pre>{diff}</pre> : null}
-        </div>
+        </motion.div>
       ) : null}
     </div>
   );
@@ -523,7 +538,14 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
         {running ? <LoadingOutlined spin /> : expanded ? <UpOutlined /> : <DownOutlined />}
       </button>
       {expanded ? (
-        <div className={styles.executionGroupDetails} id={detailsId}>
+        <motion.div
+          className={styles.executionGroupDetails}
+          id={detailsId}
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+        >
           {items.map((item) => {
             const failed = executionFailed(item);
             const active = item.status === 'running' || item.status === 'pending';
@@ -574,7 +596,7 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
               </div>
             );
           })}
-        </div>
+        </motion.div>
       ) : null}
     </section>
   );
@@ -872,17 +894,24 @@ export default function AgentRunTimeline({
             }}
             itemContent={(_, entry) =>
               isExecutionGroup(entry) ? (
-                <div className={styles.timelineExecutionGroup}>
+                <motion.div
+                  className={styles.timelineExecutionGroup}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.12 }}
+                >
                   <ExecutionGroup items={entry.items} />
-                </div>
+                </motion.div>
               ) : (
-                <TimelineItem
-                  item={entry}
-                  pendingPermission={pendingPermission}
-                  onDecidePermission={onDecidePermission}
-                  permissionBusy={permissionBusy}
-                  onOpenFile={onOpenFile}
-                />
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }}>
+                  <TimelineItem
+                    item={entry}
+                    pendingPermission={pendingPermission}
+                    onDecidePermission={onDecidePermission}
+                    permissionBusy={permissionBusy}
+                    onOpenFile={onOpenFile}
+                  />
+                </motion.div>
               )
             }
           />

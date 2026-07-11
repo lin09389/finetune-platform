@@ -169,7 +169,9 @@
   *,
   ::before,
   ::after {
-    @apply !animate-none !transition-none !transform-none;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }
 

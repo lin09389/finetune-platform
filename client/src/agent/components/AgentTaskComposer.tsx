@@ -1,5 +1,6 @@
 import { ArrowUpOutlined, StopOutlined } from '@ant-design/icons';
 import { Button, Input, Select, Tooltip } from 'antd';
+import { InteractiveButton } from '../../components/motion';
 import { useEffect, useRef, useState } from 'react';
 import type { AgentInfo, AgentSession } from '../../services/api';
 import styles from '../workbench/AgentWorkbench.module.css';
@@ -140,15 +141,16 @@ export default function AgentTaskComposer({
           </Tooltip>
         ) : null}
         <Tooltip title={submissionBlockedReason && !session ? submissionBlockedReason : (isRunning ? '追加消息到当前任务' : '提交任务')}>
-          <Button
-            type="primary"
-            shape="circle"
-            icon={<ArrowUpOutlined />}
+          <InteractiveButton
+            type="button"
+            variant="primary"
+            className={styles.composerSend}
             disabled={!draft.trim() || busy || Boolean(submissionBlockedReason && !session)}
-            loading={busy}
             onClick={() => void submit()}
             aria-label={isRunning ? '追加消息' : '提交任务'}
-          />
+          >
+            <ArrowUpOutlined />
+          </InteractiveButton>
         </Tooltip>
       </div>
     </div>

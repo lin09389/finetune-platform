@@ -678,6 +678,12 @@ describe('Agent Workbench orchestration', () => {
     const { result } = renderHook(() => useAgentWorkbench(transport));
 
     await waitFor(() => expect(result.current.state.hydrated).toBe(true));
+    act(() => {
+      result.current.actions.setTaskContext(
+        { id: 'ws-1', label: 'repo', projectPath: '/repo' },
+        'build',
+      );
+    });
     await act(async () => {
       await result.current.actions.submitTask({
         content: 'Inspect the repository',
@@ -794,6 +800,12 @@ describe('Agent Workbench orchestration', () => {
     });
     const { result } = renderHook(() => useAgentWorkbench(transport));
     await waitFor(() => expect(result.current.state.hydrated).toBe(true));
+    act(() => {
+      result.current.actions.setTaskContext(
+        { id: 'ws-1', label: 'repo', projectPath: '/repo' },
+        'build',
+      );
+    });
 
     await act(async () => {
       await expect(

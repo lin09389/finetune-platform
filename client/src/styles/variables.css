@@ -112,6 +112,18 @@
   --glass-blur: none;
   --glass-reflection: none;
 
+  /* 语义透明层：组件不得以白色 alpha 假设当前是深色主题。 */
+  --surface-subtle: rgba(61, 57, 41, 0.04);
+  --surface-muted: rgba(61, 57, 41, 0.08);
+  --surface-emphasis: rgba(61, 57, 41, 0.12);
+  --border-subtle: rgba(61, 57, 41, 0.08);
+  --border-muted: rgba(61, 57, 41, 0.16);
+  --chart-grid: rgba(61, 57, 41, 0.08);
+  --chart-axis: rgba(61, 57, 41, 0.2);
+  --chart-tick: var(--text-tertiary);
+  --spotlight-color: rgba(179, 84, 51, 0.10);
+  --spotlight-border: rgba(179, 84, 51, 0.28);
+
   /* ============================================
      过渡系统
      ============================================ */
@@ -305,6 +317,17 @@
   --glass-blur: none;
   --glass-reflection: none;
 
+  --surface-subtle: rgba(61, 57, 41, 0.04);
+  --surface-muted: rgba(61, 57, 41, 0.08);
+  --surface-emphasis: rgba(61, 57, 41, 0.12);
+  --border-subtle: rgba(61, 57, 41, 0.08);
+  --border-muted: rgba(61, 57, 41, 0.16);
+  --chart-grid: rgba(61, 57, 41, 0.08);
+  --chart-axis: rgba(61, 57, 41, 0.2);
+  --chart-tick: var(--text-tertiary);
+  --spotlight-color: rgba(179, 84, 51, 0.10);
+  --spotlight-border: rgba(179, 84, 51, 0.28);
+
   /* Sidebar 专用令牌 */
   --sidebar-bg: #f5f4ee;
   --sidebar-foreground: #3d3d3a;
@@ -421,6 +444,17 @@
   --glass-border: #3e3e38;
   --glass-blur: none;
   --glass-reflection: none;
+
+  --surface-subtle: rgba(241, 241, 239, 0.025);
+  --surface-muted: rgba(241, 241, 239, 0.06);
+  --surface-emphasis: rgba(241, 241, 239, 0.10);
+  --border-subtle: rgba(241, 241, 239, 0.06);
+  --border-muted: rgba(241, 241, 239, 0.14);
+  --chart-grid: rgba(241, 241, 239, 0.06);
+  --chart-axis: rgba(241, 241, 239, 0.16);
+  --chart-tick: var(--text-tertiary);
+  --spotlight-color: rgba(217, 119, 87, 0.14);
+  --spotlight-border: rgba(224, 141, 111, 0.32);
 
   /* Sidebar 专用令牌 - 精确值来自 colors_and_type.css .dark */
   --sidebar-bg: #1f1e1d;

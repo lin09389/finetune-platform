@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Suspense, lazy } from 'react';
 import type { AgentSessionUiTimelineItem } from '../../services/api';
 import { fadeVariants } from '../../theme/motion-tokens';
+import { SmoothLoader } from '../../components/motion';
 import { useMotionConfig } from '../../components/motion/useMotionConfig';
 import type { PanelResizeHandlers } from '../workbench/usePanelResize';
 import {
@@ -80,7 +81,7 @@ export default function AgentTerminalDock({
               exit="exit"
               style={{ width: '100%', height: '100%' }}
             >
-              <Suspense fallback={<div className={styles.panelLoading}>正在加载终端...</div>}>
+              <Suspense fallback={<div className={styles.panelLoading}><SmoothLoader size="sm" /></div>}>
                 <AgentTerminalPanel timeline={timeline} />
               </Suspense>
             </motion.div>

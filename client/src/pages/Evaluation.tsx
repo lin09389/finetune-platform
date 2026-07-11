@@ -558,7 +558,7 @@ export default function Evaluation() {
         flex: 1, padding: '12px 16px', borderRadius: 8, whiteSpace: 'pre-wrap',
         fontFamily: 'var(--font-mono)', fontSize: 13, color: type === 'error' ? 'var(--error)' : 'var(--text-primary)',
         background: type === 'accent' ? 'rgba(201, 100, 66, 0.04)' : type === 'error' ? 'rgba(214, 69, 69, 0.04)' : 'rgba(0, 0, 0, 0.3)',
-        border: type === 'accent' ? '1px solid rgba(201, 100, 66, 0.2)' : type === 'error' ? '1px solid rgba(214, 69, 69, 0.2)' : '1px solid rgba(255, 255, 255, 0.08)'
+        border: type === 'accent' ? '1px solid rgba(201, 100, 66, 0.2)' : type === 'error' ? '1px solid rgba(214, 69, 69, 0.2)' : '1px solid var(--border-subtle)'
       }}>
         {text}
       </div>
@@ -584,7 +584,7 @@ export default function Evaluation() {
         {/* Left Sidebar: History List */}
         <Col xs={24} lg={7} style={{ height: '100%' }}>
             <GlassCard style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <ClockCircleOutlined style={{ color: 'var(--text-secondary)' }} />
                     <span style={{ fontWeight: 500 }}>评估历史</span>
                 </div>
@@ -621,8 +621,8 @@ export default function Evaluation() {
                                                     marginBottom: 8,
                                                     transition: 'all 0.3s ease',
                                                     borderLeft: isSelected ? '4px solid var(--accent-primary)' : '4px solid transparent',
-                                                    background: isSelected ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.01)',
-                                                    border: isSelected ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
+                                                    background: isSelected ? 'var(--surface-muted)' : 'var(--surface-subtle)',
+                                                    border: isSelected ? '1px solid var(--border-muted)' : '1px solid transparent',
                                                 }}
                                                 className={styles.historyItemHover}
                                             >
@@ -801,7 +801,7 @@ export default function Evaluation() {
                                             percent={Number((value * 100).toFixed(1))}
                                             size={64}
                                             strokeColor="var(--accent-primary)"
-                                            trailColor="rgba(255,255,255,0.05)"
+                                            trailColor="var(--border-subtle)"
                                         />
                                     ) : null}
                                     <div style={{ flex: 1 }}>
@@ -826,11 +826,11 @@ export default function Evaluation() {
                         <MotionCard
                           key={index}
                           className={styles.evaluationCard}
-                          style={{ padding: '24px', background: 'var(--bg-elevated)', border: '1px solid rgba(255, 255, 255, 0.05)' }}
+                          style={{ padding: '24px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ background: 'rgba(255,255,255,0.1)', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                                <div style={{ background: 'var(--surface-emphasis)', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                                     {index + 1}
                                 </div>
                                 <Text style={{ color: 'var(--text-primary)', fontSize: 16, fontWeight: 500 }}>评估样本</Text>
@@ -841,7 +841,7 @@ export default function Evaluation() {
                                   size="small"
                                   type={record.human_score?.score === 'good' ? 'primary' : 'default'}
                                   icon={<LikeOutlined />}
-                                  style={record.human_score?.score === 'good' ? undefined : { background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: 'none' }}
+                                  style={record.human_score?.score === 'good' ? undefined : { background: 'var(--surface-subtle)', color: 'var(--text-secondary)', border: 'none' }}
                                 >
                                   好
                                 </Button>
@@ -851,7 +851,7 @@ export default function Evaluation() {
                                   size="small"
                                   type={record.human_score?.score === 'neutral' ? 'primary' : 'default'}
                                   icon={<MinusCircleOutlined />}
-                                  style={record.human_score?.score === 'neutral' ? undefined : { background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: 'none' }}
+                                  style={record.human_score?.score === 'neutral' ? undefined : { background: 'var(--surface-subtle)', color: 'var(--text-secondary)', border: 'none' }}
                                 >
                                   一般
                                 </Button>
@@ -862,7 +862,7 @@ export default function Evaluation() {
                                   danger={record.human_score?.score === 'bad'}
                                   type={record.human_score?.score === 'bad' ? 'primary' : 'default'}
                                   icon={<DislikeOutlined />}
-                                  style={record.human_score?.score === 'bad' ? undefined : { background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)', border: 'none' }}
+                                  style={record.human_score?.score === 'bad' ? undefined : { background: 'var(--surface-subtle)', color: 'var(--text-secondary)', border: 'none' }}
                                 >
                                   差
                                 </Button>
@@ -1014,7 +1014,7 @@ export default function Evaluation() {
                 />
             </div>
 
-            <div style={{ background: 'var(--bg-elevated)', padding: 20, borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ background: 'var(--bg-elevated)', padding: 20, borderRadius: 12, border: '1px solid var(--border-subtle)' }}>
                 {testMode === 'release' ? (
                     <div>
                       <Alert
@@ -1093,7 +1093,7 @@ export default function Evaluation() {
                 {
                 key: 'advanced',
                 label: <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 24, height: 24, background: 'rgba(255,255,255,0.1)', color: 'var(--text-secondary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>3</div>
+                    <div style={{ width: 24, height: 24, background: 'var(--surface-emphasis)', color: 'var(--text-secondary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>3</div>
                     高级设置
                 </span>,
                 children: (

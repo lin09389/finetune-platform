@@ -150,7 +150,7 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
   const preflightStatus = preflightResult?.status || null;
 
   return (
-    <div className={`deep-tech-panel ${styles.panelContainer}`}>
+    <div className={styles.panelContainer}>
       <div className={styles.panelHeader}>
         <ThunderboltOutlined className={styles.iconCyan} />
         <h2>控制台</h2>

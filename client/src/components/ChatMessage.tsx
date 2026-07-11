@@ -24,7 +24,7 @@ import ThinkingProcess from '../components/ThinkingProcess';
 
 const CodePreview = lazy(() => import('../components/CodePreview'));
 import { useTypewriter } from '../hooks/chat/useTypewriter';
-import { messageVariants, transitions } from '../theme/animations';
+import { messageVariants, transitions } from '../theme/motion-tokens';
 import type { KnowledgeSource, RetrievalInfo } from '../types';
 import styles from './ChatMessage.module.css';
 
@@ -363,7 +363,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
             isLoading && isAssistant ? styles.loadingBubble : ''
           }`}
           role="region"
-          aria-live={isUser ? 'off' : 'polite'}
+          aria-live={isUser || shouldShowStreamingContent ? 'off' : 'polite'}
           initial={{ scale: 0.98, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={transitions.springGentle}

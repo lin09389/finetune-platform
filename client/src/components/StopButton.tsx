@@ -8,7 +8,7 @@ import {
 import { Button, Popconfirm, Space, Tooltip, Typography } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
 import React, { useEffect, useState } from 'react';
-import { transitions } from '../theme/animations';
+import { transitions } from '../theme/motion-tokens';
 
 const { Text } = Typography;
 

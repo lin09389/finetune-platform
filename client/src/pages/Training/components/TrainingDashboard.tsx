@@ -163,7 +163,7 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
               onClick={() => setFilter(f)}
               style={{
                 fontSize: 9, padding: '1px 6px', borderRadius: 3,
-                border: `1px solid ${filter === f ? filterColors[f] : 'rgba(255,255,255,0.08)'}`,
+                border: `1px solid ${filter === f ? filterColors[f] : 'var(--border-subtle)'}`,
                 background: filter === f ? `${filterColors[f]}22` : 'transparent',
                 color: filter === f ? filterColors[f] : '#64748b',
                 cursor: 'pointer', fontWeight: 600, letterSpacing: '0.03em',
@@ -303,9 +303,9 @@ const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string;
                 fontSize: 11,
                 fontWeight: 600,
                 fontFamily: 'var(--font-mono)',
-                background: isActive ? 'rgba(201,100,66,0.15)' : isCompleted ? 'rgba(255,255,255,0.06)' : 'transparent',
-                color: isActive ? 'var(--accent-primary)' : isCompleted ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)',
-                border: `1px solid ${isActive ? 'rgba(201,100,66,0.3)' : isCompleted ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'}`,
+                background: isActive ? 'var(--accent-primary-light)' : isCompleted ? 'var(--surface-muted)' : 'transparent',
+                color: isActive ? 'var(--accent-primary)' : isCompleted ? 'var(--text-secondary)' : 'var(--text-disabled)',
+                border: `1px solid ${isActive ? 'var(--accent-primary)' : isCompleted ? 'var(--border-muted)' : 'var(--border-subtle)'}`,
                 transition: 'all 0.3s ease',
                 whiteSpace: 'nowrap',
               }}
@@ -316,7 +316,7 @@ const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string;
               )}
             </div>
             {index < PHASE_ORDER.length - 1 && (
-              <div style={{ width: 12, height: 1, background: isCompleted ? 'rgba(201,100,66,0.3)' : 'rgba(255,255,255,0.08)' }} />
+              <div style={{ width: 12, height: 1, background: isCompleted ? 'var(--accent-primary)' : 'var(--border-subtle)' }} />
             )}
           </React.Fragment>
         );
@@ -363,7 +363,7 @@ const CheckpointsSection = ({
             <div className={styles.snapshotMetrics}>
               {cp.metadata?.loss != null ? `Loss: ${Number(cp.metadata.loss).toFixed(4)}` : '--'}
             </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
               {formatCheckpointTime(cp.metadata?.saved_at) || formatCheckpointTime(cp.created)}
             </div>
             {onResume && currentTaskId && cp.valid && (status === 'idle' || status === 'completed' || status === 'failed') && (
@@ -531,7 +531,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               alignItems: 'center',
               gap: 8,
               fontFamily: 'var(--font-mono)',
-              color: 'rgba(255,255,255,0.35)',
+              color: 'var(--text-tertiary)',
               fontSize: 12,
             }}>
               <span style={{
@@ -554,7 +554,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
                 #{progress.queuePosition}
               </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
                 队列位置
               </div>
             </div>
@@ -652,7 +652,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               width: '100%',
             }}>
               {progress.actionableSuggestions.map((s, i) => (
-                <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
+                <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
                   • {s}
                 </div>
               ))}
@@ -789,12 +789,12 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     <stop offset="100%" stopColor="#FF6B6B" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                 <XAxis
                   dataKey="step"
-                  stroke="rgba(255,255,255,0.1)"
-                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                  stroke="var(--chart-axis)"
+                  tick={{ fill: 'var(--chart-tick)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  axisLine={{ stroke: 'var(--chart-axis)' }}
                 />
                 <YAxis
                   yAxisId="left"
@@ -810,7 +810,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <RechartsTooltip
                   contentStyle={{
                     backgroundColor: 'rgba(0,0,0,0.9)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    border: '1px solid var(--border-subtle)',
                     borderRadius: '8px',
                     fontFamily: 'var(--font-mono, monospace)',
                     fontSize: 11,
@@ -818,7 +818,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     padding: '10px 14px',
                     fontVariantNumeric: 'tabular-nums',
                   }}
-                  labelStyle={{ color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}
+                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: 4 }}
                 />
                 <Line
                   yAxisId="left" type="monotone" dataKey="loss"
@@ -839,7 +839,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'rgba(255,255,255,0.12)',
+              color: 'var(--text-disabled)',
               fontSize: 11,
               fontFamily: 'var(--font-mono, monospace)',
             }}>
@@ -868,12 +868,12 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     <stop offset="100%" stopColor="#7B61FF" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                 <XAxis
                   dataKey="step"
-                  stroke="rgba(255,255,255,0.1)"
-                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                  stroke="var(--chart-axis)"
+                  tick={{ fill: 'var(--chart-tick)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  axisLine={{ stroke: 'var(--chart-axis)' }}
                 />
                 <YAxis
                   stroke="transparent"
@@ -882,7 +882,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <RechartsTooltip
                   contentStyle={{
                     backgroundColor: 'rgba(0,0,0,0.9)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    border: '1px solid var(--border-subtle)',
                     borderRadius: '8px',
                     fontFamily: 'var(--font-mono, monospace)',
                     fontSize: 11,
@@ -890,7 +890,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     padding: '10px 14px',
                     fontVariantNumeric: 'tabular-nums',
                   }}
-                  labelStyle={{ color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}
+                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: 4 }}
                 />
                 <Area
                   type="monotone"

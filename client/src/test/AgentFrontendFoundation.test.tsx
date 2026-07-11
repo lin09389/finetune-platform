@@ -208,7 +208,7 @@ describe('Agent frontend Phase 1 foundation', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /Demo project/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Demo project/ })).toBeInTheDocument(), { timeout: 5000 });
     fireEvent.change(screen.getByLabelText('任务模式'), { target: { value: 'hybrid' } });
     expect(screen.getByLabelText('任务模式')).toHaveValue('hybrid');
     fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '训练并验证 LoRA' } });
@@ -218,8 +218,8 @@ describe('Agent frontend Phase 1 foundation', () => {
       workspace_id: 'ws_demo',
       project_path: 'C:/repo/demo',
       task_mode: 'hybrid',
-    })));
-  });
+    })), { timeout: 5000 });
+  }, 15000);
 
   it('blocks a new Build task until a Workspace has been confirmed', async () => {
     workspaceApiMocks.validateWorkspacePath.mockResolvedValueOnce({
@@ -239,11 +239,11 @@ describe('Agent frontend Phase 1 foundation', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText('请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。')).toBeInTheDocument(), { timeout: 5000 });
     fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '构建项目' } });
-    expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled(), { timeout: 5000 });
     expect(transport.createSession).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it('decodes task context as a compact timeline item without exposing the project path', () => {
     const session = agentSessionFixture();

@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import React from 'react';
+import React, { useId } from 'react';
+import { useMotionConfig } from './useMotionConfig';
 
 export interface NeonProgressRingProps {
   percent: number;
@@ -20,6 +21,7 @@ export function NeonProgressRing({
   children,
   gapDegree = 90
 }: NeonProgressRingProps) {
+  const { shouldReduceMotion } = useMotionConfig();
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -30,29 +32,13 @@ export function NeonProgressRing({
   const safePercent = Math.min(100, Math.max(0, percent));
   const rotation = 90 + (gapDegree / 2);
 
-  const emptyOffset = circumference;
   const targetOffset = circumference - (safePercent / 100) * dashFillLength;
 
-  const gradientId = `gradient-${Math.random().toString(36).substr(2, 9)}`;
-  const glowFilterId = `glow-${Math.random().toString(36).substr(2, 9)}`;
+  const instanceId = useId().replace(/:/g, '');
+  const gradientId = `progress-${instanceId}`;
 
   return (
     <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {/* Background Glow Overlay */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: size - strokeWidth * 2,
-          height: size - strokeWidth * 2,
-          borderRadius: '50%',
-          boxShadow: `0 0 50px ${glowColor}, inset 0 0 20px ${glowColor}`,
-          opacity: 0.25,
-          zIndex: 0,
-        }}
-      />
       <svg
         width={size}
         height={size}
@@ -64,13 +50,6 @@ export function NeonProgressRing({
             <stop offset="0%" stopColor={color} />
             <stop offset="100%" stopColor={glowColor} stopOpacity={0.8} />
           </linearGradient>
-          <filter id={glowFilterId} x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
         {/* Background Track - non gray, subtle tech outline */}
@@ -79,7 +58,7 @@ export function NeonProgressRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="rgba(255, 255, 255, 0.04)"
+          stroke="var(--border-subtle)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={`${dashFillLength} ${dashGap}`}
@@ -108,10 +87,9 @@ export function NeonProgressRing({
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
-          initial={{ strokeDashoffset: emptyOffset }}
+          initial={false}
           animate={{ strokeDashoffset: targetOffset }}
-          transition={{ duration: 1.5, ease: [0.23, 1, 0.32, 1] }}
-          filter={`url(#${glowFilterId})`}
+          transition={{ duration: shouldReduceMotion ? 0 : 0.35, ease: [0.23, 1, 0.32, 1] }}
         />
       </svg>
       <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>

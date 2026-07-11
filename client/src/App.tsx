@@ -1,5 +1,5 @@
 import { App as AntApp, ConfigProvider, Layout, Result, theme as antdTheme } from 'antd';
-import { AnimatePresence, motion, LazyMotion, domMax } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -21,6 +21,7 @@ import TechBackground from './components/shared/TechBackground';
 import ExperimentalRouteGuard from './capability/ExperimentalRouteGuard';
 import { setModalAdapter } from './utils/modal';
 import { setNotifyAdapter } from './utils/notify';
+import { getRouteTitle } from './routes/meta';
 
 const { Content } = Layout;
 
@@ -168,35 +169,6 @@ const routes = [
   { path: '/help', element: <HelpPanel /> },
 ];
 
-const routeTitles: Record<string, string> = {
-  '/dashboard': '概览',
-  '/device': '设备监控',
-  '/models': '模型运行中心',
-  '/datasets': '数据集',
-  '/training': '训练',
-  '/chat': 'Chat',
-  '/agent': 'Agent 工作台',
-  '/knowledge': '知识库',
-  '/workspace': '工作区',
-  '/memory': '记忆',
-  '/modelhub': '模型运行中心',
-  '/inference': '推理',
-  '/evaluation': '评估',
-  '/deployment': '部署',
-  '/history': '历史',
-  '/training-compare': '训练对比',
-  '/project-context': '项目上下文',
-  '/cloud-api': 'API Key',
-  '/cua-control': 'CUA 控制',
-  '/cua-recorder': '动作录制',
-  '/mcp': 'MCP 工具',
-  '/gateway': 'Gateway',
-  '/heartbeat': 'Heartbeat',
-  '/design-system': '设计系统',
-  '/feedback': '反馈',
-  '/help': '帮助',
-};
-
 function AppContent() {
   const { message, modal } = AntApp.useApp();
   const location = useLocation();
@@ -215,7 +187,7 @@ function AppContent() {
   const disconnectWarnedRef = useRef(false);
 
   useEffect(() => {
-    const title = routeTitles[location.pathname] || (location.pathname.startsWith('/share/') ? '共享对话' : '工作台');
+    const title = getRouteTitle(location.pathname);
     document.title = `${title} · Finetune Platform`;
   }, [location.pathname]);
 
@@ -477,11 +449,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <LazyMotion features={domMax} strict={false}>
-        <RuntimeContextProvider>
-          <AppContent />
-        </RuntimeContextProvider>
-      </LazyMotion>
+      <RuntimeContextProvider>
+        <AppContent />
+      </RuntimeContextProvider>
     </ThemeProvider>
   );
 }

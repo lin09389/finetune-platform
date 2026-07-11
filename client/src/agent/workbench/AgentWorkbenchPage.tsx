@@ -32,6 +32,7 @@ import AgentTaskContextBar from '../components/AgentTaskContextBar';
 import AgentTerminalDock from '../components/AgentTerminalDock';
 import AgentWorkspaceView from '../components/AgentWorkspaceView';
 import AgentActivityBar from '../components/AgentActivityBar';
+import { SmoothLoader } from '../../components/motion';
 import SubagentModal from '../components/SubagentModal';
 import WorkbenchSettingsDrawer from '../components/WorkbenchSettingsDrawer';
 import {
@@ -519,7 +520,7 @@ export default function AgentWorkbenchPage({
                 planCompleted={planCompleted}
                 planTotal={planTotal}
               />
-              <Suspense fallback={<div className={styles.panelLoading}>正在加载运行记录...</div>}>
+              <Suspense fallback={<div className={styles.panelLoading}><SmoothLoader size="md" /></div>}>
                 <AgentRunTimeline
                   timeline={timeline}
                   pendingLabel={composerOperation?.key.startsWith('submit:') ? composerOperation.label : undefined}

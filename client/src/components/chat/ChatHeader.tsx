@@ -11,7 +11,7 @@ import { Button, Dropdown, Space, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
-import { transitions } from '../../theme/animations';
+import { transitions } from '../../theme/motion-tokens';
 import { appModal } from '../../utils/modal';
 import styles from './ChatHeader.module.css';
 

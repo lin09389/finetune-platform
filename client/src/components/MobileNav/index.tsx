@@ -61,7 +61,7 @@ const bottomNavItems = [
   { key: '/agent', icon: <RobotOutlined />, label: 'Agent' },
   { key: '/chat', icon: <MessageOutlined />, label: '对话' },
   { key: '/training', icon: <PlayCircleOutlined />, label: '训练' },
-  { key: '/settings', icon: <SettingOutlined />, label: '设置' },
+  { key: '/workspace', icon: <SettingOutlined />, label: '工作区' },
 ];
 
 const MobileNav: React.FC = () => {
