@@ -140,6 +140,22 @@ class AgentSessionRepository:
                     ON agent_subtask_events(parent_session_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_type
                     ON agent_subtask_events(event_type);
+
+                CREATE TABLE IF NOT EXISTS agent_training_links (
+                    task_id TEXT PRIMARY KEY,
+                    proposal_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    owner_id TEXT,
+                    part_id TEXT NOT NULL UNIQUE,
+                    last_event_sequence INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_training_links_active
+                    ON agent_training_links(status, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_training_links_session
+                    ON agent_training_links(session_id);
                 """
             )
         self._ensure_subtask_columns()
@@ -313,6 +329,143 @@ class AgentSessionRepository:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM agent_parts WHERE session_id = ? ORDER BY created_at ASC", (session_id,)).fetchall()
         return [_row(row) or {} for row in rows]
+
+    def create_training_link(
+        self,
+        *,
+        session_id: str,
+        owner_id: str | None,
+        proposal_id: str,
+        task_id: str,
+    ) -> dict[str, Any]:
+        """Atomically create the one timeline card bound to an approved task.
+
+        The Worker never calls this method.  Repeating the identical request is
+        safe; attempting to rebind either task or proposal is rejected.
+        """
+        session_id, proposal_id, task_id = (str(value or "").strip() for value in (session_id, proposal_id, task_id))
+        owner_id = str(owner_id or "").strip() or None
+        if not session_id or not proposal_id or not task_id:
+            raise ValueError("Training links require session, proposal, and task identifiers")
+        now = _now()
+
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                session = conn.execute("SELECT metadata FROM agent_sessions WHERE id = ?", (session_id,)).fetchone()
+                if session is None:
+                    raise ValueError("Agent session not found")
+                metadata = _load(session["metadata"], {})
+                session_owner = str(metadata.get("user_id") or "").strip() or None
+                if session_owner != owner_id:
+                    raise PermissionError("Training link owner does not match Agent session owner")
+                if metadata.get("task_mode") not in {"train", "hybrid"}:
+                    raise ValueError("Only Train or Hybrid Agent sessions can link training tasks")
+                existing = conn.execute(
+                    "SELECT * FROM agent_training_links WHERE task_id = ? OR proposal_id = ?",
+                    (task_id, proposal_id),
+                ).fetchone()
+                if existing is not None:
+                    link = dict(existing)
+                    if (link["task_id"], link["proposal_id"], link["session_id"], link["owner_id"]) != (
+                        task_id, proposal_id, session_id, owner_id,
+                    ):
+                        raise ValueError("Training task or proposal is already bound to another Agent session")
+                    return _row(existing) or {}
+                part_id = f"agp_{uuid.uuid4().hex}"
+                activity = {
+                    "kind": "submission",
+                    "source_tool": "submit_training",
+                    "proposal_id": proposal_id,
+                    "task_id": task_id,
+                    "status": "queued",
+                    "summary": "Training task queued.",
+                }
+                conn.execute(
+                    """INSERT INTO agent_parts (id, session_id, type, status, title, content, payload, created_at, updated_at)
+                       VALUES (?, ?, 'tool_result', 'running', ?, ?, ?, ?, ?)""",
+                    (part_id, session_id, "训练运行", "Training task queued.", _json({"tool": "submit_training", "training_activity": activity}), now, now),
+                )
+                conn.execute(
+                    """INSERT INTO agent_training_links
+                       (task_id, proposal_id, session_id, owner_id, part_id, last_event_sequence, status, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 0, 'queued', ?, ?)""",
+                    (task_id, proposal_id, session_id, owner_id, part_id, now, now),
+                )
+            return self.get_training_link(task_id) or {}
+
+        return self.run_write_with_retry(operation)
+
+    @staticmethod
+    def _training_link_row(row: Any | None) -> dict[str, Any] | None:
+        return dict(row) if row is not None else None
+
+    def get_training_link(self, task_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            row = conn.execute("SELECT * FROM agent_training_links WHERE task_id = ?", (task_id,)).fetchone()
+        return self._training_link_row(row)
+
+    def get_terminal_training_link(self, task_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_training_links WHERE task_id = ? AND status IN ('completed', 'failed', 'cancelled', 'stopped', 'interrupted', 'missing')",
+                (task_id,),
+            ).fetchone()
+        return self._training_link_row(row)
+
+    def list_training_links_for_reconciliation(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM agent_training_links
+                   WHERE status NOT IN ('completed', 'failed', 'cancelled', 'stopped', 'interrupted', 'missing')
+                   ORDER BY updated_at ASC LIMIT ?""",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
+        return [self._training_link_row(row) or {} for row in rows]
+
+    def advance_training_link(
+        self,
+        task_id: str,
+        *,
+        sequence: int,
+        status: str,
+        activity: dict[str, Any] | None = None,
+    ) -> bool:
+        """CAS-advance a cursor and its one part in the same SQLite transaction."""
+        sequence = int(sequence)
+        if sequence < 0:
+            raise ValueError("Training event sequence must be non-negative")
+        now = _now()
+
+        def operation() -> bool:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                link = conn.execute("SELECT * FROM agent_training_links WHERE task_id = ?", (task_id,)).fetchone()
+                if link is None:
+                    return False
+                if sequence <= int(link["last_event_sequence"]):
+                    return False
+                current_status = str(link["status"] or "queued")
+                effective_status = current_status if current_status in {"completed", "failed", "cancelled", "stopped", "interrupted", "missing"} else status
+                existing_part = conn.execute("SELECT payload FROM agent_parts WHERE id = ?", (link["part_id"],)).fetchone()
+                if existing_part is None:
+                    raise ValueError("Training link timeline part is missing")
+                payload = _load(existing_part["payload"], {})
+                if activity is not None:
+                    payload["training_activity"] = activity
+                terminal = effective_status in {"completed", "failed", "cancelled", "stopped", "interrupted", "missing"}
+                conn.execute(
+                    "UPDATE agent_parts SET status = ?, title = ?, content = ?, payload = ?, updated_at = ? WHERE id = ?",
+                    ("completed" if terminal else "running", "训练运行", str((activity or payload.get("training_activity") or {}).get("summary") or "Training run updated."), _json(payload), now, link["part_id"]),
+                )
+                changed = conn.execute(
+                    """UPDATE agent_training_links SET last_event_sequence = ?, status = ?, updated_at = ?
+                       WHERE task_id = ? AND last_event_sequence < ?""",
+                    (sequence, effective_status, now, task_id, sequence),
+                ).rowcount
+                if changed != 1:
+                    raise RuntimeError("Training link cursor compare-and-advance lost its write race")
+            return True
+
+        return bool(self.run_write_with_retry(operation))
 
     def add_event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         event_id = f"age_{uuid.uuid4().hex}"
