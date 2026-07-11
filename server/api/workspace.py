@@ -120,8 +120,13 @@ def _require_accessible_workspace(workspace_id: str, user: TokenPayload) -> dict
 
 
 def _accessible_workspace_roots(user_id: str | None, is_admin: bool = False) -> set[Path]:
+    # Only persisted metadata may expand the filesystem allowlist.  Using the
+    # mutable process cache here would let an untrusted/incomplete record
+    # authorize its own local_path before it has passed registration.
+    from workspace.local_paths import load_workspace_metadata
+
     roots: set[Path] = set()
-    for workspace in workspaces.values():
+    for workspace in load_workspace_metadata().values():
         if not _can_access_workspace(workspace, user_id, is_admin):
             continue
         raw = str(workspace.get("local_path") or "").strip()
