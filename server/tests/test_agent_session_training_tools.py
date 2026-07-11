@@ -75,6 +75,11 @@ class _TrainingService:
         return TrainingSubmission(proposal_id=action.proposal_id, task_id="task-1", status="queued")
 
 
+class _FailingLinkRepository(_Repository):
+    def create_training_link(self, **link):
+        raise RuntimeError("agent link store unavailable")
+
+
 def _session(*, agent_id="build", task_mode="train"):
     return {"id": "session-train", "agent_id": agent_id, "metadata": {"task_mode": task_mode}}
 
@@ -162,6 +167,28 @@ def test_submission_requires_a_one_time_official_approval_grant():
     assert [action.model_dump() for action in service.submissions] == [{"proposal_id": "proposal-1", "approved": True}]
     assert repository.training_links == [{"session_id": "session-train", "owner_id": None, "proposal_id": "proposal-1", "task_id": "task-1"}]
     assert consume_training_submission_grant(repository, "session-train", "proposal-1") is False
+
+
+def test_submission_reports_live_sync_degraded_after_training_side_effect_succeeds():
+    repository = _FailingLinkRepository()
+    service = _TrainingService()
+    submit = build_training_tools(_session(), repository=repository, training_service=service)[1]
+    grant_approved_training_submissions(
+        repository,
+        {"session_id": "session-train", "id": "permission-1", "payload": {"official_hitl": True, "action_requests": [{"name": "submit_training", "args": {"proposal_id": "proposal-1"}}]}},
+        [{"type": "approve"}],
+    )
+
+    result = json.loads(asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"})))
+
+    assert result == {
+        "proposal_id": "proposal-1",
+        "task_id": "task-1",
+        "status": "queued",
+        "sync_status": "degraded",
+        "sync_message": "Training started, but live progress is temporarily unavailable.",
+    }
+    assert [action.proposal_id for action in service.submissions] == ["proposal-1"]
 
 
 def test_successful_training_tool_results_reconstruct_strict_timeline_activities():

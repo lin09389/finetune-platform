@@ -222,15 +222,23 @@ def build_training_tools(
                 owner_id=owner_id,
                 session_id=session_id,
             )
+        except Exception as exc:
+            return _json_tool_result(_error_projection(exc))
+        result = _tool_result_from_activity(submission)
+        try:
             repository.create_training_link(
                 session_id=session_id,
                 owner_id=owner_id,
                 proposal_id=submission.proposal_id,
                 task_id=submission.task_id,
             )
-            return _json_tool_result(_tool_result_from_activity(submission))
-        except Exception as exc:
-            return _json_tool_result(_error_projection(exc))
+        except Exception:
+            # The training side effect already succeeded. Never report the
+            # task itself as failed or invite a duplicate retry merely because
+            # the optional Workbench live-sync link could not be persisted.
+            result["sync_status"] = "degraded"
+            result["sync_message"] = "Training started, but live progress is temporarily unavailable."
+        return _json_tool_result(result)
 
     async def get_training_summary(task_id: str) -> str:
         try:
