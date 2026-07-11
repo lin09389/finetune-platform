@@ -115,3 +115,74 @@ contract with successful training tool outcomes, and Track B must decode only
 recognized shapes and render all other payloads generically. Until those tracks
 are integrated, the fixture and scenario tests freeze the required behavior but
 do not claim the production timeline has adopted the projection.
+
+## Live-sync recovery contract (Phase 6)
+
+`server/tests/fixtures/agent_training_live_sync.json` freezes the Phase 6
+control-plane contract independently of the reconciler implementation. It
+covers ordered progress, duplicate replay, API restart cursor recovery,
+browser refresh recovery, Worker outage/recovery, missing-job grace,
+cross-user rejection, terminal completion, and the artifact handoff.
+
+For a given authenticated owner, session, proposal, and task, exactly one
+persisted Agent part is created. Its `part_id` never changes during a replay,
+restart, refresh, outage, or terminal update. Training event sequences are
+strictly increasing at the persisted cursor: an event at or below the cursor is
+acknowledged without creating a new card or moving visible progress backward.
+
+The reconciler may display a safe `degraded` bridge state after bounded Worker
+read failures, while retaining the last authoritative progress. Once the
+Worker can be read again, the same card returns to the authoritative state.
+A job absent during its grace window remains pending; only after that bounded
+window may the card enter the safe `missing` state for manual review. A task
+link must be rejected when its owner and session binding do not match; no card
+may be attached to another user or session.
+
+The only artifact handoff is the label **Available in Models/Training** with
+the logical target `models_training`. Output, adapter, checkpoint, local-path,
+Worker identifier, raw event payload, prompt, token, and secret values are not
+part of this projection.
+
+The cursor is strictly monotonic. Unknown event kinds advance the cursor but
+leave the existing training card unchanged, preventing both unsafe rendering
+and an infinite replay loop. An event at or below a terminal card’s cursor
+cannot regress the terminal projection. A process crash after updating the
+part but before committing its cursor is safe to replay: the task still has one
+stable card, and the retry commits the same event cursor.
+
+The service owns at most one reconciler and processes a bounded link batch per
+wake-up. If the event source cannot be constructed, the Agent-only profile
+still starts; training sync is safely degraded instead of preventing coding
+workbench use. A task link’s owner, session, proposal, and task identity are
+immutable after creation.
+
+`build` sessions create no training links. In `hybrid` sessions, command,
+diff, and text parts coexist with the one stable training card. Training
+terminal state never changes the overall Agent session state, execution-plan
+state, or coding parts; refresh recovery retains that coding timeline.
+
+### Live-sync failure meanings
+
+- `degraded` means the bridge temporarily cannot read the authoritative Worker
+  state; it is not a training failure or completion.
+- `missing` means the authoritative job remained absent after the configured
+  grace window and needs manual review.
+- A duplicate/replayed sequence is harmless and must leave both the persisted
+  cursor and stable card identity intact.
+- An ownership mismatch is a security rejection: the task must never appear in
+  the requester’s timeline.
+
+### Local Phase 6 smoke procedure
+
+1. Start a `train` or `hybrid` Agent session and approve one proposal.
+2. Confirm that submission creates one training card, then watch queued,
+   loading, and running updates without asking the model for a summary.
+3. Refresh the Workbench and restart the API while the Worker continues; the
+   task and card IDs must stay unchanged and progress must resume from the
+   persisted cursor.
+4. Temporarily make the Worker record unavailable. Verify the existing card is
+   marked degraded, never completed or failed locally, then returns to running
+   when the Worker is available.
+5. Complete the task and verify the card exposes only **Available in
+   Models/Training**, never a filesystem path. Repeat as another user and
+   verify the task cannot be linked or displayed.

@@ -1,0 +1,183 @@
+{
+  "contract_version": 1,
+  "projection_location": "agent_parts.payload.training_activity",
+  "stable_identity": "Each task_id owns exactly one persisted Agent part_id for its owner_id and session_id.",
+  "safe_handoff": {
+    "label": "Available in Models/Training",
+    "target": "models_training",
+    "forbidden_values": ["output_path", "adapter_path", "checkpoint_path", "worker_id", "raw_event_payload"]
+  },
+  "scenarios": [
+    {
+      "id": "ordered-progress",
+      "task_id": "task-live-001",
+      "owner_id": "user-live-001",
+      "session_id": "session-live-001",
+      "proposal_id": "proposal-live-001",
+      "part_id": "part-training-task-live-001",
+      "events": [
+        {"sequence": 10, "status": "queued", "phase": "queued", "step": 0, "total_steps": 100, "updated_at": "2026-07-11T09:00:00Z"},
+        {"sequence": 20, "status": "running", "phase": "loading", "step": 0, "total_steps": 100, "elapsed_time": 5, "updated_at": "2026-07-11T09:00:05Z"},
+        {"sequence": 25, "kind": "unknown", "updated_at": "2026-07-11T09:00:10Z"},
+        {"sequence": 30, "status": "running", "phase": "training", "step": 40, "total_steps": 100, "epoch": 1, "loss": 0.442, "elapsed_time": 20, "eta": 30, "updated_at": "2026-07-11T09:00:20Z"}
+      ],
+      "expected": {"cursor": 30, "status": "running", "step": 40, "total_steps": 100}
+    },
+    {
+      "id": "duplicate-replay",
+      "task_id": "task-live-001",
+      "owner_id": "user-live-001",
+      "session_id": "session-live-001",
+      "proposal_id": "proposal-live-001",
+      "part_id": "part-training-task-live-001",
+      "initial_cursor": 20,
+      "events": [
+        {"sequence": 20, "status": "running", "phase": "loading", "step": 0, "total_steps": 100},
+        {"sequence": 30, "status": "running", "phase": "training", "step": 40, "total_steps": 100}
+      ],
+      "expected": {"cursor": 30, "part_count": 1, "applied_sequences": [30]}
+    },
+    {
+      "id": "api-restart-cursor-recovery",
+      "task_id": "task-live-002",
+      "owner_id": "user-live-002",
+      "session_id": "session-live-002",
+      "proposal_id": "proposal-live-002",
+      "part_id": "part-training-task-live-002",
+      "initial_cursor": 10,
+      "events": [
+        {"sequence": 20, "status": "running", "phase": "training", "step": 25, "total_steps": 100},
+        {"sequence": 30, "status": "running", "phase": "training", "step": 50, "total_steps": 100}
+      ],
+      "expected": {"cursor": 30, "part_count": 1, "restart_reuses_part_id": true}
+    },
+    {
+      "id": "refresh-recovery",
+      "task_id": "task-live-003",
+      "owner_id": "user-live-003",
+      "session_id": "session-live-003",
+      "proposal_id": "proposal-live-003",
+      "part_id": "part-training-task-live-003",
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 75, "total_steps": 100}],
+      "expected": {"cursor": 10, "part_count": 1, "refresh_reuses_part_id": true}
+    },
+    {
+      "id": "worker-outage-recovery",
+      "task_id": "task-live-004",
+      "owner_id": "user-live-004",
+      "session_id": "session-live-004",
+      "proposal_id": "proposal-live-004",
+      "part_id": "part-training-task-live-004",
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 30, "total_steps": 100}],
+      "outage": {"failures": 3, "sync_status": "degraded", "recovery_event": {"sequence": 20, "status": "running", "phase": "training", "step": 45, "total_steps": 100}},
+      "expected": {"cursor": 20, "status": "running", "sync_status": "healthy", "part_count": 1}
+    },
+    {
+      "id": "missing-job-grace",
+      "task_id": "task-live-005",
+      "owner_id": "user-live-005",
+      "session_id": "session-live-005",
+      "proposal_id": "proposal-live-005",
+      "part_id": "part-training-task-live-005",
+      "missing_job": {"grace_checks": 3, "final_status": "missing"},
+      "expected": {"cursor": 0, "status": "missing", "part_count": 1}
+    },
+    {
+      "id": "cross-user-rejection",
+      "task_id": "task-live-006",
+      "owner_id": "user-owner-006",
+      "session_id": "session-live-006",
+      "proposal_id": "proposal-live-006",
+      "part_id": "part-training-task-live-006",
+      "attempted_owner_id": "user-attacker-006",
+      "attempted_session_id": "session-attacker-006",
+      "attempted_task_id": "task-attacker-006",
+      "expected": {"rejected": true, "attacker_part_count": 0, "cursor": 0}
+    },
+    {
+      "id": "terminal-completion",
+      "task_id": "task-live-007",
+      "owner_id": "user-live-007",
+      "session_id": "session-live-007",
+      "proposal_id": "proposal-live-007",
+      "part_id": "part-training-task-live-007",
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 100, "total_steps": 100}, {"sequence": 20, "status": "completed", "phase": "completed", "step": 100, "total_steps": 100, "artifact_available": true}],
+      "expected": {"cursor": 20, "status": "completed", "artifact_available": true, "part_count": 1}
+    },
+    {
+      "id": "safe-artifact-handoff",
+      "task_id": "task-live-008",
+      "owner_id": "user-live-008",
+      "session_id": "session-live-008",
+      "proposal_id": "proposal-live-008",
+      "part_id": "part-training-task-live-008",
+      "events": [{"sequence": 10, "status": "completed", "phase": "completed", "step": 100, "total_steps": 100, "artifact_available": true}],
+      "expected": {"cursor": 10, "status": "completed", "artifact_handoff": {"label": "Available in Models/Training", "target": "models_training"}}
+    },
+    {
+      "id": "unknown-event-cursor-advance",
+      "task_id": "task-live-009",
+      "owner_id": "user-live-009",
+      "session_id": "session-live-009",
+      "proposal_id": "proposal-live-009",
+      "part_id": "part-training-task-live-009",
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 20, "total_steps": 100}, {"sequence": 20, "kind": "unknown"}],
+      "expected": {"cursor": 20, "status": "running", "part_count": 1}
+    },
+    {
+      "id": "terminal-old-event-cannot-regress",
+      "task_id": "task-live-010",
+      "owner_id": "user-live-010",
+      "session_id": "session-live-010",
+      "proposal_id": "proposal-live-010",
+      "part_id": "part-training-task-live-010",
+      "events": [{"sequence": 10, "status": "completed", "phase": "completed", "step": 100, "total_steps": 100}, {"sequence": 5, "status": "running", "phase": "training", "step": 90, "total_steps": 100}],
+      "expected": {"cursor": 10, "status": "completed", "part_count": 1}
+    },
+    {
+      "id": "crash-after-part-before-cursor",
+      "task_id": "task-live-011",
+      "owner_id": "user-live-011",
+      "session_id": "session-live-011",
+      "proposal_id": "proposal-live-011",
+      "part_id": "part-training-task-live-011",
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 60, "total_steps": 100}],
+      "expected": {"cursor": 10, "status": "running", "part_count": 1, "replay_after_crash": true}
+    },
+    {
+      "id": "agent-only-event-source-unavailable",
+      "expected": {"agent_startup": "available", "reconciler_started": false, "sync_status": "degraded"}
+    },
+    {
+      "id": "reconciler-singleton-bounded-batch",
+      "expected": {"service_instances": 1, "maximum_batch_size": 2}
+    },
+    {
+      "id": "build-session-exclusion",
+      "session": {"task_mode": "build", "coding_parts": ["part-command-012", "part-diff-012", "part-text-012"]},
+      "expected": {"training_link_count": 0, "training_card_count": 0}
+    },
+    {
+      "id": "hybrid-coding-coexistence",
+      "task_id": "task-live-013",
+      "owner_id": "user-live-013",
+      "session_id": "session-live-013",
+      "proposal_id": "proposal-live-013",
+      "part_id": "part-training-task-live-013",
+      "session": {"task_mode": "hybrid", "coding_parts": ["part-command-013", "part-diff-013", "part-text-013"]},
+      "events": [{"sequence": 10, "status": "running", "phase": "training", "step": 50, "total_steps": 100}],
+      "expected": {"cursor": 10, "part_count": 1, "coding_part_count": 3}
+    },
+    {
+      "id": "terminal-isolation-and-refresh",
+      "task_id": "task-live-014",
+      "owner_id": "user-live-014",
+      "session_id": "session-live-014",
+      "proposal_id": "proposal-live-014",
+      "part_id": "part-training-task-live-014",
+      "session": {"agent_status": "running", "execution_plan_status": "running", "coding_parts": ["part-command-014", "part-diff-014", "part-text-014"]},
+      "events": [{"sequence": 10, "status": "completed", "phase": "completed", "step": 100, "total_steps": 100}],
+      "expected": {"cursor": 10, "part_count": 1, "agent_status": "running", "execution_plan_status": "running", "coding_part_count_after_refresh": 3}
+    }
+  ]
+}
