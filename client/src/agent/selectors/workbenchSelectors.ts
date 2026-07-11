@@ -1,11 +1,64 @@
 import type { AgentPart, AgentSessionUiTimelineItem, AgentWorkspace } from '../../services/api';
 import { selectAttentionItems } from '../attention/selectAttentionItems';
-import { isTrainingToolName } from '../protocol/agentProtocol';
+import {
+  type CodingDiffReviewPayload,
+  isTrainingToolName,
+  selectCodingDiffReviewPayload,
+} from '../protocol/agentProtocol';
 import type { AgentRuntimeState } from '../runtime/agentRuntime';
 import { SESSION_STATUS_LABELS } from './sessionStatus';
 
 const asOptionalString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
+
+export interface CodingDiffReviewEntry {
+  item: AgentSessionUiTimelineItem;
+  payload: CodingDiffReviewPayload;
+}
+
+export interface CodingDiffReviewGroup {
+  path: string;
+  entries: CodingDiffReviewEntry[];
+}
+
+function chronologicalDiffEntries(entries: CodingDiffReviewEntry[]): CodingDiffReviewEntry[] {
+  return [...entries].sort(
+    (left, right) =>
+      left.payload.writeSequence - right.payload.writeSequence ||
+      String(left.item.created_at || '').localeCompare(String(right.item.created_at || '')) ||
+      left.item.id.localeCompare(right.item.id),
+  );
+}
+
+/**
+ * Projects persisted diff parts into per-file review records. It is pure over
+ * session parts/timeline items, so REST recovery and SSE updates share one
+ * projection instead of relying on browser-held diff state.
+ */
+export function selectCodingDiffReviewGroups(
+  items: AgentSessionUiTimelineItem[],
+): CodingDiffReviewGroup[] {
+  const byPath = new Map<string, CodingDiffReviewEntry[]>();
+  for (const item of items) {
+    const payload = selectCodingDiffReviewPayload(item);
+    if (!payload) continue;
+    const entries = byPath.get(payload.path) || [];
+    entries.push({ item, payload });
+    byPath.set(payload.path, entries);
+  }
+  return Array.from(byPath, ([path, entries]) => ({
+    path,
+    entries: chronologicalDiffEntries(entries),
+  })).sort((left, right) => {
+    const leftLatest = left.entries[left.entries.length - 1]!;
+    const rightLatest = right.entries[right.entries.length - 1]!;
+    return (
+      String(leftLatest.item.created_at || '').localeCompare(
+        String(rightLatest.item.created_at || ''),
+      ) || left.path.localeCompare(right.path)
+    );
+  });
+}
 
 function timelineFromPart(part: AgentPart): AgentSessionUiTimelineItem {
   const payload = safeTimelinePayload(part.payload || {});
@@ -61,7 +114,7 @@ const TRAINING_RESULT_FIELDS = new Set([
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -69,7 +122,9 @@ function safeTrainingConfig(value: unknown): Record<string, unknown> {
   const config = asRecord(value);
   if (!config) return {};
   return Object.fromEntries(
-    ['model_id', 'dataset_id', 'method'].flatMap((key) => key in config ? [[key, config[key]]] : []),
+    ['model_id', 'dataset_id', 'method'].flatMap((key) =>
+      key in config ? [[key, config[key]]] : [],
+    ),
   );
 }
 
@@ -99,7 +154,10 @@ function safeTimelinePayload(payload: Record<string, any>): Record<string, any> 
   };
 }
 
-function safeTimelineContent(content: string | undefined, payload: Record<string, any>): string | undefined {
+function safeTimelineContent(
+  content: string | undefined,
+  payload: Record<string, any>,
+): string | undefined {
   if (!isTrainingToolName(payload.tool) || !content) return content;
   try {
     const parsed = JSON.parse(content);
@@ -112,7 +170,8 @@ function safeTimelineContent(content: string | undefined, payload: Record<string
 export function selectTimeline(state: AgentRuntimeState): AgentSessionUiTimelineItem[] {
   const byId = new Map<string, AgentSessionUiTimelineItem>();
   for (const item of state.taskContextTimeline) {
-    if (!state.session || item.session_id === state.session.id) byId.set(item.id, safeTimelineItem(item));
+    if (!state.session || item.session_id === state.session.id)
+      byId.set(item.id, safeTimelineItem(item));
   }
   for (const item of state.workspace?.timeline || []) {
     byId.set(item.part_id || item.id, safeTimelineItem(item));
@@ -192,7 +251,8 @@ export function selectWorkspaceStatus(state: AgentRuntimeState): string {
   const failureKind = typeof metadata.failure_kind === 'string' ? metadata.failure_kind : '';
   const nextAction = typeof metadata.next_action === 'string' ? metadata.next_action : '';
   if (state.session?.status === 'needs_manual_review' || state.session?.status === 'failed') {
-    if (failureKind === 'configuration_error' || nextAction === 'configure_model') return '需要配置模型';
+    if (failureKind === 'configuration_error' || nextAction === 'configure_model')
+      return '需要配置模型';
     if (failureKind === 'process_restart') return '进程重启后已停止，可重新运行';
     if (failureKind === 'user_interrupted') return '已中断';
     if (failureKind === 'runtime_error') return '运行失败，需复核';
@@ -202,9 +262,7 @@ export function selectWorkspaceStatus(state: AgentRuntimeState): string {
     state.session?.metadata?.state?.current_phase ||
     state.session?.status ||
     '待命';
-  return (
-    SESSION_STATUS_LABELS[status] || status
-  );
+  return SESSION_STATUS_LABELS[status] || status;
 }
 
 export function selectAttentionCount(state: AgentRuntimeState): number {

@@ -6,7 +6,31 @@ import type {
   AgentWorkspace,
 } from '../../services/api';
 
-export type AgentConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
+export type AgentConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'open'
+  | 'reconnecting'
+  | 'closed'
+  | 'error';
+
+/** The persisted Coding Agent review artifact contract. */
+export const CODING_DIFF_CONTRACT_VERSION = 'coding_diff.v1' as const;
+
+export type CodingDiffChangeKind = 'added' | 'modified' | 'deleted';
+
+export interface CodingDiffReviewPayload {
+  contractVersion: typeof CODING_DIFF_CONTRACT_VERSION;
+  path: string;
+  changeKind: CodingDiffChangeKind;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  truncated: boolean;
+  writeSequence: number;
+  reviewStatus: 'ready';
+  unifiedDiff?: string;
+}
 
 export const TRAINING_TOOL_NAMES = new Set([
   'propose_training',
@@ -90,20 +114,95 @@ function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function optionalNonEmptyStringField(record: Record<string, unknown>, key: string): string | undefined | null {
+function optionalNonEmptyStringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined | null {
   if (!(key in record)) return undefined;
   return nonEmptyString(record[key]);
 }
 
-function optionalNonNegativeNumberField(record: Record<string, unknown>, key: string): number | undefined | null {
+function optionalNonNegativeNumberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined | null {
   if (!(key in record)) return undefined;
   const value = optionalFiniteNumber(record[key]);
   return value !== undefined && value >= 0 ? value : null;
 }
 
-function optionalBooleanField(record: Record<string, unknown>, key: string): boolean | undefined | null {
+function optionalBooleanField(
+  record: Record<string, unknown>,
+  key: string,
+): boolean | undefined | null {
   if (!(key in record)) return undefined;
   return typeof record[key] === 'boolean' ? record[key] : null;
+}
+
+function isWorkspaceRelativePath(value: string): boolean {
+  const normalized = value.replace(/\\/g, '/');
+  return (
+    Boolean(normalized) &&
+    !normalized.startsWith('/') &&
+    !/^[a-zA-Z]:\//.test(normalized) &&
+    !normalized.split('/').some((segment) => segment === '..')
+  );
+}
+
+/**
+ * Decodes only the immutable, versioned Coding Agent diff review contract.
+ * Older diff parts deliberately return null so callers retain the generic
+ * artifact fallback instead of guessing at an unversioned payload.
+ */
+export function selectCodingDiffReviewPayload(
+  item: Pick<AgentSessionUiTimelineItem, 'type' | 'payload'>,
+): CodingDiffReviewPayload | null {
+  if (item.type !== 'diff' || !isRecord(item.payload)) return null;
+  const payload = item.payload;
+  if (payload.contract_version !== CODING_DIFF_CONTRACT_VERSION) return null;
+
+  const path = nonEmptyString(payload.path);
+  const changeKind = payload.change_kind;
+  const additions = optionalNonNegativeNumberField(payload, 'additions');
+  const deletions = optionalNonNegativeNumberField(payload, 'deletions');
+  const binary = optionalBooleanField(payload, 'binary');
+  const truncated = optionalBooleanField(payload, 'truncated');
+  const writeSequence = optionalNonNegativeNumberField(payload, 'write_sequence');
+  const reviewStatus = payload.review_status;
+  const unifiedDiff = payload.unified_diff;
+
+  if (
+    !path ||
+    !isWorkspaceRelativePath(path) ||
+    !['added', 'modified', 'deleted'].includes(String(changeKind)) ||
+    additions === undefined ||
+    additions === null ||
+    deletions === undefined ||
+    deletions === null ||
+    binary === undefined ||
+    binary === null ||
+    truncated === undefined ||
+    truncated === null ||
+    writeSequence === undefined ||
+    writeSequence === null ||
+    reviewStatus !== 'ready' ||
+    (unifiedDiff !== undefined && typeof unifiedDiff !== 'string')
+  ) {
+    return null;
+  }
+
+  return {
+    contractVersion: CODING_DIFF_CONTRACT_VERSION,
+    path,
+    changeKind: changeKind as CodingDiffChangeKind,
+    additions,
+    deletions,
+    binary,
+    truncated,
+    writeSequence,
+    reviewStatus: 'ready',
+    unifiedDiff,
+  };
 }
 
 /**
@@ -115,9 +214,8 @@ export function selectTrainingActivity(
   item: Pick<AgentSessionUiTimelineItem, 'payload'>,
 ): AgentTrainingActivity | null {
   const payload = isRecord(item.payload) ? item.payload : null;
-  const candidate = payload && isRecord(payload.training_activity)
-    ? payload.training_activity
-    : null;
+  const candidate =
+    payload && isRecord(payload.training_activity) ? payload.training_activity : null;
   if (!candidate) return null;
 
   const kind = candidate.kind;
@@ -167,18 +265,19 @@ export function selectTrainingActivity(
     const updatedAt = optionalNonEmptyStringField(candidate, 'updated_at');
     const artifactAvailable = optionalBooleanField(candidate, 'artifact_available');
     if (
-      !taskId
-      || finalLoss === null
-      || phase === null
-      || step === null
-      || totalSteps === null
-      || epoch === null
-      || loss === null
-      || elapsedSeconds === null
-      || etaSeconds === null
-      || updatedAt === null
-      || artifactAvailable === null
-    ) return null;
+      !taskId ||
+      finalLoss === null ||
+      phase === null ||
+      step === null ||
+      totalSteps === null ||
+      epoch === null ||
+      loss === null ||
+      elapsedSeconds === null ||
+      etaSeconds === null ||
+      updatedAt === null ||
+      artifactAvailable === null
+    )
+      return null;
     return {
       kind,
       sourceTool,
@@ -270,38 +369,44 @@ const KNOWN_EVENT_TYPES = new Set([
 export function isAgentSession(value: unknown): value is AgentSession {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AgentSession>;
-  return typeof candidate.id === 'string'
-    && typeof candidate.agent_id === 'string'
-    && typeof candidate.status === 'string'
-    && Array.isArray(candidate.parts);
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.agent_id === 'string' &&
+    typeof candidate.status === 'string' &&
+    Array.isArray(candidate.parts)
+  );
 }
 
 export function isAgentPart(value: unknown): value is AgentPart {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AgentPart>;
-  return typeof candidate.id === 'string'
-    && typeof candidate.session_id === 'string'
-    && typeof candidate.type === 'string'
-    && typeof candidate.created_at === 'string';
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.session_id === 'string' &&
+    typeof candidate.type === 'string' &&
+    typeof candidate.created_at === 'string'
+  );
 }
 
 export function isAgentWorkspace(value: unknown): value is AgentWorkspace {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AgentWorkspace>;
-  return isAgentSession(candidate.session)
-    && Array.isArray(candidate.timeline)
-    && Array.isArray(candidate.artifacts)
-    && Array.isArray(candidate.changed_files)
-    && Array.isArray(candidate.next_actions);
+  return (
+    isAgentSession(candidate.session) &&
+    Array.isArray(candidate.timeline) &&
+    Array.isArray(candidate.artifacts) &&
+    Array.isArray(candidate.changed_files) &&
+    Array.isArray(candidate.next_actions)
+  );
 }
 
 export function decodeAgentSessionEvent(value: unknown): AgentSessionEvent | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<AgentSessionEvent>;
   if (
-    typeof candidate.id !== 'string'
-    || typeof candidate.session_id !== 'string'
-    || typeof candidate.event_type !== 'string'
+    typeof candidate.id !== 'string' ||
+    typeof candidate.session_id !== 'string' ||
+    typeof candidate.event_type !== 'string'
   ) {
     return null;
   }
@@ -312,7 +417,8 @@ export function decodeAgentSessionEvent(value: unknown): AgentSessionEvent | nul
     chunk_type: candidate.chunk_type,
     message: typeof candidate.message === 'string' ? candidate.message : '',
     payload: candidate.payload && typeof candidate.payload === 'object' ? candidate.payload : {},
-    created_at: typeof candidate.created_at === 'string' ? candidate.created_at : new Date().toISOString(),
+    created_at:
+      typeof candidate.created_at === 'string' ? candidate.created_at : new Date().toISOString(),
     session_status: candidate.session_status,
     agent_id: candidate.agent_id,
     phase: candidate.phase,
@@ -338,15 +444,16 @@ export function isKnownAgentEvent(eventType: string): boolean {
 /** Decode the display-safe context event without falling back to a raw path. */
 export function taskContextFromEvent(event: AgentSessionEvent): AgentTaskContextEvent | null {
   if (event.event_type !== 'task_context_initialized') return null;
-  const workspaceLabel = typeof event.payload?.workspace_label === 'string'
-    ? event.payload.workspace_label.trim()
-    : '';
+  const workspaceLabel =
+    typeof event.payload?.workspace_label === 'string' ? event.payload.workspace_label.trim() : '';
   if (!workspaceLabel) return null;
   const taskMode = event.payload?.task_mode;
   return {
-    workspaceId: typeof event.payload?.workspace_id === 'string' ? event.payload.workspace_id : undefined,
+    workspaceId:
+      typeof event.payload?.workspace_id === 'string' ? event.payload.workspace_id : undefined,
     workspaceLabel,
-    taskMode: taskMode === 'build' || taskMode === 'train' || taskMode === 'hybrid' ? taskMode : undefined,
+    taskMode:
+      taskMode === 'build' || taskMode === 'train' || taskMode === 'hybrid' ? taskMode : undefined,
   };
 }
 
@@ -411,14 +518,20 @@ function partFromDeltaEvent(event: AgentSessionEvent, partId: string): AgentPart
   };
 }
 
-export function applyEventToSession(session: AgentSession | null, event: AgentSessionEvent): AgentSession | null {
+export function applyEventToSession(
+  session: AgentSession | null,
+  event: AgentSessionEvent,
+): AgentSession | null {
   if (isAgentSession(event.session_snapshot)) return event.session_snapshot;
   if (!session || event.session_id !== session.id) return session;
 
   let parts = session.parts;
   if (event.part) {
     parts = mergeAgentPart(parts, event.part);
-  } else if ((event.chunk_type === 'part_delta' || event.event_type === 'part_delta') && event.payload?.part_id) {
+  } else if (
+    (event.chunk_type === 'part_delta' || event.event_type === 'part_delta') &&
+    event.payload?.part_id
+  ) {
     const partId = String(event.payload.part_id);
     let matched = false;
     parts = parts.map((part) => {

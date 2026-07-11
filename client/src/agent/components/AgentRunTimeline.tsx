@@ -19,10 +19,18 @@ import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
 import { motion } from 'framer-motion';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import type { AgentSessionUiTimelineItem, AgentSessionUiPendingPermission } from '../../services/api';
-import type { AgentHitlDecision } from '../../services/api';
+import type {
+  AgentHitlDecision,
+  AgentSessionUiPendingPermission,
+  AgentSessionUiTimelineItem,
+} from '../../services/api';
 import { isTrainingToolName, selectTrainingActivity } from '../protocol/agentProtocol';
+import {
+  selectCodingDiffReviewGroups,
+  type CodingDiffReviewGroup,
+} from '../selectors/workbenchSelectors';
 import styles from '../workbench/AgentWorkbench.module.css';
+import AgentDiffReviewCard from './AgentDiffReviewCard';
 import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
 import AgentTrainingActivity from './AgentTrainingActivity';
 
@@ -57,17 +65,51 @@ interface ExecutionGroupEntry {
   items: AgentSessionUiTimelineItem[];
 }
 
-type TimelineDisplayEntry = AgentSessionUiTimelineItem | ExecutionGroupEntry;
+interface DiffReviewGroupEntry {
+  kind: 'diff_review_group';
+  id: string;
+  group: CodingDiffReviewGroup;
+}
+
+type TimelineItemEntry = AgentSessionUiTimelineItem | DiffReviewGroupEntry;
+type TimelineDisplayEntry = TimelineItemEntry | ExecutionGroupEntry;
 
 function isExecutionItem(item: AgentSessionUiTimelineItem): boolean {
   return EXECUTION_ITEM_TYPES.has(item.type) && !selectTrainingActivity(item);
+}
+
+function isDiffReviewGroup(
+  entry: TimelineItemEntry | TimelineDisplayEntry,
+): entry is DiffReviewGroupEntry {
+  return 'kind' in entry && entry.kind === 'diff_review_group';
 }
 
 function isExecutionGroup(entry: TimelineDisplayEntry): entry is ExecutionGroupEntry {
   return 'kind' in entry && entry.kind === 'execution_group';
 }
 
-function groupExecutionItems(items: AgentSessionUiTimelineItem[]): TimelineDisplayEntry[] {
+function groupCodingDiffItems(items: AgentSessionUiTimelineItem[]): TimelineItemEntry[] {
+  const groups = selectCodingDiffReviewGroups(items);
+  const groupByPartId = new Map<string, CodingDiffReviewGroup>();
+  for (const group of groups) {
+    for (const entry of group.entries) groupByPartId.set(entry.item.id, group);
+  }
+  const grouped: TimelineItemEntry[] = [];
+  for (const item of items) {
+    const group = groupByPartId.get(item.id);
+    if (!group) {
+      grouped.push(item);
+      continue;
+    }
+    const latest = group.entries[group.entries.length - 1]!;
+    if (latest.item.id === item.id) {
+      grouped.push({ kind: 'diff_review_group', id: `diff-review:${group.path}`, group });
+    }
+  }
+  return grouped;
+}
+
+function groupExecutionItems(items: TimelineItemEntry[]): TimelineDisplayEntry[] {
   const grouped: TimelineDisplayEntry[] = [];
   let active: AgentSessionUiTimelineItem[] = [];
 
@@ -82,7 +124,7 @@ function groupExecutionItems(items: AgentSessionUiTimelineItem[]): TimelineDispl
   };
 
   for (const item of items) {
-    if (isExecutionItem(item)) {
+    if (!isDiffReviewGroup(item) && isExecutionItem(item)) {
       active.push(item);
       continue;
     }
@@ -417,7 +459,8 @@ export function TimelineContent({
   streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const canCollapse = collapsible && !streaming && (content.length > 600 || content.split('\n').length > 10);
+  const canCollapse =
+    collapsible && !streaming && (content.length > 600 || content.split('\n').length > 10);
   return (
     <>
       <div
@@ -571,26 +614,37 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
                 <code title={executionLabel(item)}>{executionLabel(item)}</code>
                 {trainingFieldEntries(item).length > 0 ? (
                   <div className={styles.timelineMetaRow}>
-                    {trainingFieldEntries(item).map(([label, value]) => <span key={label}>{label}：{value}</span>)}
+                    {trainingFieldEntries(item).map(([label, value]) => (
+                      <span key={label}>
+                        {label}：{value}
+                      </span>
+                    ))}
                   </div>
                 ) : null}
                 {active ? (
                   liveElapsed(item, now) ? (
                     <span className={styles.executionGroupDuration}>{liveElapsed(item, now)}</span>
                   ) : null
-                ) : (
-                  durationLabel(item.payload) ? (
-                    <span className={styles.executionGroupDuration}>{durationLabel(item.payload)}</span>
-                  ) : null
-                )}
+                ) : durationLabel(item.payload) ? (
+                  <span className={styles.executionGroupDuration}>
+                    {durationLabel(item.payload)}
+                  </span>
+                ) : null}
                 {failed ? (
                   <div className={styles.executionGroupFailure}>
-                    {item.content ? <span className={styles.executionGroupError}>{item.content}</span> : null}
-                    {typeof item.payload?.exit_code === 'number' && item.payload.exit_code !== 0 ? (
-                      <span className={styles.executionGroupExitCode}>退出码 {item.payload.exit_code}</span>
+                    {item.content ? (
+                      <span className={styles.executionGroupError}>{item.content}</span>
                     ) : null}
-                    {typeof item.payload?.failure_summary === 'string' && item.payload.failure_summary.trim() ? (
-                      <span className={styles.executionGroupFailureSummary}>{item.payload.failure_summary.trim()}</span>
+                    {typeof item.payload?.exit_code === 'number' && item.payload.exit_code !== 0 ? (
+                      <span className={styles.executionGroupExitCode}>
+                        退出码 {item.payload.exit_code}
+                      </span>
+                    ) : null}
+                    {typeof item.payload?.failure_summary === 'string' &&
+                    item.payload.failure_summary.trim() ? (
+                      <span className={styles.executionGroupFailureSummary}>
+                        {item.payload.failure_summary.trim()}
+                      </span>
                     ) : null}
                   </div>
                 ) : null}
@@ -620,11 +674,14 @@ function PermissionInlineCard({
   const handleDecide = (type: 'approve' | 'reject') => {
     if (busy || decided) return;
     setDecided(type);
-    onDecide(partId, Array.from({ length: Math.max(1, actions.length) }, () => (
-      type === 'approve'
-        ? { type: 'approve' as const }
-        : { type: 'reject' as const, message: '已在工作台拒绝' }
-    )));
+    onDecide(
+      partId,
+      Array.from({ length: Math.max(1, actions.length) }, () =>
+        type === 'approve'
+          ? { type: 'approve' as const }
+          : { type: 'reject' as const, message: '已在工作台拒绝' },
+      ),
+    );
   };
   return (
     <div className={styles.permissionInline}>
@@ -635,11 +692,15 @@ function PermissionInlineCard({
       </div>
       {decided ? (
         <p className={styles.permissionInlineContent}>
-          {decided === 'approve' ? '已提交批准，Agent 正在继续执行...' : '已提交拒绝，Agent 将根据策略处理...'}
+          {decided === 'approve'
+            ? '已提交批准，Agent 正在继续执行...'
+            : '已提交拒绝，Agent 将根据策略处理...'}
         </p>
       ) : (
         <>
-          {permission.content ? <p className={styles.permissionInlineContent}>{permission.content}</p> : null}
+          {permission.content ? (
+            <p className={styles.permissionInlineContent}>{permission.content}</p>
+          ) : null}
           {actions.length > 0 ? (
             <div className={styles.permissionInlineActions}>
               {actions.map((action) => (
@@ -691,8 +752,9 @@ export function TimelineItem({
 }) {
   const trainingActivity = selectTrainingActivity(item);
   const modelResponse = isModelResponse(item);
-  const isStreaming = modelResponse && (item.status === 'running' || item.status === 'pending'
-    || Boolean(item.payload?.streaming));
+  const isStreaming =
+    modelResponse &&
+    (item.status === 'running' || item.status === 'pending' || Boolean(item.payload?.streaming));
   const classNames = [
     styles.timelineItem,
     styles[`timeline_${item.status || 'default'}`] || '',
@@ -805,12 +867,16 @@ export default function AgentRunTimeline({
     () => visibleTimeline.some((item) => item.status === 'running' || item.status === 'pending'),
     [visibleTimeline],
   );
-  const displayTimeline = useMemo(() => groupExecutionItems(visibleTimeline), [visibleTimeline]);
+  const displayTimeline = useMemo(
+    () => groupExecutionItems(groupCodingDiffItems(visibleTimeline)),
+    [visibleTimeline],
+  );
   const initialTimelineIndex = useMemo(() => {
     if (hasLiveItems) return Math.max(0, displayTimeline.length - 1);
     for (let index = displayTimeline.length - 1; index >= 0; index -= 1) {
       const entry = displayTimeline[index]!;
-      if (!isExecutionGroup(entry) && isModelResponse(entry)) return index;
+      if (!isExecutionGroup(entry) && !isDiffReviewGroup(entry) && isModelResponse(entry))
+        return index;
     }
     return Math.max(0, displayTimeline.length - 1);
   }, [displayTimeline, hasLiveItems]);
@@ -821,7 +887,10 @@ export default function AgentRunTimeline({
         {activity ? (
           <div className={styles.timelineEmptyActivity}>
             <LoadingOutlined spin />
-            <span>{activity.label}{activity.detail ? ` · ${activity.detail}` : ''}</span>
+            <span>
+              {activity.label}
+              {activity.detail ? ` · ${activity.detail}` : ''}
+            </span>
           </div>
         ) : loading ? (
           <div className={styles.timelineEmptyActivity}>
@@ -907,8 +976,20 @@ export default function AgentRunTimeline({
                 >
                   <ExecutionGroup items={entry.items} />
                 </motion.div>
+              ) : isDiffReviewGroup(entry) ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.12 }}
+                >
+                  <AgentDiffReviewCard group={entry.group} />
+                </motion.div>
               ) : (
-                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }}>
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.12 }}
+                >
                   <TimelineItem
                     item={entry}
                     pendingPermission={pendingPermission}

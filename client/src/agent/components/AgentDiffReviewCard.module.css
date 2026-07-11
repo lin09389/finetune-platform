@@ -1,0 +1,124 @@
+.card {
+  margin-top: 2px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-secondary);
+}
+
+.header {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.header:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+.header:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 12px/1.45 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.status[data-kind='added'] {
+  color: var(--success);
+}
+.status[data-kind='deleted'] {
+  color: var(--error);
+}
+
+.stats {
+  display: inline-flex;
+  gap: 7px;
+  font: 10px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.additions {
+  color: var(--success);
+}
+.deletions {
+  color: var(--error);
+}
+
+.details {
+  border-top: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 58%, var(--bg-secondary));
+}
+.notices {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px 0;
+}
+.notice {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.diffToggle,
+.historyToggle {
+  margin: 8px 10px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-link);
+  font: 11px/1.4 var(--font-sans);
+  cursor: pointer;
+}
+.diffToggle:hover,
+.historyToggle:hover {
+  color: var(--text-link-hover);
+  text-decoration: underline;
+}
+
+.diff {
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font: 11px/1.58 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.history {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--border-color);
+}
+.historyItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.sequence {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
