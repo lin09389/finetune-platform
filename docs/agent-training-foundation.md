@@ -53,3 +53,65 @@ proposal-specific grant. Rejection and repeated calls cannot create a task.
 Agent events and Workbench timeline projections restrict training data to safe
 identifiers and status fields; output, adapter, and checkpoint paths are never
 rendered.
+
+## Workbench golden path
+
+The Workbench is the primary training journey. A `train` task creates a
+read-only proposal first, pauses at the existing HITL approval request, submits
+one task only after approval, and then shows the authoritative run summary in
+the same timeline. The task mode is fixed for the lifetime of the session:
+`hybrid` keeps normal Build activity alongside the training journey, while
+`build` never receives training tools.
+
+The cross-layer acceptance fixture is
+`server/tests/fixtures/agent_training_golden_path.json`. It freezes six
+deterministic CPU-only scenarios:
+
+- Train approval: proposal, approved submission, and run summary retain their
+  proposal/task identities.
+- Train rejection: no task is created.
+- Duplicate retry: the original task remains the only submission.
+- Refresh recovery: persisted parts reconstruct the same ordered activity IDs.
+- Hybrid coexistence: generic Build activity remains visible beside training.
+- Build exclusion: no training-tool projection exists.
+
+The intended persisted projection location is
+`timeline_item.payload.training_activity`. Every recognized projection contains
+`kind`, `source_tool`, a safe `summary`, its `status`, and a stable
+`proposal_id` and/or `task_id`. Recognized kinds are `proposal`, `submission`,
+and `run_summary`. The payload must never contain output, adapter, checkpoint,
+local-path, secret, or raw configuration fields. Unknown, malformed, and failed
+projections must stay visible as generic tool activity instead of breaking the
+timeline.
+
+### Failure meanings
+
+- A proposal marked `blocked` cannot reach approval or create a task.
+- A rejected or missing official approval means submission did not occur.
+- A duplicate retry must preserve the original `task_id`; it must not enqueue a
+  second training task.
+- A stale proposal, worker outage, or missing run is an authoritative failure
+  or degraded status, not a locally invented success state.
+- A malformed `training_activity` is a compatibility case: use generic tool
+  rendering and preserve the rest of the timeline.
+
+### Manual smoke procedure
+
+1. Create a Workbench task with a registered Workspace and `train` mode.
+2. Ask for a small catalog-backed training proposal and confirm its model,
+   dataset, status, and proposal ID contain no local paths.
+3. Reject the approval once; verify no task ID or worker task is created.
+4. Request or reuse a ready proposal, approve exactly once, and verify a single
+   task ID appears. Repeat submission or refresh the page; the same ID must
+   remain and no second task may be created.
+5. Wait for or query the run summary, then refresh the Workbench; proposal,
+   submission, and summary cards must retain their order and IDs.
+6. Repeat in `hybrid` mode while doing a normal Build action, then confirm a
+   `build`-mode task exposes no training tools.
+
+The fixture is an acceptance guard owned independently of the projection
+implementation. Track A must persist the documented `training_activity`
+contract with successful training tool outcomes, and Track B must decode only
+recognized shapes and render all other payloads generically. Until those tracks
+are integrated, the fixture and scenario tests freeze the required behavior but
+do not claim the production timeline has adopted the projection.
