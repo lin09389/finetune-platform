@@ -174,6 +174,7 @@ class TrainingRunReconciler:
             return False
         activity = training_activity_for(summary).model_dump()
         changed = False
+        projected_status = str(link.get("status") or "queued")
         for event in events:
             sequence = int(getattr(event, "sequence", 0) or 0)
             if sequence <= after_sequence:
@@ -184,13 +185,15 @@ class TrainingRunReconciler:
                 sequence=sequence,
                 # Unknown events acknowledge only their sequence. They must not
                 # alter a card's status, payload, or terminal presentation.
-                status=summary.status if visible else str(link.get("status") or "queued"),
+                status=summary.status if visible else projected_status,
                 activity=activity if visible else None,
             )
             if not advanced:
                 continue
             changed = True
             after_sequence = sequence
+            if visible:
+                projected_status = summary.status
             if visible and self.publish is not None:
                 part = self.repository.get_part(str(link.get("part_id") or ""))
                 if part is not None:

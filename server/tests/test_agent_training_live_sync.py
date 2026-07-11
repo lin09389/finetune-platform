@@ -134,6 +134,7 @@ def test_reconciler_replays_ordered_events_without_raw_payload_leaks_or_duplicat
     part = repository.get_part(link["part_id"])
 
     assert stored_link["last_event_sequence"] == 3
+    assert stored_link["status"] == "running"
     assert part["payload"]["training_activity"] == training_activity_for(source.summary).model_dump()
     assert len([item for item in repository.list_parts("session-a") if item["id"] == link["part_id"]]) == 1
     assert "private" not in str(part)
