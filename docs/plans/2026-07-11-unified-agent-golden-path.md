@@ -115,3 +115,22 @@ Expected: all pass. If Track A/B contracts are not yet present, commit contract 
 6. Confirm `build` has no training tools, submission still requires HITL, duplicate approval cannot create a second task, and persisted activity survives refresh.
 7. Update this plan with actual commit IDs and verification results.
 
+## Completion Record
+
+Completed on 2026-07-11 and integrated into `master`:
+
+- Track A contract: `55cd0fd`
+- Track A persisted projection: `646b7d4`
+- Track C acceptance guard: `afc273d`
+- Track B protocol decoder: `e00fce3`
+- Track B Workbench experience: `71b53d4`
+- Main-thread failed-tool cleanup: `bb0ccaf`
+- Main-thread duration-contract alignment: `dc63571`
+
+Final verification:
+
+- Backend Agent/training/DeepAgents/Workspace focused suite: 120 passed.
+- Frontend protocol/Workbench/golden-path suite: 77 passed.
+- TypeScript typecheck: passed.
+- Production build and bundle budget: passed.
+- `git diff --check`: passed.
