@@ -7,6 +7,12 @@ import styles from '../workbench/AgentWorkbench.module.css';
 
 const { TextArea } = Input;
 
+const TASK_MODE_LABELS = {
+  build: 'Build',
+  train: 'Train',
+  hybrid: 'Hybrid',
+} as const;
+
 interface AgentTaskComposerProps {
   agents: AgentInfo[];
   session: AgentSession | null;
@@ -32,6 +38,7 @@ export default function AgentTaskComposer({
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing', 'waiting_permission', 'waiting_approval'].includes(session.status));
   const isWaitingApproval = Boolean(session && ['waiting_permission', 'waiting_approval'].includes(session.status));
+  const activeModeLabel = session?.task_mode ? TASK_MODE_LABELS[session.task_mode] : null;
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
@@ -114,6 +121,14 @@ export default function AgentTaskComposer({
               label: agent.name,
             }))}
           />
+          {activeModeLabel ? (
+            <span
+              className={styles.composerMode}
+              aria-label={`当前任务模式：${activeModeLabel}，任务创建后不可更改`}
+            >
+              当前模式：{activeModeLabel}（已锁定）
+            </span>
+          ) : null}
           <span aria-live="polite">
             {submissionBlockedReason && !session
               ? submissionBlockedReason

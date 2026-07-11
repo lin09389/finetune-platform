@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { selectAttentionItems } from '../agent/attention/selectAttentionItems';
 import { AgentCommandExecutor, AgentCommandFailure } from '../agent/commands/agentCommands';
 import { routeAgentNextAction } from '../agent/commands/nextActionRouting';
-import AgentRunTimeline from '../agent/components/AgentRunTimeline';
+import AgentRunTimeline, { TimelineItem } from '../agent/components/AgentRunTimeline';
+import AgentTrainingActivity from '../agent/components/AgentTrainingActivity';
 import {
   applyEventToSession,
   decodeAgentSessionEvent,
   isKnownAgentEvent,
+  type AgentTrainingActivity as AgentTrainingActivityProjection,
 } from '../agent/protocol/agentProtocol';
 import { agentRuntimeReducer, initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import {
@@ -617,6 +619,97 @@ describe('Agent Phase 7 feature contract gates', () => {
   });
 });
 
+describe('Agent training activity cards', () => {
+  it('renders proposal, approval, submission, run, terminal, and unknown states accessibly', () => {
+    const activities: AgentTrainingActivityProjection[] = [
+      {
+        kind: 'proposal', sourceTool: 'propose_training', proposalId: 'proposal-ready',
+        status: 'ready', summary: '训练配置已就绪。', blockers: [], warnings: [],
+      },
+      {
+        kind: 'proposal', sourceTool: 'propose_training', proposalId: 'proposal-warning',
+        status: 'warning', summary: '建议降低 batch size。', blockers: [], warnings: ['建议降低 batch size'],
+      },
+      {
+        kind: 'proposal', sourceTool: 'propose_training', proposalId: 'proposal-blocked',
+        status: 'blocked', summary: '显存不足。', blockers: ['显存不足'], warnings: [],
+      },
+      {
+        kind: 'submission', sourceTool: 'submit_training', proposalId: 'proposal-waiting',
+        status: 'waiting_approval', summary: '等待你的明确审批。',
+      },
+      {
+        kind: 'submission', sourceTool: 'submit_training', proposalId: 'proposal-submitted', taskId: 'task-submitted',
+        status: 'submitted', summary: '任务已进入队列。',
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'task-running',
+        status: 'running', summary: '训练正在运行。',
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'task-completed',
+        status: 'completed', summary: '训练已完成。', finalLoss: 0.18, elapsedSeconds: 125,
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'task-failed',
+        status: 'failed', summary: '训练失败。',
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'task-unknown',
+        status: 'resuming_from_future_state', summary: '服务报告了新状态。',
+      },
+    ];
+
+    render(
+      <>
+        {activities.map((activity) => (
+          <AgentTrainingActivity key={`${activity.kind}-${activity.status}`} activity={activity} />
+        ))}
+      </>,
+    );
+
+    expect(screen.getAllByRole('region', { name: /训练活动/ })).toHaveLength(9);
+    expect(screen.getByText('可以提交审批')).toBeInTheDocument();
+    expect(screen.getByText('存在提醒')).toBeInTheDocument();
+    expect(screen.getByText('已阻塞')).toBeInTheDocument();
+    expect(screen.getByText('等待审批')).toBeInTheDocument();
+    expect(screen.getByText('已提交')).toBeInTheDocument();
+    expect(screen.getByText('训练中')).toBeInTheDocument();
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getByText('失败')).toBeInTheDocument();
+    expect(screen.getByText('状态：resuming_from_future_state')).toBeInTheDocument();
+    expect(screen.getByText('task-completed')).toBeInTheDocument();
+    expect(screen.getByText('0.1800')).toBeInTheDocument();
+    expect(screen.getByText('2m 05s')).toBeInTheDocument();
+  });
+
+  it('renders a validated training projection through the timeline row', () => {
+    render(
+      <TimelineItem
+        item={{
+          id: 'part-training-card',
+          type: 'tool_result',
+          status: 'completed',
+          title: 'get_training_summary',
+          created_at: session.created_at,
+          payload: {
+            training_activity: {
+              kind: 'run_summary',
+              source_tool: 'get_training_summary',
+              task_id: 'task-card',
+              status: 'completed',
+              summary: '训练已完成。',
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: '训练活动：训练运行' })).toBeInTheDocument();
+    expect(screen.getByText('task-card')).toBeInTheDocument();
+  });
+});
+
 describe('Agent command executor', () => {
   it('deduplicates the same in-flight command by semantic key', async () => {
     let resolveWorkspace: ((value: AgentWorkspace) => void) | undefined;
@@ -966,6 +1059,22 @@ describe('Agent Workbench orchestration', () => {
     fireEvent.change(input, { target: { value: 'Keep my draft' } });
     fireEvent.click(screen.getByRole('button', { name: '提交任务' }));
     await waitFor(() => expect(input).toHaveValue('Keep my draft'));
+  });
+
+  it('states the immutable Train or Hybrid mode for an active session', async () => {
+    const AgentTaskComposer = (await import('../agent/components/AgentTaskComposer')).default;
+    render(
+      <AgentTaskComposer
+        agents={[]}
+        session={{ ...session, task_mode: 'hybrid' }}
+        busy={false}
+        onInterrupt={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('当前任务模式：Hybrid，任务创建后不可更改')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '选择 Agent' })).toBeDisabled();
   });
 
   it('does not submit while an input method composition is active', async () => {

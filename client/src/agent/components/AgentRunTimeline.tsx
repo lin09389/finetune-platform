@@ -21,9 +21,10 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { AgentSessionUiTimelineItem, AgentSessionUiPendingPermission } from '../../services/api';
 import type { AgentHitlDecision } from '../../services/api';
-import { isTrainingToolName } from '../protocol/agentProtocol';
+import { isTrainingToolName, selectTrainingActivity } from '../protocol/agentProtocol';
 import styles from '../workbench/AgentWorkbench.module.css';
 import AgentMarkdown, { CopyResponseButton } from './AgentMarkdown';
+import AgentTrainingActivity from './AgentTrainingActivity';
 
 function itemIcon(item: AgentSessionUiTimelineItem) {
   if (isUserMessage(item)) return <UserOutlined />;
@@ -59,7 +60,7 @@ interface ExecutionGroupEntry {
 type TimelineDisplayEntry = AgentSessionUiTimelineItem | ExecutionGroupEntry;
 
 function isExecutionItem(item: AgentSessionUiTimelineItem): boolean {
-  return EXECUTION_ITEM_TYPES.has(item.type);
+  return EXECUTION_ITEM_TYPES.has(item.type) && !selectTrainingActivity(item);
 }
 
 function isExecutionGroup(entry: TimelineDisplayEntry): entry is ExecutionGroupEntry {
@@ -688,6 +689,7 @@ export function TimelineItem({
   permissionBusy?: boolean;
   onOpenFile?: (filePath: string) => void;
 }) {
+  const trainingActivity = selectTrainingActivity(item);
   const modelResponse = isModelResponse(item);
   const isStreaming = modelResponse && (item.status === 'running' || item.status === 'pending'
     || Boolean(item.payload?.streaming));
@@ -697,6 +699,7 @@ export function TimelineItem({
     isUserMessage(item) ? styles.timelineUserMessage : '',
     modelResponse ? styles.timelineModelResponse : '',
     ['tool_call', 'tool_result'].includes(item.type) ? styles.timelineToolActivity : '',
+    trainingActivity ? styles.timelineTrainingActivity : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -705,7 +708,9 @@ export function TimelineItem({
     <article className={classNames}>
       <div className={styles.timelineIcon}>{itemIcon(item)}</div>
       <div className={styles.timelineBody}>
-        {item.type === 'permission' && pendingPermission && onDecidePermission ? (
+        {trainingActivity ? (
+          <AgentTrainingActivity activity={trainingActivity} />
+        ) : item.type === 'permission' && pendingPermission && onDecidePermission ? (
           <PermissionInlineCard
             item={item}
             permission={pendingPermission}
