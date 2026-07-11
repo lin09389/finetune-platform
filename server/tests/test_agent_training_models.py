@@ -11,7 +11,9 @@ from agent_training.models import (
     ApprovedTrainingAction,
     TrainingProposal,
     TrainingProposalRequest,
+    TrainingRunSummary,
     TrainingSubmission,
+    training_activity_for,
 )
 
 
@@ -57,3 +59,71 @@ def test_training_catalog_ids_reject_paths(field: str):
             "dataset_id": "tiny-dataset",
             field: "../outside",
         })
+
+
+def test_training_activity_projection_has_stable_ids_and_uses_only_safe_display_fields():
+    proposal = TrainingProposal(
+        proposal_id="proposal-1",
+        config={"model_id": "tiny-model", "dataset_id": "tiny-dataset", "method": "qlora"},
+        status="warning",
+        warnings=["Output at C:\\private\\output"],
+        suggestions=["Set TOKEN=super-secret before retrying"],
+    )
+    submission = TrainingSubmission(proposal_id="proposal-1", task_id="task-1", status="queued")
+    run = TrainingRunSummary(
+        task_id="task-1",
+        status="completed",
+        model_id="tiny-model",
+        dataset_id="tiny-dataset",
+        method="qlora",
+        task_goal="qa assistant",
+        started_at="2026-07-11T00:00:00Z",
+        completed_at="2026-07-11T00:01:00Z",
+        output_path="C:\\private\\output",
+        adapter_path="C:\\private\\adapter",
+        checkpoint_path="C:\\private\\checkpoint",
+    )
+
+    proposal_activity = training_activity_for(proposal)
+    submission_activity = training_activity_for(submission)
+    run_activity = training_activity_for(run)
+
+    assert proposal_activity.model_dump() == {
+        "kind": "proposal",
+        "source_tool": "propose_training",
+        "proposal_id": "proposal-1",
+        "status": "warning",
+        "summary": "Training proposal needs review.",
+        "model_id": "tiny-model",
+        "dataset_id": "tiny-dataset",
+        "method": "qlora",
+        "blockers": [],
+        "warnings": ["Output at [redacted path]"],
+        "suggestions": ["Set TOKEN=[redacted secret] before retrying"],
+        "required_vram_gb": None,
+    }
+    assert submission_activity.model_dump() == {
+        "kind": "submission",
+        "source_tool": "submit_training",
+        "proposal_id": "proposal-1",
+        "task_id": "task-1",
+        "status": "queued",
+        "summary": "Training task queued.",
+    }
+    assert run_activity.model_dump() == {
+        "kind": "run_summary",
+        "source_tool": "get_training_summary",
+        "task_id": "task-1",
+        "status": "completed",
+        "summary": "Training run completed.",
+        "model_id": "tiny-model",
+        "dataset_id": "tiny-dataset",
+        "method": "qlora",
+        "task_goal": "qa assistant",
+        "started_at": "2026-07-11T00:00:00Z",
+        "completed_at": "2026-07-11T00:01:00Z",
+        "final_loss": None,
+        "elapsed_time": None,
+    }
+    assert "private" not in str([proposal_activity, submission_activity, run_activity])
+    assert "super-secret" not in str([proposal_activity, submission_activity, run_activity])
