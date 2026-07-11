@@ -111,16 +111,21 @@ export default function AgentWorkbenchPage({
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [settings, setSettings] = useState<AgentWorkbenchSettings>(readAgentWorkbenchSettings);
   const rightDockRef = useRef<HTMLElement | null>(null);
+  const workspaceResolutionGenerationRef = useRef(0);
   const resize = usePanelResize({ panelLayout, setPanelLayout, rightDockRef, isDesktop });
 
   const resolveSelectedWorkspace = useCallback(async (projectPath: string, preferredWorkspaceId: string | null) => {
+    const generation = ++workspaceResolutionGenerationRef.current;
+    const isCurrent = () => generation === workspaceResolutionGenerationRef.current;
     try {
       const validation = await validateWorkspacePath(projectPath.trim() || null);
+      if (!isCurrent()) return;
       if (!validation.ok || !validation.resolved_path) {
         setTaskContext(null, settings.taskMode);
         return;
       }
       const workspaces = await listWorkspaces();
+      if (!isCurrent()) return;
       const normalizedPath = normalizeWorkspacePath(validation.resolved_path);
       const workspace = workspaces.find((item) => (
         item.id === preferredWorkspaceId
@@ -143,7 +148,7 @@ export default function AgentWorkbenchPage({
         ? current
         : { ...current, workspaceId: workspace.id });
     } catch {
-      setTaskContext(null, settings.taskMode);
+      if (isCurrent()) setTaskContext(null, settings.taskMode);
     }
   }, [setTaskContext, settings.taskMode]);
 
