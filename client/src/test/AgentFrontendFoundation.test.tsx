@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentTaskContextBar from '../agent/components/AgentTaskContextBar';
 import AgentSessionRail from '../agent/components/AgentSessionRail';
 import AgentWorkbenchRoute from '../agent/workbench/AgentWorkbenchRoute';
-import { decodeAgentSessionEvent } from '../agent/protocol/agentProtocol';
+import {
+  decodeAgentSessionEvent,
+  selectTrainingActivity,
+} from '../agent/protocol/agentProtocol';
 import { agentRuntimeReducer, initialAgentRuntimeState, type RecentAgentSession } from '../agent/runtime/agentRuntime';
 import { selectTimeline } from '../agent/selectors/workbenchSelectors';
 import type { AgentTransport } from '../agent/transport/agentTransport';
@@ -321,6 +324,87 @@ describe('Agent frontend Phase 1 foundation', () => {
     }
     expect(fixture.events.some((event) => event.event_type === 'permission_asked')).toBe(true);
     expect(fixture.events.some((event) => event.event_type === 'loop_guard_triggered')).toBe(true);
+  });
+
+  it('decodes only complete, display-safe training activity projections', () => {
+    const base = {
+      id: 'part-training',
+      type: 'tool_result',
+      status: 'completed',
+      payload: {},
+    };
+
+    expect(selectTrainingActivity({
+      ...base,
+      payload: {
+        training_activity: {
+          kind: 'proposal',
+          source_tool: 'propose_training',
+          proposal_id: 'proposal-1',
+          status: 'warning',
+          summary: '显存余量有限，但可以开始训练。',
+          model_id: 'tiny-model',
+          dataset_id: 'tiny-dataset',
+          blockers: [],
+          warnings: ['建议降低 batch size'],
+        },
+      },
+    })).toMatchObject({
+      kind: 'proposal', proposalId: 'proposal-1', status: 'warning', modelId: 'tiny-model',
+    });
+
+    expect(selectTrainingActivity({
+      ...base,
+      payload: {
+        training_activity: {
+          kind: 'submission',
+          source_tool: 'submit_training',
+          proposal_id: 'proposal-1',
+          task_id: 'task-1',
+          status: 'submitted',
+          summary: '已提交训练任务。',
+        },
+      },
+    })).toMatchObject({
+      kind: 'submission', proposalId: 'proposal-1', taskId: 'task-1', status: 'submitted',
+    });
+
+    expect(selectTrainingActivity({
+      ...base,
+      payload: {
+        training_activity: {
+          kind: 'run_summary',
+          source_tool: 'get_training_summary',
+          task_id: 'task-1',
+          status: 'completed',
+          summary: '训练已完成。',
+          final_loss: 0.18,
+          elapsed_seconds: 125,
+        },
+      },
+    })).toMatchObject({
+      kind: 'run_summary', taskId: 'task-1', finalLoss: 0.18, elapsedSeconds: 125,
+    });
+  });
+
+  it('falls back to generic tool activity when a training projection is malformed', () => {
+    const item = {
+      id: 'part-untrusted-training',
+      type: 'tool_result',
+      status: 'completed',
+      payload: {
+        training_activity: {
+          kind: 'proposal',
+          source_tool: 'submit_training',
+          proposal_id: 42,
+          status: 'ready',
+          summary: ['not a safe summary'],
+          output_path: 'C:/private/output',
+        },
+      },
+    };
+
+    expect(selectTrainingActivity(item)).toBeNull();
   });
 
   it('prevents the rewrite foundation from importing legacy Agent orchestration', () => {

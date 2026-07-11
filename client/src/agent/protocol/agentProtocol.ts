@@ -2,6 +2,7 @@ import type {
   AgentPart,
   AgentSession,
   AgentSessionEvent,
+  AgentSessionUiTimelineItem,
   AgentWorkspace,
 } from '../../services/api';
 
@@ -15,6 +16,137 @@ export const TRAINING_TOOL_NAMES = new Set([
 
 export function isTrainingToolName(value: unknown): boolean {
   return typeof value === 'string' && TRAINING_TOOL_NAMES.has(value);
+}
+
+type TrainingActivityKind = 'proposal' | 'submission' | 'run_summary';
+type TrainingActivitySourceTool = 'propose_training' | 'submit_training' | 'get_training_summary';
+
+interface AgentTrainingActivityBase {
+  kind: TrainingActivityKind;
+  sourceTool: TrainingActivitySourceTool;
+  status: string;
+  summary: string;
+  modelId?: string;
+  datasetId?: string;
+  method?: string;
+}
+
+export interface AgentTrainingProposalActivity extends AgentTrainingActivityBase {
+  kind: 'proposal';
+  sourceTool: 'propose_training';
+  proposalId: string;
+  blockers: string[];
+  warnings: string[];
+}
+
+export interface AgentTrainingSubmissionActivity extends AgentTrainingActivityBase {
+  kind: 'submission';
+  sourceTool: 'submit_training';
+  proposalId: string;
+  taskId?: string;
+}
+
+export interface AgentTrainingRunSummaryActivity extends AgentTrainingActivityBase {
+  kind: 'run_summary';
+  sourceTool: 'get_training_summary';
+  taskId: string;
+  taskGoal?: string;
+  finalLoss?: number;
+  elapsedSeconds?: number;
+}
+
+export type AgentTrainingActivity =
+  | AgentTrainingProposalActivity
+  | AgentTrainingSubmissionActivity
+  | AgentTrainingRunSummaryActivity;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function stringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const values = value.map((entry) => nonEmptyString(entry));
+  return values.every((entry): entry is string => entry !== null) ? values : null;
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Selects the server's persisted training projection without interpreting raw
+ * tool output. Unknown or malformed values intentionally return null so the
+ * timeline keeps its established generic-tool fallback.
+ */
+export function selectTrainingActivity(
+  item: Pick<AgentSessionUiTimelineItem, 'payload'>,
+): AgentTrainingActivity | null {
+  const payload = isRecord(item.payload) ? item.payload : null;
+  const candidate = payload && isRecord(payload.training_activity)
+    ? payload.training_activity
+    : null;
+  if (!candidate) return null;
+
+  const kind = candidate.kind;
+  const sourceTool = candidate.source_tool;
+  const status = nonEmptyString(candidate.status);
+  const summary = nonEmptyString(candidate.summary);
+  if (!status || !summary) return null;
+
+  const shared = {
+    status,
+    summary,
+    modelId: optionalString(candidate.model_id),
+    datasetId: optionalString(candidate.dataset_id),
+    method: optionalString(candidate.method),
+  };
+
+  if (kind === 'proposal' && sourceTool === 'propose_training') {
+    const proposalId = nonEmptyString(candidate.proposal_id);
+    const blockers = stringList(candidate.blockers);
+    const warnings = stringList(candidate.warnings);
+    if (!proposalId || !blockers || !warnings) return null;
+    return { kind, sourceTool, proposalId, blockers, warnings, ...shared };
+  }
+
+  if (kind === 'submission' && sourceTool === 'submit_training') {
+    const proposalId = nonEmptyString(candidate.proposal_id);
+    if (!proposalId) return null;
+    return {
+      kind,
+      sourceTool,
+      proposalId,
+      taskId: optionalString(candidate.task_id),
+      ...shared,
+    };
+  }
+
+  if (kind === 'run_summary' && sourceTool === 'get_training_summary') {
+    const taskId = nonEmptyString(candidate.task_id);
+    const finalLoss = optionalFiniteNumber(candidate.final_loss);
+    const elapsedSeconds = optionalFiniteNumber(candidate.elapsed_seconds);
+    if (!taskId || (elapsedSeconds !== undefined && elapsedSeconds < 0)) return null;
+    return {
+      kind,
+      sourceTool,
+      taskId,
+      taskGoal: optionalString(candidate.task_goal),
+      finalLoss,
+      elapsedSeconds,
+      ...shared,
+    };
+  }
+
+  return null;
 }
 
 export interface AgentUnknownEvent {
