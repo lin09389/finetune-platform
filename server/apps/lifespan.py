@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -15,6 +16,7 @@ from core.config import settings
 from .profiles import ApplicationProfile
 
 logger = logging.getLogger("finetune-platform")
+_TRAINING_RECONCILER: Any | None = None
 
 
 def _warn_about_auth_configuration() -> None:
@@ -116,6 +118,8 @@ async def _initialize_agent_services() -> None:
             logger.info("Agent session restart recovery complete: %s", recovered_sessions)
     except Exception as exc:
         logger.warning("Agent session recovery failed: %s", exc)
+
+    await _initialize_training_reconciler()
 
     try:
         from api.chat.session import get_session_manager
@@ -254,6 +258,8 @@ async def _shutdown_finetune_services(grpc_server) -> None:
 
 
 async def _shutdown_agent_services() -> None:
+    await _shutdown_training_reconciler()
+
     try:
         from api.agent_sessions import get_agent_session_service
 
@@ -301,6 +307,60 @@ async def _shutdown_agent_services() -> None:
         logger.info("Memory service shutdown complete")
     except Exception as exc:
         logger.warning("Memory service shutdown failed: %s", exc)
+
+
+async def _initialize_training_reconciler() -> None:
+    """Start the optional Agent control-plane bridge without making startup fatal."""
+    global _TRAINING_RECONCILER
+    if _TRAINING_RECONCILER is not None:
+        return
+    try:
+        from api.agent_sessions import get_agent_session_service
+        from agent_session.training_run_sync import LocalSQLiteTrainingEventSource, TrainingRunReconciler
+        from training_worker.repository import get_training_job_repository
+
+        service = get_agent_session_service()
+
+        def publish(session_id: str, part: dict[str, Any]) -> None:
+            payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
+            activity = payload.get("training_activity") if isinstance(payload.get("training_activity"), dict) else {}
+            service._event(
+                session_id,
+                "training_progress",
+                str(activity.get("summary") or "Training progress updated."),
+                {
+                    "part_id": part.get("id"),
+                    "part_type": part.get("type"),
+                    "part": part,
+                    "task_id": activity.get("task_id"),
+                    "training_sync": True,
+                },
+            )
+
+        _TRAINING_RECONCILER = TrainingRunReconciler(
+            repository=service.repository,
+            event_source=LocalSQLiteTrainingEventSource(get_training_job_repository()),
+            publish=publish,
+        )
+        _TRAINING_RECONCILER.start()
+        logger.info("Agent training reconciler started")
+    except Exception as exc:
+        # Agent-only and combined deployments may run before a Worker database
+        # is present. The persisted card remains recoverable once it is back.
+        _TRAINING_RECONCILER = None
+        logger.warning("Agent training reconciler unavailable; live training sync is degraded: %s", exc)
+
+
+async def _shutdown_training_reconciler() -> None:
+    global _TRAINING_RECONCILER
+    reconciler, _TRAINING_RECONCILER = _TRAINING_RECONCILER, None
+    if reconciler is None:
+        return
+    try:
+        await reconciler.close()
+        logger.info("Agent training reconciler shutdown complete")
+    except Exception as exc:
+        logger.warning("Agent training reconciler shutdown failed: %s", exc)
 
 
 async def _shutdown_shared_services() -> None:

@@ -140,6 +140,12 @@ def safe_training_payload(value: Any) -> Any:
     return value
 
 
+def _session_owner_id(session: dict[str, Any]) -> str | None:
+    metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
+    owner_id = str(metadata.get("user_id") or "").strip()
+    return owner_id or None
+
+
 def _proposal_projection(proposal: Any) -> dict[str, Any]:
     return _tool_result_from_activity(proposal)
 
@@ -178,6 +184,7 @@ def build_training_tools(
     if not training_tools_enabled_for_session(session):
         return []
     session_id = str(session.get("id") or "")
+    owner_id = _session_owner_id(session)
 
     async def propose_training(
         training_config: dict[str, Any],
@@ -190,7 +197,9 @@ def build_training_tools(
                     config=TrainingConfigInput.model_validate(training_config),
                     use_queue=use_queue,
                     priority=priority,
-                )
+                ),
+                owner_id=owner_id,
+                session_id=session_id,
             )
             return _json_tool_result(_proposal_projection(proposal))
         except Exception as exc:
@@ -209,7 +218,15 @@ def build_training_tools(
             )
         try:
             submission = training_service.submit_training(
-                ApprovedTrainingAction(proposal_id=proposal_id, approved=True)
+                ApprovedTrainingAction(proposal_id=proposal_id, approved=True),
+                owner_id=owner_id,
+                session_id=session_id,
+            )
+            repository.create_training_link(
+                session_id=session_id,
+                owner_id=owner_id,
+                proposal_id=submission.proposal_id,
+                task_id=submission.task_id,
             )
             return _json_tool_result(_tool_result_from_activity(submission))
         except Exception as exc:

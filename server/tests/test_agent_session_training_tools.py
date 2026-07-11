@@ -25,6 +25,7 @@ from agent_training.models import (
 class _Repository:
     def __init__(self):
         self.session = {"id": "session-train", "metadata": {"task_mode": "train"}}
+        self.training_links = []
 
     def get_session(self, session_id):
         assert session_id == "session-train"
@@ -35,12 +36,16 @@ class _Repository:
         self.session = {**self.session, "metadata": metadata}
         return self.session
 
+    def create_training_link(self, **link):
+        self.training_links.append(link)
+        return link
+
 
 class _TrainingService:
     def __init__(self):
         self.submissions = []
 
-    async def propose_training(self, request):
+    async def propose_training(self, request, **scope):
         assert request.config.model_id == "tiny-model"
         return TrainingProposal(
             proposal_id="proposal-1",
@@ -65,7 +70,7 @@ class _TrainingService:
             checkpoint_path="C:\\private\\checkpoint",
         )
 
-    def submit_training(self, action):
+    def submit_training(self, action, **scope):
         self.submissions.append(action)
         return TrainingSubmission(proposal_id=action.proposal_id, task_id="task-1", status="queued")
 
@@ -109,6 +114,14 @@ def test_proposal_and_summary_tools_are_read_only_and_never_expose_absolute_path
         "completed_at": "2026-07-10T00:01:00",
         "final_loss": None,
         "elapsed_time": None,
+        "phase": None,
+        "step": None,
+        "total_steps": None,
+        "epoch": None,
+        "loss": None,
+        "eta": None,
+        "updated_at": None,
+        "artifact_available": None,
     }
     assert "private" not in json.dumps({"proposal": proposal, "summary": summary})
 
@@ -147,6 +160,7 @@ def test_submission_requires_a_one_time_official_approval_grant():
 
     assert approved == {"proposal_id": "proposal-1", "task_id": "task-1", "status": "queued"}
     assert [action.model_dump() for action in service.submissions] == [{"proposal_id": "proposal-1", "approved": True}]
+    assert repository.training_links == [{"session_id": "session-train", "owner_id": None, "proposal_id": "proposal-1", "task_id": "task-1"}]
     assert consume_training_submission_grant(repository, "session-train", "proposal-1") is False
 
 
@@ -169,6 +183,29 @@ def test_successful_training_tool_results_reconstruct_strict_timeline_activities
     assert training_activity_from_tool_result("propose_training", proposal_result).model_dump()["kind"] == "proposal"
     assert training_activity_from_tool_result("submit_training", submission_result).model_dump()["kind"] == "submission"
     assert training_activity_from_tool_result("get_training_summary", summary_result).model_dump()["kind"] == "run_summary"
+
+
+def test_approved_submission_creates_one_persisted_link_and_stable_training_card(tmp_path):
+    from agent_session.repository import AgentSessionRepository
+
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    session = repository.create_session(
+        {"id": "session-train", "agent_id": "build", "status": "idle", "title": "train", "metadata": {"user_id": "alice", "task_mode": "train"}}
+    )
+    submit = build_training_tools(session, repository=repository, training_service=_TrainingService())[1]
+
+    for permission_id in ("permission-1", "permission-2"):
+        grant_approved_training_submissions(
+            repository,
+            {"session_id": "session-train", "id": permission_id, "payload": {"official_hitl": True, "action_requests": [{"name": "submit_training", "args": {"proposal_id": "proposal-1"}}]}},
+            [{"type": "approve"}],
+        )
+        assert json.loads(asyncio.run(submit.ainvoke({"proposal_id": "proposal-1"}))) ["status"] == "queued"
+
+    link = repository.get_training_link("task-1")
+    assert link is not None
+    assert len(repository.list_parts("session-train")) == 1
+    assert repository.get_part(link["part_id"])["payload"]["training_activity"]["kind"] == "submission"
 
 
 def test_submit_training_waits_for_official_hitl_then_submits_once(tmp_path):
