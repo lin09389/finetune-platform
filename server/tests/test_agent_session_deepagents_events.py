@@ -258,3 +258,4 @@ def test_deepagents_event_mapper_leaves_failed_or_malformed_training_results_gen
 
     assert all("training_activity" not in part["payload"] for part in repo.parts)
     assert all(part["type"] == "tool_call" for part in repo.parts)
+    assert mapper.tool_part_payloads == {}

@@ -223,6 +223,7 @@ class DeepAgentsEventMapper:
         error = data.get("error") or data.get("exception") or event.get("error") or "Tool call failed."
         content = str(error)
         part_id = self.tool_parts.pop(run_id, None)
+        self.tool_part_payloads.pop(run_id, None)
         agent_context = self._agent_context(event)
         if part_id:
             part = self.repository.update_part(part_id, status="failed", content=content)
