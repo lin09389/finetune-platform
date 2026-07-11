@@ -21,7 +21,7 @@ function part(
     type: 'diff',
     status: 'completed',
     title: String(payload.path || 'Diff review'),
-    content: String(payload.unified_diff || ''),
+    content: String(payload.diff || ''),
     payload,
     created_at: createdAt,
   };
@@ -30,27 +30,27 @@ function part(
 const firstDiff = part('diff-001', {
   contract_version: 1,
   path: 'server/app.py',
-  status: 'modified',
+  change_type: 'modified',
   additions: 1,
   deletions: 1,
   binary: false,
   truncated: false,
   write_sequence: 2,
   review_status: 'ready',
-  unified_diff: '@@ -1 +1 @@\n-VALUE = "before"\n+VALUE = "after"\n',
+  diff: '@@ -1 +1 @@\n-VALUE = "before"\n+VALUE = "after"\n',
 }, '2026-07-11T10:00:02Z');
 
 const secondDiff = part('diff-002', {
   contract_version: 1,
   path: 'server/app.py',
-  status: 'modified',
+  change_type: 'modified',
   additions: 1,
   deletions: 1,
   binary: false,
   truncated: false,
   write_sequence: 5,
   review_status: 'ready',
-  unified_diff: '@@ -1 +1 @@\n-VALUE = "after"\n+VALUE = "ready"\n',
+  diff: '@@ -1 +1 @@\n-VALUE = "after"\n+VALUE = "ready"\n',
 }, '2026-07-11T10:00:05Z');
 
 const verification: AgentPart = {
@@ -98,8 +98,8 @@ function event(id: string, sequencePart: AgentPart): AgentSessionEvent {
   return {
     id,
     session_id: sessionId,
-    event_type: 'part_created',
-    chunk_type: 'part_delta',
+    event_type: 'coding_diff_ready',
+    chunk_type: 'part_snapshot',
     message: 'Persisted Coding diff is ready for review',
     payload: { part_id: sequencePart.id, part_type: 'diff', part: sequencePart },
     part: sequencePart,

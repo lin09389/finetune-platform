@@ -351,9 +351,12 @@ class AgentFailureGuard:
         guard["family_repeat_count"] = 0
         guard["consecutive_failure_count"] = 0
         guard["recent_failures"] = []
-        if event_type not in {"tool_call_completed", "model_stream_completed"}:
-            guard["last_no_progress_signature"] = ""
-            guard["no_progress_repeat_count"] = 0
+        # A successful non-observation tool call is concrete progress. Model
+        # messages that contain only a tool call legitimately have empty text,
+        # so their earlier model-no-action observation must not accumulate
+        # across successful edits, commands, approvals, or recovery steps.
+        guard["last_no_progress_signature"] = ""
+        guard["no_progress_repeat_count"] = 0
         metadata["loop_guard"] = guard
         self.repository.update_session(session_id, metadata=metadata)
 

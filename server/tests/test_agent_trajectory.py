@@ -12,6 +12,7 @@ from agent_session.repository import AgentSessionRepository
 from agent_session.trajectory import (
     TrajectoryGuardMiddleware,
     TrajectoryStateStore,
+    is_successful_tool_result,
     is_verification_command,
     normalize_workspace_path,
     score_trajectory,
@@ -59,6 +60,18 @@ def _middleware(tmp_path: Path, workspace: Path):
 
 async def _success_handler(request: ToolCallRequest) -> ToolMessage:
     return ToolMessage(content="ok", tool_call_id=str(request.tool_call["id"]))
+
+
+def test_execute_result_uses_deepagents_exit_code_without_misreading_other_tools():
+    failed = ToolMessage(content="<no output>\n\nExit code: 1", tool_call_id="execute-1")
+    succeeded = ToolMessage(
+        content="<no output>\n[Command succeeded with exit code 0]",
+        tool_call_id="execute-2",
+    )
+
+    assert is_successful_tool_result(failed, tool="execute") is False
+    assert is_successful_tool_result(succeeded, tool="execute") is True
+    assert is_successful_tool_result(failed, tool="read_file") is True
 
 
 def test_existing_file_write_is_blocked_until_read(tmp_path: Path):

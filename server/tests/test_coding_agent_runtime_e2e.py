@@ -21,6 +21,8 @@ from agent_session.models import AgentPromptRequest, AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 
+from workspace import local_paths as workspace_local_paths
+
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "coding_agent_runtime_scenarios.json"
 REQUIRED_KINDS = {
     "python",
@@ -89,7 +91,7 @@ def _script_for(scenario_id: str) -> list[str]:
             _read("client/src/StatusCard.tsx"),
             _read("client/src/StatusCard.test.tsx"),
             _edit("client/src/StatusCard.tsx", "<span>idle</span>", '<span role="status">ready</span>'),
-            _execute("node -e \"const fs=require('fs'); if (!fs.readFileSync('client/src/StatusCard.tsx','utf8').includes('role=\\\"status\\\"')) process.exit(1)\""),
+            _execute("npm run typecheck"),
             _final(),
         ]
     if scenario_id == "cross-stack-multi-file":
@@ -99,7 +101,7 @@ def _script_for(scenario_id: str) -> list[str]:
             _edit("client/src/tasks.ts", "{ name: string }", "{ name: string; status: 'ready' }"),
             _edit("client/src/TaskList.tsx", "() => null", "() => <span>ready</span>"),
             _execute("python -m py_compile server/tasks.py"),
-            _execute("node -e \"const fs=require('fs'); if (!fs.readFileSync('client/src/TaskList.tsx','utf8').includes('ready')) process.exit(1)\""),
+            _execute("npm run typecheck"),
             _final(),
         ]
     if scenario_id == "failed-tool-reread-repair":
@@ -159,9 +161,27 @@ def test_runtime_scenario_fixture_is_complete_and_declares_only_offline_executio
     reason="Track A coding-diff persistence contract is not present in this checkout yet",
 )
 @pytest.mark.parametrize("scenario", _fixture()["scenarios"], ids=lambda item: item["id"])
-def test_coding_agent_engineering_loop_runs_through_real_session_boundaries(tmp_path: Path, scenario: dict[str, Any]):
+def test_coding_agent_engineering_loop_runs_through_real_session_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: dict[str, Any],
+):
     workspace = tmp_path / "project"
     workspace.mkdir()
+    metadata_file = tmp_path / "workspace-metadata.json"
+    metadata_file.write_text(
+        json.dumps(
+            {
+                "ws_offline_acceptance": {
+                    "id": "ws_offline_acceptance",
+                    "name": "Offline acceptance",
+                    "local_path": str(workspace),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(workspace_local_paths, "WORKSPACE_METADATA_FILE", metadata_file)
     _write_project(workspace, scenario["files"])
     repository = AgentSessionRepository(str(tmp_path / "agent-sessions.db"))
     service = AgentSessionService(repository, model_call=_fake_model(_script_for(scenario["id"])))
@@ -176,7 +196,11 @@ def test_coding_agent_engineering_loop_runs_through_real_session_boundaries(tmp_
     events = service.list_events(session.id)
 
     for relative_path, expected_content in scenario["expected_files"].items():
-        assert (workspace / relative_path).read_text(encoding="utf-8") == expected_content
+        assert (workspace / relative_path).read_text(encoding="utf-8") == expected_content, {
+            "status": result.status,
+            "trajectory": result.metadata.get("trajectory_guard"),
+            "events": [(event["event_type"], event.get("message")) for event in events],
+        }
 
     if scenario["kind"] == "path_isolation":
         assert not (tmp_path / "outside.py").exists()
@@ -201,8 +225,18 @@ def test_coding_agent_engineering_loop_runs_through_real_session_boundaries(tmp_
     assert scenario["verification_after_last_write"] is True
     assert any(step["kind"] == "verification" and step["success"] and step["sequence"] > last_write for step in steps)
     if scenario["kind"] == "failure_recovery":
-        failed_verification = next(step for step in steps if step["kind"] == "verification" and not step["success"])
-        repair_read = next(step for step in steps if step["kind"] == "read" and step["sequence"] > failed_verification["sequence"])
+        failed_commands = [step for step in steps if step["kind"] == "command" and not step["success"]]
+        assert failed_commands, [
+            (
+                event["event_type"],
+                event.get("payload", {}).get("tool"),
+                event.get("payload", {}).get("part", {}).get("content"),
+            )
+            for event in events
+            if event.get("payload", {}).get("tool") == "execute"
+        ]
+        failed_command = failed_commands[0]
+        repair_read = next(step for step in steps if step["kind"] == "read" and step["sequence"] > failed_command["sequence"])
         assert repair_read["path"] == "/workspace/parser.py"
 
     reloaded = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent-sessions.db")))

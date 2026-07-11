@@ -64,12 +64,19 @@ def is_verification_command(command: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in VERIFICATION_PATTERNS)
 
 
-def is_successful_tool_result(result: ToolMessage | Command[Any]) -> bool:
+def is_successful_tool_result(result: ToolMessage | Command[Any], *, tool: str = "") -> bool:
     if isinstance(result, Command):
         return True
     if getattr(result, "status", None) == "error":
         return False
     content = str(getattr(result, "content", "") or "").strip().lower()
+    if tool == "execute":
+        exit_code = re.search(r"(?:^|\n)exit code:\s*(-?\d+)(?:\n|$)", content)
+        if exit_code is not None:
+            return int(exit_code.group(1)) == 0
+        command_exit = re.search(r"command (?:succeeded|failed) with exit code\s+(-?\d+)", content)
+        if command_exit is not None:
+            return int(command_exit.group(1)) == 0
     return not content.startswith(("error:", "toolerror:", "failed:"))
 
 
@@ -444,6 +451,18 @@ class TrajectoryStateStore:
         state = self.load()
         if sequence not in set(state.get("successful_write_sequences") or []):
             raise ValueError("Coding Agent diff must reference a successful write")
+        write_step = next(
+            (
+                step
+                for step in state.get("steps") or []
+                if int(step.get("sequence") or 0) == sequence
+                and step.get("kind") == "write"
+                and bool(step.get("success", True))
+            ),
+            None,
+        )
+        if write_step is None or workspace_relative_path(str(write_step.get("path") or "")) != relative_path:
+            raise ValueError("Coding Agent diff path must match its successful write")
 
         part = self.repository.add_part(
             self.session_id,
@@ -625,12 +644,21 @@ class TrajectoryStateStore:
             for sequence in state.get("successful_write_sequences") or []
             if int(sequence) > 0
         }
+        expected_paths = {
+            int(step.get("sequence") or 0): workspace_relative_path(str(step.get("path") or ""))
+            for step in state.get("steps") or []
+            if step.get("kind") == "write"
+            and bool(step.get("success", True))
+            and int(step.get("sequence") or 0) in successful_write_sequences
+        }
         covered_sequences = {
-            int((part.get("payload") or {}).get("write_sequence") or 0)
+            sequence
             for part in self.repository.list_parts(self.session_id)
+            for sequence in [int((part.get("payload") or {}).get("write_sequence") or 0)]
             if part.get("type") == "diff"
             and (part.get("payload") or {}).get("contract_version") == CODING_DIFF_CONTRACT_VERSION
             and (part.get("payload") or {}).get("review_status") == "ready"
+            and (part.get("payload") or {}).get("path") == expected_paths.get(sequence)
         }
         uncovered_sequences = sorted(successful_write_sequences - covered_sequences)
         last_write = int(state.get("last_write_sequence") or 0)
@@ -812,7 +840,7 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         result = await handler(request)
         if isinstance(result, Command):
             return result
-        success = is_successful_tool_result(result)
+        success = is_successful_tool_result(result, tool=tool)
         static_validation: StaticValidationResult | None = None
         if (
             tool in WRITE_TOOLS

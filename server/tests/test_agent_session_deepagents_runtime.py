@@ -1683,6 +1683,54 @@ def test_loop_guard_blocks_repeated_model_no_action_output(tmp_path: Path):
     assert blocked.metadata["loop_guard"]["no_progress_repeat_count"] == 3
 
 
+def test_loop_guard_resets_model_no_action_after_successful_write(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard tool progress", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def model_output_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "text",
+            status="completed",
+            title="AI 输出",
+            content="AI 输出完成。",
+            payload={"runtime": "deepagents"},
+        )
+        return {
+            "id": f"event-model-{index}",
+            "session_id": session.id,
+            "event_type": "model_stream_completed",
+            "message": "AI 输出完成。",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "text", "part": part},
+        }
+
+    def write_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="completed",
+            title="edit_file",
+            content="Successfully replaced 1 instance",
+            payload={"tool": "edit_file", "input": {"file_path": "/workspace/app.py"}},
+        )
+        return {
+            "id": f"event-write-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_completed",
+            "message": "工具调用完成：edit_file",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "edit_file", "part": part},
+        }
+
+    for index in range(1, 5):
+        service._notify_event(session.id, model_output_event(index))
+        service._notify_event(session.id, write_event(index))
+
+    current = service.get_session(session.id)
+    assert current.status == "running"
+    assert current.metadata["loop_guard"]["no_progress_repeat_count"] == 0
+
+
 def test_deepagents_mapper_records_tool_error_event(tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     session = repository.create_session({"agent_id": "build", "title": "tool error", "project_path": str(Path.cwd())})

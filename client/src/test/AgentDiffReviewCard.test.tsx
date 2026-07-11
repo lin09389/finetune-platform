@@ -38,14 +38,14 @@ function codingDiffPart(
     payload: {
       contract_version: CODING_DIFF_CONTRACT_VERSION,
       path: 'client/src/App.tsx',
-      change_kind: 'modified',
+      change_type: 'modified',
       additions: 2,
       deletions: 1,
       binary: false,
       truncated: false,
       write_sequence: writeSequence,
       review_status: 'ready',
-      unified_diff: '@@ -1,1 +1,2 @@\n-old\n+new\n+latest',
+      diff: '@@ -1,1 +1,2 @@\n-old\n+new\n+latest',
       ...overrides,
     },
   };
@@ -89,7 +89,7 @@ describe('Coding Agent persisted diff review', () => {
     expect(
       selectCodingDiffReviewPayload({
         ...valid,
-        payload: { ...valid.payload, contract_version: 'coding_diff.v2' },
+        payload: { ...valid.payload, contract_version: 2 },
       }),
     ).toBeNull();
     expect(
@@ -102,10 +102,10 @@ describe('Coding Agent persisted diff review', () => {
 
   it('shows the latest write first and exposes earlier writes as read-only history', () => {
     const old = codingDiffPart('diff-1', 1, '2026-07-11T10:01:00Z', {
-      change_kind: 'added',
+      change_type: 'added',
       additions: 1,
       deletions: 0,
-      unified_diff: '@@ -0,0 +1 @@\n+first',
+      diff: '@@ -0,0 +1 @@\n+first',
     });
     const latest = codingDiffPart('diff-2', 2, '2026-07-11T10:02:00Z');
     const group = selectCodingDiffReviewGroups([old, latest])[0]!;
@@ -126,7 +126,7 @@ describe('Coding Agent persisted diff review', () => {
 
   it('keeps unknown versions on the generic artifact card and labels metadata-only records', () => {
     const unknown = codingDiffPart('legacy-diff', 1, '2026-07-11T10:01:00Z', {
-      contract_version: 'coding_diff.v9',
+      contract_version: 9,
       changed_files: ['client/src/App.tsx'],
       diff: '+legacy',
     });
@@ -137,7 +137,7 @@ describe('Coding Agent persisted diff review', () => {
     const metadataOnly = codingDiffPart('binary-diff', 2, '2026-07-11T10:02:00Z', {
       binary: true,
       truncated: true,
-      unified_diff: undefined,
+      diff: undefined,
     });
     const group = selectCodingDiffReviewGroups([metadataOnly])[0]!;
     render(<AgentDiffReviewCard group={group} />);
@@ -148,7 +148,7 @@ describe('Coding Agent persisted diff review', () => {
   it('projects REST recovery and SSE part updates into the same persisted review card data', () => {
     const parts = [
       codingDiffPart('diff-1', 1, '2026-07-11T10:01:00Z', {
-        unified_diff: '@@ -0,0 +1 @@\n+first',
+        diff: '@@ -0,0 +1 @@\n+first',
       }),
       codingDiffPart('diff-2', 2, '2026-07-11T10:02:00Z'),
     ];

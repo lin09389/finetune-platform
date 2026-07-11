@@ -15,7 +15,7 @@ export type AgentConnectionState =
   | 'error';
 
 /** The persisted Coding Agent review artifact contract. */
-export const CODING_DIFF_CONTRACT_VERSION = 'coding_diff.v1' as const;
+export const CODING_DIFF_CONTRACT_VERSION = 1 as const;
 
 export type CodingDiffChangeKind = 'added' | 'modified' | 'deleted';
 
@@ -162,14 +162,14 @@ export function selectCodingDiffReviewPayload(
   if (payload.contract_version !== CODING_DIFF_CONTRACT_VERSION) return null;
 
   const path = nonEmptyString(payload.path);
-  const changeKind = payload.change_kind;
+  const changeKind = payload.change_type;
   const additions = optionalNonNegativeNumberField(payload, 'additions');
   const deletions = optionalNonNegativeNumberField(payload, 'deletions');
   const binary = optionalBooleanField(payload, 'binary');
   const truncated = optionalBooleanField(payload, 'truncated');
   const writeSequence = optionalNonNegativeNumberField(payload, 'write_sequence');
   const reviewStatus = payload.review_status;
-  const unifiedDiff = payload.unified_diff;
+  const unifiedDiff = payload.diff;
 
   if (
     !path ||
@@ -356,6 +356,7 @@ const KNOWN_EVENT_TYPES = new Set([
   'node_recovery_rejected',
   'loop_guard_triggered',
   'trajectory_guard_blocked',
+  'coding_diff_ready',
   'context_preparing',
   'context_ready',
   'session_title_updated',

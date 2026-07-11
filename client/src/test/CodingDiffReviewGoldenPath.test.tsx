@@ -20,6 +20,7 @@ describe('Coding Diff Review persisted golden path', () => {
       .map((item) => ({ id: item.id, status: item.status, payload: item.payload, content: item.content }));
 
     expect(projection(live)).toEqual(projection(refreshed));
+    expect(live.unknownEvents).toEqual([]);
     expect(projection(refreshed)).toEqual([
       expect.objectContaining({ id: 'diff-001', payload: expect.objectContaining({ path: 'server/app.py', write_sequence: 2, review_status: 'ready' }) }),
       expect.objectContaining({ id: 'diff-002', payload: expect.objectContaining({ path: 'server/app.py', write_sequence: 5, review_status: 'ready' }) }),

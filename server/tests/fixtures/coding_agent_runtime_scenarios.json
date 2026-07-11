@@ -23,6 +23,7 @@
       "id": "react-typescript-change",
       "kind": "react_typescript",
       "files": {
+        "package.json": "{\"scripts\":{\"typecheck\":\"node -e \\\"const fs=require('fs');if(!fs.readFileSync('client/src/StatusCard.tsx','utf8').includes('role=\\\\\\\"status\\\\\\\"'))process.exit(1)\\\"\"}}\n",
         "client/src/StatusCard.tsx": "export const StatusCard = () => <span>idle</span>;\n",
         "client/src/StatusCard.test.tsx": "export {};\n"
       },
@@ -35,6 +36,7 @@
       "id": "cross-stack-multi-file",
       "kind": "cross_stack",
       "files": {
+        "package.json": "{\"scripts\":{\"typecheck\":\"node -e \\\"const fs=require('fs');if(!fs.readFileSync('client/src/TaskList.tsx','utf8').includes('ready'))process.exit(1)\\\"\"}}\n",
         "server/tasks.py": "def task_payload():\n    return {'name': 'demo'}\n",
         "server/test_tasks.py": "from tasks import task_payload\n",
         "client/src/tasks.ts": "export type Task = { name: string };\n",
@@ -46,7 +48,7 @@
         "client/src/tasks.ts": "export type Task = { name: string; status: 'ready' };\n",
         "client/src/TaskList.tsx": "export const TaskList = () => <span>ready</span>;\n"
       },
-      "expected_diff_paths": ["client/src/TaskList.tsx", "client/src/tasks.ts", "server/tasks.py"],
+      "expected_diff_paths": ["server/tasks.py", "client/src/tasks.ts", "client/src/TaskList.tsx"],
       "verification_after_last_write": true
     },
     {

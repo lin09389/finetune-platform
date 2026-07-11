@@ -233,3 +233,22 @@ def test_completion_gate_requires_persisted_diff_for_each_successful_write(tmp_p
     issues = store.completion_issues(POLICY)
 
     assert [issue["reason_code"] for issue in issues] == ["diff_coverage_required"]
+
+
+def test_diff_evidence_must_match_the_successful_write_path(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    session = repository.create_session({"agent_id": "build", "project_path": str(tmp_path), "metadata": {}})
+    store = TrajectoryStateStore(repository, lambda *_args: None, session["id"])
+    store.begin_run()
+    state = store.record_step("write", tool="edit_file", path="/workspace/app.py")
+    payload = build_coding_diff_payload(
+        path="other.py",
+        before_existed=True,
+        before_content=b"old\n",
+        after_existed=True,
+        after_content=b"new\n",
+        write_sequence=state["sequence"],
+    )
+
+    with pytest.raises(ValueError, match="path must match"):
+        store.persist_coding_diff(payload)

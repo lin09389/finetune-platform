@@ -29,7 +29,7 @@ Simulated boundary:
 
 - model reasoning and tool selection. The fake model emits a fixed, valid tool-call sequence; the test does not claim to evaluate the quality, safety, or capability of a hosted model.
 
-The end-to-end parameterized test is deliberately gated on the Track A `agent_session.coding_diff` contract. Before that module exists it reports an explicit skip rather than pretending a JSON fixture is E2E coverage. Its fixture-schema test and the client golden-path test remain independently runnable. Once Track A is integrated, the test asserts final file contents, diff parts/events, coverage, validation ordering, completion, and refresh projection through the real boundaries above.
+The end-to-end parameterized test is gated on the Track A `agent_session.coding_diff` contract so older checkouts report an explicit skip rather than pretending a JSON fixture is E2E coverage. In the integrated Phase 7 baseline, all six runtime scenarios execute and assert final file contents, diff parts/events, coverage, validation ordering, completion, and refresh projection through the real boundaries above. Its fixture-schema test and the client golden-path test remain independently runnable.
 
 Run the focused checks from the repository root:
 
