@@ -125,6 +125,7 @@ def list_allowed_roots(
     settings: Any | None = None,
     *,
     extra_roots: Iterable[Path] | None = None,
+    include_registered: bool = True,
 ) -> list[AllowedRoot]:
     """Return allowed roots with source labels for API/UI display."""
     if settings is None:
@@ -135,7 +136,10 @@ def list_allowed_roots(
     context = _base_context_roots(settings)
     if extra_roots:
         context.update(Path(p).resolve() for p in extra_roots)
-    roots = sorted(get_allowed_workspace_roots(context), key=lambda p: str(p).lower())
+    roots = sorted(
+        get_allowed_workspace_roots(context, include_registered=include_registered),
+        key=lambda p: str(p).lower(),
+    )
     items: list[AllowedRoot] = []
     for root in roots:
         source = _source_for_root(root, settings, context)
@@ -159,6 +163,7 @@ def validate_agent_project_path(
     settings: Any | None = None,
     *,
     extra_roots: Iterable[Path] | None = None,
+    include_registered: bool = True,
 ) -> PathValidationResult:
     """Validate a candidate project path without raising.
 
@@ -223,7 +228,7 @@ def validate_agent_project_path(
     context = _base_context_roots(settings)
     if extra_roots:
         context.update(Path(p).resolve() for p in extra_roots)
-    allowed_roots = get_allowed_workspace_roots(context)
+    allowed_roots = get_allowed_workspace_roots(context, include_registered=include_registered)
     if _is_under_allowed(resolved, allowed_roots):
         return PathValidationResult(
             ok=True,
@@ -257,9 +262,15 @@ def require_valid_project_path(
     settings: Any | None = None,
     *,
     extra_roots: Iterable[Path] | None = None,
+    include_registered: bool = True,
 ) -> str:
     """Validate and return resolved path, or raise ValueError (Agent session create)."""
-    result = validate_agent_project_path(path, settings, extra_roots=extra_roots)
+    result = validate_agent_project_path(
+        path,
+        settings,
+        extra_roots=extra_roots,
+        include_registered=include_registered,
+    )
     if result.ok and result.resolved_path:
         return result.resolved_path
     raise ValueError(result.message or "project_path is invalid")

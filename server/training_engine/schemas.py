@@ -1,6 +1,7 @@
 """
 训练模块 Pydantic 模型与类型定义
 """
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -41,6 +42,21 @@ class TrainingConfigInput(BaseModel):
     eval_steps: int = Field(default=100, ge=10, description="评估间隔")
     load_best_model: bool = Field(default=True, description="加载最佳模型")
     target_modules: str = Field(default="all", description="目标模块：all/mlp/attn/auto 或逗号分隔的模块名")
+
+    @field_validator("model_id", "dataset_id")
+    @classmethod
+    def validate_catalog_identifier(cls, value: str) -> str:
+        """Catalog IDs name one child directory; they are never filesystem paths."""
+        normalized = value.strip()
+        candidate = Path(normalized)
+        if (
+            not normalized
+            or candidate.is_absolute()
+            or len(candidate.parts) != 1
+            or normalized in {".", ".."}
+        ):
+            raise ValueError("模型和数据集 ID 必须是单个目录名，不能包含路径")
+        return normalized
 
     @field_validator("target_modules")
     @classmethod

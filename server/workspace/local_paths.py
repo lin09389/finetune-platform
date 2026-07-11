@@ -70,7 +70,11 @@ def iter_registered_workspace_roots() -> list[Path]:
     return roots
 
 
-def get_allowed_workspace_roots(default_roots: Iterable[Path] | None = None) -> set[Path]:
+def get_allowed_workspace_roots(
+    default_roots: Iterable[Path] | None = None,
+    *,
+    include_registered: bool = True,
+) -> set[Path]:
     roots = {path.resolve() for path in (default_roots or [])}
     for env_key in WORKSPACE_ROOT_ENV_KEYS:
         raw = os.getenv(env_key)
@@ -82,7 +86,8 @@ def get_allowed_workspace_roots(default_roots: Iterable[Path] | None = None) -> 
             continue
         if resolved.exists() and resolved.is_dir():
             roots.add(resolved)
-    roots.update(iter_registered_workspace_roots())
+    if include_registered:
+        roots.update(iter_registered_workspace_roots())
     return roots
 
 

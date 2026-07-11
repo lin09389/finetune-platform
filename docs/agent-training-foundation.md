@@ -19,7 +19,12 @@ API routers.
   `AgentTrainingError(code="approval_required")`. Unknown, blocked, stale,
   and already-submitted proposals are also rejected with stable error codes.
 - Submission resolves the model and dataset a second time before delegating to
-  `services.training.orchestrator.start_training_task`.
+  `services.training.orchestrator.start_training_task`; catalog IDs must name
+  one child directory and cannot escape the configured model/dataset roots. It
+  also repeats complete preflight in a worker thread before creating a task.
+- Future tool adapters must pass the authenticated owner and Agent session to
+  proposal creation and submission. The service rejects a proposal submitted
+  from a different scope.
 - `TrainingSubmission` exposes the resulting `proposal_id`, `task_id`, and
   task `status`.
 - `get_run_summary()` / `get_training_run_summary()` maps the authoritative
@@ -28,10 +33,10 @@ API routers.
 
 ## Proposal lifetime
 
-Proposals live only in a bounded, thread-safe in-process store (100 entries by
-default). They are intentionally not written to disk or a database. An
-application restart clears them, so an agent must request a fresh proposal
-before attempting to submit training.
+Proposals live in a bounded store (100 entries by default). When application
+settings provide `base_dir`, the store uses SQLite under `data/` so proposals
+and submission claims survive restarts and are shared across API workers.
+Tests and explicitly injected stores may use in-memory storage instead.
 
 ## Build Agent integration
 

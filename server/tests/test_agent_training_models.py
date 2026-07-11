@@ -3,6 +3,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent_training.models import (
@@ -45,3 +47,13 @@ def test_agent_training_dtos_preserve_the_training_config_and_approval_boundary(
         "task_id": "task-1",
         "status": "queued",
     }
+
+
+@pytest.mark.parametrize("field", ["model_id", "dataset_id"])
+def test_training_catalog_ids_reject_paths(field: str):
+    with pytest.raises(ValueError, match="不能包含路径"):
+        TrainingProposalRequest(config={
+            "model_id": "tiny-model",
+            "dataset_id": "tiny-dataset",
+            field: "../outside",
+        })

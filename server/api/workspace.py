@@ -6,11 +6,13 @@ import json
 import logging
 import uuid
 import os
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.config import settings
@@ -23,34 +25,47 @@ from workspace.path_policy import (
     resolve_default_project_path,
     validate_agent_project_path,
 )
+from security.auth_middleware import get_current_user_optional
+from security.jwt_auth import Role, TokenPayload
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-WORKSPACE_DATA_DIR = Path("data/workspaces")
+WORKSPACE_DATA_DIR = Path(settings.base_dir).resolve() / "data" / "workspaces"
 WORKSPACE_DATA_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_METADATA_FILE = WORKSPACE_DATA_DIR / "metadata.json"
+_workspace_store_lock = threading.RLock()
 
 
 def _load_workspace_store() -> dict[str, dict[str, Any]]:
-    if not WORKSPACE_METADATA_FILE.exists():
-        return {}
+    if WORKSPACE_METADATA_FILE.exists():
+        try:
+            with open(WORKSPACE_METADATA_FILE, encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return {workspace_id: payload for workspace_id, payload in data.items() if isinstance(payload, dict)}
+        except Exception as exc:
+            logger.warning("Failed to load workspace metadata: %s", exc)
 
-    try:
-        with open(WORKSPACE_METADATA_FILE, encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict):
-            return {workspace_id: payload for workspace_id, payload in data.items() if isinstance(payload, dict)}
-    except Exception as exc:
-        logger.warning("Failed to load workspace metadata: %s", exc)
-
-    return {}
+    # One-time compatibility read for metadata written by earlier CWD-relative versions.
+    from workspace.local_paths import load_workspace_metadata
+    return load_workspace_metadata()
 
 
 def _save_workspace_store(workspaces: dict[str, dict[str, Any]]) -> None:
-    with open(WORKSPACE_METADATA_FILE, "w", encoding="utf-8") as handle:
-        json.dump(workspaces, handle, ensure_ascii=False, indent=2)
+    payload = json.dumps(workspaces, ensure_ascii=False, indent=2)
+    with _workspace_store_lock:
+        fd, temp_name = tempfile.mkstemp(prefix="metadata.", suffix=".tmp", dir=WORKSPACE_DATA_DIR)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, WORKSPACE_METADATA_FILE)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
 
 
 workspaces: dict[str, dict[str, Any]] = _load_workspace_store()
@@ -59,6 +74,60 @@ DEFAULT_WORKSPACE_ID = "current_project"
 
 class AgentWorkspaceNotFoundError(ValueError):
     """Raised when an Agent task references a Workspace that no longer exists."""
+
+
+async def get_workspace_user(
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
+) -> TokenPayload:
+    """Require the same explicit local fallback used by Agent session routes."""
+    if current_user:
+        return current_user
+    from security.runtime_policy import allow_local_agent_auth, is_production_environment
+
+    if not settings.enable_auth:
+        return TokenPayload(
+            user_id="desktop-local-user",
+            username="desktop",
+            role=Role.USER,
+            permissions=["workspace:local"],
+        )
+    if is_production_environment(settings) or not allow_local_agent_auth(settings):
+        raise HTTPException(status_code=401, detail="Missing authorization")
+    return TokenPayload(
+        user_id="desktop-local-user",
+        username="desktop",
+        role=Role.USER,
+        permissions=["workspace:local"],
+    )
+
+
+def _is_admin(user: TokenPayload) -> bool:
+    return user.role in {Role.ADMIN, Role.SUPER_ADMIN}
+
+
+def _can_access_workspace(workspace: dict[str, Any], user_id: str | None, is_admin: bool = False) -> bool:
+    if user_id is None:
+        return True  # Internal callers and compatibility tests must explicitly opt out of subject scoping.
+    owner_id = str(workspace.get("owner_id") or "").strip()
+    return bool(owner_id and (owner_id == user_id or is_admin))
+
+
+def _require_accessible_workspace(workspace_id: str, user: TokenPayload) -> dict[str, Any]:
+    workspace = _ensure_workspace_exists(workspace_id)
+    if not _can_access_workspace(workspace, user.user_id, _is_admin(user)):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return workspace
+
+
+def _accessible_workspace_roots(user_id: str | None, is_admin: bool = False) -> set[Path]:
+    roots: set[Path] = set()
+    for workspace in workspaces.values():
+        if not _can_access_workspace(workspace, user_id, is_admin):
+            continue
+        raw = str(workspace.get("local_path") or "").strip()
+        if raw:
+            roots.add(Path(raw).expanduser().resolve())
+    return roots
 
 
 def _default_project_path() -> str:
@@ -81,7 +150,13 @@ def _default_workspace_payload() -> dict[str, Any]:
     }
 
 
-def resolve_agent_workspace(workspace_id: str | None, project_path: str | None) -> tuple[str, str | None]:
+def resolve_agent_workspace(
+    workspace_id: str | None,
+    project_path: str | None,
+    *,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> tuple[str, str | None]:
     """Resolve a Workspace reference into the path safe for an Agent session.
 
     A supplied Workspace ID is authoritative: its persisted local path is
@@ -91,7 +166,12 @@ def resolve_agent_workspace(workspace_id: str | None, project_path: str | None) 
     """
     canonical_workspace_id = str(workspace_id or "").strip() or None
     if not canonical_workspace_id:
-        return require_valid_project_path(project_path, settings), None
+        return require_valid_project_path(
+            project_path,
+            settings,
+            extra_roots=_accessible_workspace_roots(user_id, is_admin),
+            include_registered=False,
+        ), None
 
     if canonical_workspace_id == DEFAULT_WORKSPACE_ID:
         workspace_path = _default_project_path()
@@ -99,11 +179,18 @@ def resolve_agent_workspace(workspace_id: str | None, project_path: str | None) 
         workspace = workspaces.get(canonical_workspace_id)
         if not workspace:
             raise AgentWorkspaceNotFoundError("Workspace not found")
+        if not _can_access_workspace(workspace, user_id, is_admin):
+            raise AgentWorkspaceNotFoundError("Workspace not found")
         workspace_path = str(workspace.get("local_path") or "").strip()
         if not workspace_path:
             raise ValueError("Workspace does not have a local_path")
 
-    return require_valid_project_path(workspace_path, settings), canonical_workspace_id
+    return require_valid_project_path(
+        workspace_path,
+        settings,
+        extra_roots=_accessible_workspace_roots(user_id, is_admin),
+        include_registered=False,
+    ), canonical_workspace_id
 
 
 class WorkspaceCreate(BaseModel):
@@ -185,17 +272,33 @@ async def _refresh_workspace_counts_async(workspace: dict[str, Any]) -> Workspac
     return await run_sync(_refresh_workspace_counts, workspace)
 
 
-def _resolve_workspace_path(workspace_id: str | None = None, project_path: str | None = None) -> Path:
+def _resolve_workspace_path(
+    workspace_id: str | None = None,
+    project_path: str | None = None,
+    *,
+    current_user: TokenPayload | None = None,
+) -> Path:
     if project_path and project_path.strip():
         try:
-            return Path(normalize_local_workspace_path(project_path) or "").resolve()
+            return Path(require_valid_project_path(
+                project_path,
+                settings,
+                extra_roots=_accessible_workspace_roots(
+                    current_user.user_id if current_user else None,
+                    _is_admin(current_user) if current_user else False,
+                ),
+                include_registered=False,
+            )).resolve()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if workspace_id:
         if workspace_id == DEFAULT_WORKSPACE_ID:
             return Path(_default_project_path()).resolve()
-        workspace = _ensure_workspace_exists(workspace_id)
+        workspace = (
+            _require_accessible_workspace(workspace_id, current_user)
+            if current_user else _ensure_workspace_exists(workspace_id)
+        )
         local_path = workspace.get("local_path")
         if not local_path:
             raise HTTPException(status_code=400, detail="Workspace does not have a local_path")
@@ -289,7 +392,7 @@ def _build_tree(
 
 
 @router.post("/workspaces", response_model=Workspace)
-async def create_workspace(data: WorkspaceCreate):
+async def create_workspace(data: WorkspaceCreate, current_user: TokenPayload = Depends(get_workspace_user)):
     """Create a workspace."""
     try:
         local_path = normalize_local_workspace_path(data.local_path)
@@ -310,6 +413,7 @@ async def create_workspace(data: WorkspaceCreate):
         "vector_collection_name": collection_name,
         "local_path": local_path,
         "status": "active",
+        "owner_id": current_user.user_id,
     }
 
     def _create_collection():
@@ -331,7 +435,7 @@ async def create_workspace(data: WorkspaceCreate):
 
 
 @router.get("/workspaces", response_model=list[Workspace])
-async def list_workspaces():
+async def list_workspaces(current_user: TokenPayload = Depends(get_workspace_user)):
     """List workspaces."""
     result: list[Workspace] = []
     default_workspace = _default_workspace_payload()
@@ -339,6 +443,8 @@ async def list_workspaces():
     has_default_path = False
     has_registered_default = False
     for workspace in workspaces.values():
+        if not _can_access_workspace(workspace, current_user.user_id, _is_admin(current_user)):
+            continue
         if workspace.get("local_path") == default_path:
             has_default_path = True
         if workspace.get("status") == "default" and workspace.get("local_path"):
@@ -352,24 +458,28 @@ async def list_workspaces():
 
 
 @router.get("", response_model=list[Workspace])
-async def list_workspaces_compat():
+async def list_workspaces_compat(current_user: TokenPayload = Depends(get_workspace_user)):
     """Compatibility endpoint for GET /workspace."""
-    return await list_workspaces()
+    return await list_workspaces(current_user)
 
 
 @router.get("/workspaces/{workspace_id}", response_model=Workspace)
-async def get_workspace(workspace_id: str):
+async def get_workspace(workspace_id: str, current_user: TokenPayload = Depends(get_workspace_user)):
     """Get workspace details."""
-    workspace = _ensure_workspace_exists(workspace_id)
+    workspace = _require_accessible_workspace(workspace_id, current_user)
     refreshed = await _refresh_workspace_counts_async(workspace)
     await run_sync(_persist_workspaces)
     return refreshed
 
 
 @router.put("/workspaces/{workspace_id}", response_model=Workspace)
-async def update_workspace(workspace_id: str, data: WorkspaceUpdate):
+async def update_workspace(
+    workspace_id: str,
+    data: WorkspaceUpdate,
+    current_user: TokenPayload = Depends(get_workspace_user),
+):
     """Update workspace metadata."""
-    workspace = _ensure_workspace_exists(workspace_id)
+    workspace = _require_accessible_workspace(workspace_id, current_user)
 
     if data.name is not None:
         workspace["name"] = data.name
@@ -388,9 +498,9 @@ async def update_workspace(workspace_id: str, data: WorkspaceUpdate):
 
 
 @router.delete("/workspaces/{workspace_id}")
-async def delete_workspace(workspace_id: str):
+async def delete_workspace(workspace_id: str, current_user: TokenPayload = Depends(get_workspace_user)):
     """Delete a workspace."""
-    workspace = _ensure_workspace_exists(workspace_id)
+    workspace = _require_accessible_workspace(workspace_id, current_user)
     collection_name = workspace.get("vector_collection_name", workspace_id)
 
     try:
@@ -410,9 +520,9 @@ async def delete_workspace(workspace_id: str):
 
 
 @router.get("/workspaces/{workspace_id}/stats")
-async def get_workspace_stats(workspace_id: str):
+async def get_workspace_stats(workspace_id: str, current_user: TokenPayload = Depends(get_workspace_user)):
     """Get workspace statistics."""
-    workspace = _ensure_workspace_exists(workspace_id)
+    workspace = _require_accessible_workspace(workspace_id, current_user)
     collection_name = workspace.get("vector_collection_name", workspace_id)
 
     try:
@@ -450,9 +560,14 @@ async def get_workspace_tree(
     project_path: str | None = None,
     max_depth: int = 3,
     limit: int = 240,
+    current_user: TokenPayload = Depends(get_workspace_user),
 ):
     """Return a shallow local file tree for the selected workspace."""
-    root = _resolve_workspace_path(workspace_id=workspace_id, project_path=project_path)
+    root = _resolve_workspace_path(
+        workspace_id=workspace_id,
+        project_path=project_path,
+        current_user=current_user,
+    )
     max_depth = max(1, min(max_depth, 6))
     limit = max(20, min(limit, 800))
     budget = {"remaining": limit}
@@ -465,9 +580,13 @@ class WorkspacePathValidateRequest(BaseModel):
 
 
 @router.get("/allowed-roots")
-async def get_allowed_workspace_roots_endpoint():
+async def get_allowed_workspace_roots_endpoint(current_user: TokenPayload = Depends(get_workspace_user)):
     """List default project path and allowed workspace roots for Agent/UI pickers."""
-    roots = list_allowed_roots(settings)
+    roots = list_allowed_roots(
+        settings,
+        extra_roots=_accessible_workspace_roots(current_user.user_id, _is_admin(current_user)),
+        include_registered=False,
+    )
     return {
         "default_project_path": resolve_default_project_path(settings),
         "roots": [item.as_dict() for item in roots],
@@ -475,14 +594,25 @@ async def get_allowed_workspace_roots_endpoint():
 
 
 @router.post("/validate-path")
-async def validate_workspace_path(data: WorkspacePathValidateRequest):
+async def validate_workspace_path(
+    data: WorkspacePathValidateRequest,
+    current_user: TokenPayload = Depends(get_workspace_user),
+):
     """Validate a candidate Agent project path (existence, directory, allowlist)."""
-    result = validate_agent_project_path(data.path, settings)
+    result = validate_agent_project_path(
+        data.path,
+        settings,
+        extra_roots=_accessible_workspace_roots(current_user.user_id, _is_admin(current_user)),
+        include_registered=False,
+    )
     return result.as_dict()
 
 
 @router.get("/browse-folder")
-async def browse_folder(initial_path: str | None = None):
+async def browse_folder(
+    initial_path: str | None = None,
+    current_user: TokenPayload = Depends(get_workspace_user),
+):
     """Open a native OS directory chooser dialog and return the selected path."""
     import platform
     import subprocess
@@ -598,11 +728,21 @@ class FileWriteRequest(BaseModel):
     project_path: str | None = Field(default=None, description="Project root for sandbox validation")
 
 
-def _validate_file_path_in_workspace(file_path: str, workspace_id: str | None, project_path: str | None) -> Path:
+def _validate_file_path_in_workspace(
+    file_path: str,
+    workspace_id: str | None,
+    project_path: str | None,
+    current_user: TokenPayload,
+) -> Path:
     """Resolve the file path and assert it lives inside an allowed workspace root."""
     try:
         raw_path = str(file_path or "").strip().replace("\\", "/")
-        project_root = Path(project_path).expanduser().resolve() if project_path else None
+        project_root = Path(require_valid_project_path(
+            project_path,
+            settings,
+            extra_roots=_accessible_workspace_roots(current_user.user_id, _is_admin(current_user)),
+            include_registered=False,
+        )).resolve() if project_path else None
         if raw_path == "/workspace":
             raw_path = ""
         elif raw_path.startswith("/workspace/"):
@@ -622,12 +762,12 @@ def _validate_file_path_in_workspace(file_path: str, workspace_id: str | None, p
     if project_root:
         extra_roots.add(project_root)
     if workspace_id:
-        ws = workspaces.get(workspace_id)
-        if ws and ws.get("local_path"):
+        ws = _require_accessible_workspace(workspace_id, current_user)
+        if ws.get("local_path"):
             extra_roots.add(Path(ws["local_path"]).expanduser().resolve())
     extra_roots.add(Path(_default_project_path()).resolve())
 
-    allowed_roots = get_allowed_workspace_roots(extra_roots)
+    allowed_roots = get_allowed_workspace_roots(extra_roots, include_registered=False)
     if not allowed_roots:
         raise HTTPException(status_code=400, detail="No allowed workspace roots configured")
 
@@ -649,9 +789,10 @@ async def read_workspace_file(
     file_path: str,
     workspace_id: str | None = None,
     project_path: str | None = None,
+    current_user: TokenPayload = Depends(get_workspace_user),
 ):
     """Read a text file from the local workspace and return its content."""
-    resolved = _validate_file_path_in_workspace(file_path, workspace_id, project_path)
+    resolved = _validate_file_path_in_workspace(file_path, workspace_id, project_path, current_user)
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="File not found")
     if not resolved.is_file():
@@ -667,9 +808,17 @@ async def read_workspace_file(
 
 
 @router.post("/write-file")
-async def write_workspace_file(data: FileWriteRequest):
+async def write_workspace_file(
+    data: FileWriteRequest,
+    current_user: TokenPayload = Depends(get_workspace_user),
+):
     """Write text content to a file in the local workspace (creates the file if absent)."""
-    resolved = _validate_file_path_in_workspace(data.file_path, data.workspace_id, data.project_path)
+    resolved = _validate_file_path_in_workspace(
+        data.file_path,
+        data.workspace_id,
+        data.project_path,
+        current_user,
+    )
     if resolved.is_dir():
         raise HTTPException(status_code=400, detail="Path is a directory, not a file")
 

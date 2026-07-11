@@ -36,6 +36,8 @@ INHERITED_CHILD_METADATA_KEYS = {
     "memory_user_id",
     "org_id",
     "user_id",
+    "workspace",
+    "task_mode",
 }
 
 

@@ -43,7 +43,11 @@ class SessionLifecycleService:
         return self.validate_project_path(project_path)
 
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
-        project_path, workspace_id = resolve_agent_workspace(request.workspace_id, request.project_path)
+        project_path, workspace_id = resolve_agent_workspace(
+            request.workspace_id,
+            request.project_path,
+            user_id=user_id,
+        )
         agent = self._require_direct_agent(request.agent_id)
         provider, model, model_configured = self.resolve_session_model_availability(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)

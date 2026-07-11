@@ -87,6 +87,9 @@ def test_submission_re_resolves_paths_and_rejects_duplicate_proposals(tmp_path, 
 
     monkeypatch.setattr(service_module, "resolve_dataset_file", fake_resolve)
     monkeypatch.setattr(service_module, "start_training_task", fake_submit)
+    async def valid_preflight(*_):
+        return SimpleNamespace(errors=[])
+    monkeypatch.setattr(service_module.TrainingValidator, "validate_config", valid_preflight)
 
     submission = service.submit_approved_training(
         ApprovedTrainingAction(proposal_id="proposal-1", approved=True)
@@ -111,3 +114,34 @@ def test_submission_rejects_a_proposal_when_paths_are_no_longer_resolvable(tmp_p
     with pytest.raises(AgentTrainingError, match="Model is no longer available") as error:
         service.submit_approved_training(ApprovedTrainingAction(proposal_id="proposal-1", approved=True))
     assert error.value.code == "proposal_stale"
+
+
+def test_submission_requires_the_same_owner_and_agent_session(tmp_path):
+    service, _ = _service(tmp_path)
+    service._proposal_store.add(TrainingProposal(
+        proposal_id="proposal-1",
+        config={"model_id": "tiny-model", "dataset_id": "tiny-dataset"},
+        status="ready",
+        owner_id="user-a",
+        session_id="session-a",
+    ))
+
+    with pytest.raises(AgentTrainingError, match="different user") as error:
+        service.submit_approved_training(
+            ApprovedTrainingAction(proposal_id="proposal-1", approved=True),
+            owner_id="user-b",
+            session_id="session-a",
+        )
+
+    assert error.value.code == "proposal_scope_mismatch"
+
+
+def test_sqlite_proposal_store_preserves_claims_across_store_instances(tmp_path):
+    path = tmp_path / "proposals.sqlite3"
+    first = TrainingProposalStore(db_path=path)
+    first.add(_proposal())
+
+    second = TrainingProposalStore(db_path=path)
+    assert second.get("proposal-1") is not None
+    assert second.claim_submission("proposal-1") is True
+    assert first.claim_submission("proposal-1") is False

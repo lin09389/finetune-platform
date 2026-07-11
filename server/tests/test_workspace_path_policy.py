@@ -16,6 +16,7 @@ from workspace.path_policy import (
     resolve_default_project_path,
     validate_agent_project_path,
 )
+from security.jwt_auth import Role
 
 
 def _settings(base_dir: Path, agent_default: str | None = None) -> SimpleNamespace:
@@ -195,6 +196,9 @@ def test_allowed_roots_and_validate_path_http_endpoints(tmp_path: Path, monkeypa
 
     app = FastAPI()
     app.include_router(workspace_api.router, prefix="/workspace")
+    app.dependency_overrides[workspace_api.get_workspace_user] = lambda: SimpleNamespace(
+        user_id="user-1", role=Role.USER,
+    )
     client = TestClient(app)
 
     roots = client.get("/workspace/allowed-roots")
@@ -222,8 +226,14 @@ def test_allowed_roots_and_validate_path_http_endpoints(tmp_path: Path, monkeypa
 
     # After registration metadata is visible, path validates
     registered = {
-        "ws_http": {"id": "ws_http", "name": "HTTP", "local_path": str(alien.resolve())}
+        "ws_http": {
+            "id": "ws_http",
+            "name": "HTTP",
+            "local_path": str(alien.resolve()),
+            "owner_id": "user-1",
+        }
     }
+    monkeypatch.setattr(workspace_api, "workspaces", registered)
     monkeypatch.setattr("workspace.local_paths.load_workspace_metadata", lambda: registered)
     monkeypatch.setattr("workspace.path_policy.load_workspace_metadata", lambda: registered)
     allowed = client.post("/workspace/validate-path", json={"path": str(alien)})
@@ -249,6 +259,9 @@ def test_default_path_validate_http(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     app = FastAPI()
     app.include_router(workspace_api.router, prefix="/workspace")
+    app.dependency_overrides[workspace_api.get_workspace_user] = lambda: SimpleNamespace(
+        user_id="user-1", role=Role.USER,
+    )
     client = TestClient(app)
     resp = client.post("/workspace/validate-path", json={"path": None})
     assert resp.status_code == 200
@@ -293,6 +306,29 @@ def test_resolve_agent_workspace_uses_saved_local_path_not_client_path(tmp_path:
 
     assert project_path == str(saved_workspace.resolve())
     assert workspace_id == "ws_saved"
+
+
+def test_resolve_agent_workspace_rejects_a_workspace_owned_by_another_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import importlib
+
+    workspace_api = importlib.import_module("api.workspace")
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    saved_workspace = tmp_path / "saved"
+    saved_workspace.mkdir()
+    monkeypatch.setattr(workspace_api.settings, "base_dir", server_dir)
+    monkeypatch.setattr(workspace_api.settings, "agent_default_project_path", None)
+    monkeypatch.setattr(workspace_api, "workspaces", {
+        "ws_other": {
+            "id": "ws_other",
+            "name": "Other user",
+            "local_path": str(saved_workspace),
+            "owner_id": "user-a",
+        },
+    })
+
+    with pytest.raises(workspace_api.AgentWorkspaceNotFoundError):
+        workspace_api.resolve_agent_workspace("ws_other", None, user_id="user-b")
 
 
 def test_resolve_agent_workspace_rejects_unknown_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
