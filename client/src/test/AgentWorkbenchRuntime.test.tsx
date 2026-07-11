@@ -756,6 +756,10 @@ describe('Agent training activity cards', () => {
     expect(within(runningCard).getByText('2026-07-11 10:00:00 UTC')).toBeInTheDocument();
     expect(within(completedCard).getByRole('link', { name: '在模型/训练中查看' }))
       .toHaveAttribute('href', '/training?task_id=completed');
+    expect(within(completedCard).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(cards[4]!).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(cards[5]!).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(cards[6]!).queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /取消|重试/ })).not.toBeInTheDocument();
   });
 

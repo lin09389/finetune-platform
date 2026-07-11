@@ -68,6 +68,7 @@ function TrainingProgress({ activity }: { activity: AgentTrainingActivity }) {
   if (activity.kind !== 'run_summary') return null;
   const totalSteps = activity.totalSteps;
   if (totalSteps === undefined || totalSteps <= 0) {
+    if (['completed', 'failed', 'missing', 'degraded'].includes(activity.status)) return null;
     return (
       <div className={styles.trainingActivityProgress}>
         <span>训练进度</span>
