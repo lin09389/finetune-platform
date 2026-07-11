@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { selectAttentionItems } from '../agent/attention/selectAttentionItems';
 import { AgentCommandExecutor, AgentCommandFailure } from '../agent/commands/agentCommands';
@@ -707,6 +707,124 @@ describe('Agent training activity cards', () => {
 
     expect(screen.getByRole('region', { name: '训练活动：训练运行' })).toBeInTheDocument();
     expect(screen.getByText('task-card')).toBeInTheDocument();
+  });
+
+  it('renders persisted live training states with accessible progress and a safe artifact handoff', () => {
+    const activities: AgentTrainingActivityProjection[] = [
+      { kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'queued', status: 'queued', summary: '正在排队。' },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'loading', status: 'loading',
+        summary: '正在加载数据。', phase: '加载数据', totalSteps: 0,
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'running', status: 'running',
+        summary: '正在训练。', phase: '训练', step: 120, totalSteps: 100, loss: 0.1825,
+        elapsedSeconds: 125, etaSeconds: 215, updatedAt: '2026-07-11T10:00:00Z',
+      },
+      {
+        kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'completed', status: 'completed',
+        summary: '训练完成。', artifactAvailable: true,
+      },
+      { kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'failed', status: 'failed', summary: '训练失败。' },
+      { kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'missing', status: 'missing', summary: '任务记录暂时不可用。' },
+      { kind: 'run_summary', sourceTool: 'get_training_summary', taskId: 'degraded', status: 'degraded', summary: '进度桥接暂时不可用。' },
+    ];
+
+    render(<>{activities.map((activity, index) => <AgentTrainingActivity key={index} activity={activity} />)}</>);
+
+    expect(screen.getByText('已排队')).toBeInTheDocument();
+    expect(screen.getByText('加载中')).toBeInTheDocument();
+    expect(screen.getByText('训练中')).toBeInTheDocument();
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getByText('失败')).toBeInTheDocument();
+    expect(screen.getByText('任务记录暂不可用')).toBeInTheDocument();
+    expect(screen.getByText('进度同步暂时不可用')).toBeInTheDocument();
+
+    const cards = screen.getAllByRole('region', { name: '训练活动：训练运行' });
+    const loadingCard = cards[1]!;
+    const runningCard = cards[2]!;
+    const completedCard = cards[3]!;
+    expect(within(loadingCard).getByRole('progressbar', { name: '训练进度（未知）' }))
+      .not.toHaveAttribute('aria-valuenow');
+    expect(within(runningCard).getByRole('progressbar', { name: '训练进度' }))
+      .toHaveAttribute('aria-valuenow', '100');
+    expect(within(runningCard).getByText('训练中')).toBeInTheDocument();
+    expect(within(runningCard).queryByText('已完成')).not.toBeInTheDocument();
+    expect(within(runningCard).getByText('训练')).toBeInTheDocument();
+    expect(within(runningCard).getByText('0.1825')).toBeInTheDocument();
+    expect(within(runningCard).getByText('3m 35s')).toBeInTheDocument();
+    expect(within(runningCard).getByText('2026-07-11 10:00:00 UTC')).toBeInTheDocument();
+    expect(within(completedCard).getByRole('link', { name: '在模型/训练中查看' }))
+      .toHaveAttribute('href', '/training?task_id=completed');
+    expect(screen.queryByRole('button', { name: /取消|重试/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps hybrid coding activities ordered and interactive beside a training card', async () => {
+    const onDecidePermission = vi.fn();
+    const items: AgentSessionUiTimelineItem[] = [
+      {
+        id: 'command-1', part_id: 'command-1', session_id: session.id, type: 'command', status: 'completed',
+        title: 'typecheck', content: '', payload: { command: 'npm run typecheck' }, created_at: session.created_at,
+      },
+      {
+        id: 'training-1', part_id: 'training-1', session_id: session.id, type: 'tool_result', status: 'running',
+        title: 'get_training_summary', content: '', created_at: session.created_at,
+        payload: {
+          training_activity: {
+            kind: 'run_summary', source_tool: 'get_training_summary', task_id: 'hybrid-training',
+            status: 'running', summary: '训练并行进行中。', step: 3, total_steps: 10,
+          },
+        },
+      },
+      {
+        id: 'diff-1', part_id: 'diff-1', session_id: session.id, type: 'diff', status: 'completed',
+        title: 'edit', content: '', created_at: session.created_at,
+        payload: { changed_files: ['client/src/App.tsx'], diff: '+live progress' },
+      },
+      {
+        id: 'text-1', part_id: 'text-1', session_id: session.id, type: 'text', status: 'completed',
+        title: 'analysis', content: '已保留 Coding Agent 的执行活动。', payload: {}, created_at: session.created_at,
+      },
+      {
+        id: 'permission-1', part_id: 'permission-1', session_id: session.id, type: 'permission', status: 'pending',
+        title: '批准编辑', content: '', payload: {}, created_at: session.created_at,
+      },
+    ];
+    const permission = {
+      part_id: 'permission-1', title: '批准编辑', content: '允许修改测试文件。',
+      actions: [{ index: 0, name: 'apply_patch', args: {}, allowed_decisions: ['approve', 'reject'] }],
+    };
+
+    render(
+      <>
+        {items.map((item) => (
+          <TimelineItem
+            key={item.id}
+            item={item}
+            pendingPermission={item.id === 'permission-1' ? permission : null}
+            onDecidePermission={onDecidePermission}
+          />
+        ))}
+      </>,
+    );
+
+    await waitFor(() => expect(screen.getByText('已保留 Coding Agent 的执行活动。')).toBeInTheDocument());
+    const articleText = screen.getAllByRole('article').map((article) => article.textContent || '');
+    expect(articleText).toEqual([
+      expect.stringContaining('已运行 1 条命令'),
+      expect.stringContaining('训练并行进行中。'),
+      expect.stringContaining('编辑了 1 个文件'),
+      expect.stringContaining('已保留 Coding Agent 的执行活动。'),
+      expect.stringContaining('等待审批'),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: '已运行 1 条命令' }));
+    expect(screen.getByText('npm run typecheck')).toBeInTheDocument();
+    const diffToggle = screen.getByRole('button', { name: '收起 1 个文件变更' });
+    expect(screen.getByText('+live progress')).toBeInTheDocument();
+    fireEvent.click(diffToggle);
+    expect(diffToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /批\s*准/ }));
+    expect(onDecidePermission).toHaveBeenCalledWith('permission-1', [{ type: 'approve' }]);
   });
 });
 

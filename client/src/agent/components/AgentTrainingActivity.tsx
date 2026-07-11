@@ -28,9 +28,12 @@ function presentationFor(activity: AgentTrainingActivity): TrainingActivityPrese
     waiting_approval: { statusLabel: '等待审批', tone: 'pending' },
     submitted: { statusLabel: '已提交', tone: 'success' },
     queued: { statusLabel: '已排队', tone: 'pending' },
+    loading: { statusLabel: '加载中', tone: 'pending' },
     running: { statusLabel: '训练中', tone: 'running' },
     completed: { statusLabel: '已完成', tone: 'success' },
     failed: { statusLabel: '失败', tone: 'failure' },
+    missing: { statusLabel: '任务记录暂不可用', tone: 'warning' },
+    degraded: { statusLabel: '进度同步暂时不可用', tone: 'warning' },
   } as const;
   const state = known[activity.status as keyof typeof known];
   return state ? { title, ...state } : { title, statusLabel: `状态：${activity.status}`, tone: 'unknown' };
@@ -51,6 +54,55 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(whole / 60)}m ${(whole % 60).toString().padStart(2, '0')}s`;
 }
 
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return date.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+}
+
+function displayStep(step: number | undefined, totalSteps: number): number {
+  return Math.min(totalSteps, Math.max(0, step ?? 0));
+}
+
+function TrainingProgress({ activity }: { activity: AgentTrainingActivity }) {
+  if (activity.kind !== 'run_summary') return null;
+  const totalSteps = activity.totalSteps;
+  if (totalSteps === undefined || totalSteps <= 0) {
+    return (
+      <div className={styles.trainingActivityProgress}>
+        <span>训练进度</span>
+        <div
+          className={styles.trainingActivityProgressIndeterminate}
+          role="progressbar"
+          aria-label="训练进度（未知）"
+          aria-valuetext="进度待定"
+        />
+        <span>等待任务报告总步数</span>
+      </div>
+    );
+  }
+
+  const step = displayStep(activity.step, totalSteps);
+  const percent = Math.round((step / totalSteps) * 100);
+  return (
+    <div className={styles.trainingActivityProgress}>
+      <span>训练进度</span>
+      <progress
+        className={styles.trainingActivityProgressTrack}
+        aria-label="训练进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        value={percent}
+        max={100}
+      >
+        {percent}%
+      </progress>
+      <span>{step}/{totalSteps} · {percent}%</span>
+    </div>
+  );
+}
+
 function DetailList({ activity }: { activity: AgentTrainingActivity }) {
   const details: Array<[string, string]> = [];
   if (activity.kind === 'proposal' || activity.kind === 'submission') {
@@ -60,7 +112,12 @@ function DetailList({ activity }: { activity: AgentTrainingActivity }) {
   if (activity.kind === 'run_summary') {
     details.push(['任务 ID', activity.taskId]);
     if (activity.finalLoss !== undefined) details.push(['最终损失', activity.finalLoss.toFixed(4)]);
+    if (activity.phase) details.push(['阶段', activity.phase]);
+    if (activity.epoch !== undefined) details.push(['轮次', String(activity.epoch)]);
+    if (activity.loss !== undefined) details.push(['损失', activity.loss.toFixed(4)]);
     if (activity.elapsedSeconds !== undefined) details.push(['耗时', formatDuration(activity.elapsedSeconds)]);
+    if (activity.etaSeconds !== undefined) details.push(['预计剩余', formatDuration(activity.etaSeconds)]);
+    if (activity.updatedAt) details.push(['最后更新', formatUpdatedAt(activity.updatedAt)]);
   }
   if (activity.modelId) details.push(['模型', activity.modelId]);
   if (activity.datasetId) details.push(['数据集', activity.datasetId]);
@@ -107,7 +164,13 @@ export default function AgentTrainingActivity({ activity }: { activity: AgentTra
         </span>
       </div>
       <p className={styles.trainingActivitySummary}>{activity.summary}</p>
+      <TrainingProgress activity={activity} />
       <DetailList activity={activity} />
+      {activity.kind === 'run_summary' && activity.status === 'completed' && activity.artifactAvailable ? (
+        <p className={styles.trainingActivityHandoff}>
+          训练产物已可用。<a href={`/training?task_id=${encodeURIComponent(activity.taskId)}`}>在模型/训练中查看</a>
+        </p>
+      ) : null}
       {activity.kind === 'proposal' ? (
         <>
           <MessageList label="阻塞原因" messages={activity.blockers} />
