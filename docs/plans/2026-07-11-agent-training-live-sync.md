@@ -109,3 +109,25 @@ npm run build
 5. Run backend Agent/training/Worker/lifespan suites, frontend Agent suites, typecheck, production build, bundle budget, and `git diff --check`.
 6. Record actual commits and verification totals here.
 
+## Completion record
+
+Integrated into `master` on 2026-07-11:
+
+- Persist ownership-bound links: `6c0721a5`
+- Safe event projections and reconciler: `3e5654ff`
+- Approved-submission/lifespan integration: `391c13e5`
+- Unknown-event projection preservation: `ef7a1419`
+- Frontend live progress decoder: `702ad817`
+- Workbench live training presentation: `540ff822`
+- Recovery/idempotency acceptance contract: `1e3bef17`
+- Post-submission sync-degradation correctness: `b7c9d93`
+- Terminal progress presentation correction: `e21b59d`
+- Persisted degraded/missing grace behavior: `0603fd6`
+
+Final integration verification:
+
+- Phase 6 plus Coding Agent backend suites: 149 passed.
+- Frontend Workbench/training/coding suites: 88 passed.
+- TypeScript typecheck: passed.
+- Production build and bundle budget: passed.
+- `git diff --check`: passed.
