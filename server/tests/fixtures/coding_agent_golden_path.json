@@ -1,0 +1,80 @@
+[
+  {
+    "id": "python-bug-fix",
+    "title": "Correct a Python boundary-condition bug",
+    "kind": "python_bug_fix",
+    "initial_files": ["/workspace/server/app/price.py", "/workspace/server/tests/test_price.py"],
+    "required_reads": ["/workspace/server/app/price.py", "/workspace/server/tests/test_price.py"],
+    "allowed_writes": ["/workspace/server/app/price.py", "/workspace/server/tests/test_price.py"],
+    "commands": ["python -m pytest server/tests/test_price.py -q"],
+    "expected_verification": "pytest passes after the regression test and implementation edit",
+    "expected_changed_files": ["/workspace/server/app/price.py", "/workspace/server/tests/test_price.py"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/server/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  },
+  {
+    "id": "react-component-change",
+    "title": "Add an accessible React component state",
+    "kind": "react_change",
+    "initial_files": ["/workspace/client/src/components/StatusCard.tsx", "/workspace/client/src/test/StatusCard.test.tsx"],
+    "required_reads": ["/workspace/client/src/components/StatusCard.tsx", "/workspace/client/src/test/StatusCard.test.tsx"],
+    "allowed_writes": ["/workspace/client/src/components/StatusCard.tsx", "/workspace/client/src/test/StatusCard.test.tsx"],
+    "commands": ["npx vitest run src/test/StatusCard.test.tsx", "npm run typecheck"],
+    "expected_verification": "component test and TypeScript typecheck pass",
+    "expected_changed_files": ["/workspace/client/src/components/StatusCard.tsx", "/workspace/client/src/test/StatusCard.test.tsx"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/client/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  },
+  {
+    "id": "cross-stack-feature",
+    "title": "Expose a backend field in the frontend",
+    "kind": "cross_stack_feature",
+    "initial_files": ["/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py", "/workspace/client/src/api/tasks.ts", "/workspace/client/src/components/TaskList.tsx"],
+    "required_reads": ["/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py", "/workspace/client/src/api/tasks.ts", "/workspace/client/src/components/TaskList.tsx"],
+    "allowed_writes": ["/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py", "/workspace/client/src/api/tasks.ts", "/workspace/client/src/components/TaskList.tsx"],
+    "commands": ["python -m pytest server/tests/test_tasks.py -q", "npx vitest run src/test/TaskList.test.tsx", "npm run typecheck"],
+    "expected_verification": "backend contract, frontend rendering, and typecheck pass",
+    "expected_changed_files": ["/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py", "/workspace/client/src/api/tasks.ts", "/workspace/client/src/components/TaskList.tsx"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/server/.env", "/workspace/client/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  },
+  {
+    "id": "multi-file-refactor",
+    "title": "Rename a shared domain field across modules",
+    "kind": "multi_file_refactor",
+    "initial_files": ["/workspace/server/domain/task.py", "/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py"],
+    "required_reads": ["/workspace/server/domain/task.py", "/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py"],
+    "allowed_writes": ["/workspace/server/domain/task.py", "/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py"],
+    "commands": ["python -m pytest server/tests/test_tasks.py -q"],
+    "expected_verification": "focused regression tests pass after all references are updated",
+    "expected_changed_files": ["/workspace/server/domain/task.py", "/workspace/server/api/tasks.py", "/workspace/server/tests/test_tasks.py"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/server/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  },
+  {
+    "id": "verification-failure-repair",
+    "title": "Repair a failed verification after rereading affected files",
+    "kind": "verification_failure_repair",
+    "initial_files": ["/workspace/server/app/parser.py", "/workspace/server/tests/test_parser.py"],
+    "required_reads": ["/workspace/server/app/parser.py", "/workspace/server/tests/test_parser.py", "/workspace/server/app/parser.py"],
+    "allowed_writes": ["/workspace/server/app/parser.py", "/workspace/server/tests/test_parser.py"],
+    "commands": ["python -m pytest server/tests/test_parser.py -q", "python -m pytest server/tests/test_parser.py -q"],
+    "expected_verification": "the initial failed pytest is followed by a reread, repair, and passing pytest",
+    "expected_changed_files": ["/workspace/server/app/parser.py", "/workspace/server/tests/test_parser.py"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/server/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  },
+  {
+    "id": "refresh-resume",
+    "title": "Resume a coding session after a browser refresh",
+    "kind": "refresh_resume",
+    "initial_files": ["/workspace/client/src/components/TaskList.tsx", "/workspace/client/src/test/TaskList.test.tsx"],
+    "required_reads": ["/workspace/client/src/components/TaskList.tsx", "/workspace/client/src/test/TaskList.test.tsx"],
+    "allowed_writes": ["/workspace/client/src/components/TaskList.tsx", "/workspace/client/src/test/TaskList.test.tsx"],
+    "commands": ["npx vitest run src/test/TaskList.test.tsx", "npm run typecheck"],
+    "expected_verification": "the same session restores changed-file, terminal, diff, and pending-approval state before verification completes",
+    "expected_changed_files": ["/workspace/client/src/components/TaskList.tsx", "/workspace/client/src/test/TaskList.test.tsx"],
+    "forbidden_paths": ["/workspace/.git", "/workspace/client/.env"],
+    "invariants": ["build_mode_available", "hybrid_coding_training_coexists"]
+  }
+]
