@@ -407,6 +407,77 @@ describe('Agent frontend Phase 1 foundation', () => {
     expect(selectTrainingActivity(item)).toBeNull();
   });
 
+  it('decodes the additive live training progress projection without retaining unknown fields', () => {
+    const base = {
+      id: 'part-live-training',
+      type: 'tool_result',
+      status: 'running',
+      payload: {
+        training_activity: {
+          kind: 'run_summary',
+          source_tool: 'get_training_summary',
+          task_id: 'task-live',
+          status: 'running',
+          summary: '训练正在进行。',
+          phase: 'training',
+          step: 37,
+          total_steps: 100,
+          epoch: 2,
+          loss: 0.1825,
+          elapsed_time: 125,
+          eta: 215,
+          updated_at: '2026-07-11T10:00:00Z',
+          artifact_available: false,
+          output_path: 'C:/private/checkpoints/step-37',
+        },
+      },
+    };
+
+    expect(selectTrainingActivity(base)).toMatchObject({
+      kind: 'run_summary',
+      taskId: 'task-live',
+      phase: 'training',
+      step: 37,
+      totalSteps: 100,
+      epoch: 2,
+      loss: 0.1825,
+      elapsedSeconds: 125,
+      etaSeconds: 215,
+      updatedAt: '2026-07-11T10:00:00Z',
+      artifactAvailable: false,
+    });
+    expect(selectTrainingActivity(base)).not.toHaveProperty('outputPath');
+  });
+
+  it('keeps partial progress indeterminate, accepts a terminal artifact flag, and falls back for invalid metrics', () => {
+    const makeProjection = (overrides: Record<string, unknown>) => ({
+      id: 'part-training-progress',
+      type: 'tool_result',
+      status: 'completed',
+      payload: {
+        training_activity: {
+          kind: 'run_summary',
+          source_tool: 'get_training_summary',
+          task_id: 'task-progress',
+          status: 'completed',
+          summary: '训练状态已更新。',
+          ...overrides,
+        },
+      },
+    });
+
+    expect(selectTrainingActivity(makeProjection({ phase: 'loading', total_steps: 0 }))).toMatchObject({
+      phase: 'loading', totalSteps: 0,
+    });
+    expect(selectTrainingActivity(makeProjection({ artifact_available: true }))).toMatchObject({
+      artifactAvailable: true,
+    });
+    expect(selectTrainingActivity(makeProjection({ step: -1 }))).toBeNull();
+    expect(selectTrainingActivity(makeProjection({ loss: Number.NaN }))).toBeNull();
+    expect(selectTrainingActivity(makeProjection({ eta: 'soon' }))).toBeNull();
+    expect(selectTrainingActivity(makeProjection({ artifact_available: 'yes' }))).toBeNull();
+  });
+
   it('prevents the rewrite foundation from importing legacy Agent orchestration', () => {
     const violations = sourceFiles(agentRoot).flatMap((file) => {
       const source = fs.readFileSync(file, 'utf8').replace(/\\/g, '/');

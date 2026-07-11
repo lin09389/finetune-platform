@@ -52,7 +52,15 @@ export interface AgentTrainingRunSummaryActivity extends AgentTrainingActivityBa
   taskId: string;
   taskGoal?: string;
   finalLoss?: number;
+  phase?: string;
+  step?: number;
+  totalSteps?: number;
+  epoch?: number;
+  loss?: number;
   elapsedSeconds?: number;
+  etaSeconds?: number;
+  updatedAt?: string;
+  artifactAvailable?: boolean;
 }
 
 export type AgentTrainingActivity =
@@ -80,6 +88,22 @@ function stringList(value: unknown): string[] | null {
 
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalNonEmptyStringField(record: Record<string, unknown>, key: string): string | undefined | null {
+  if (!(key in record)) return undefined;
+  return nonEmptyString(record[key]);
+}
+
+function optionalNonNegativeNumberField(record: Record<string, unknown>, key: string): number | undefined | null {
+  if (!(key in record)) return undefined;
+  const value = optionalFiniteNumber(record[key]);
+  return value !== undefined && value >= 0 ? value : null;
+}
+
+function optionalBooleanField(record: Record<string, unknown>, key: string): boolean | undefined | null {
+  if (!(key in record)) return undefined;
+  return typeof record[key] === 'boolean' ? record[key] : null;
 }
 
 /**
@@ -132,16 +156,44 @@ export function selectTrainingActivity(
 
   if (kind === 'run_summary' && sourceTool === 'get_training_summary') {
     const taskId = nonEmptyString(candidate.task_id);
-    const finalLoss = optionalFiniteNumber(candidate.final_loss);
-    const elapsedSeconds = optionalFiniteNumber(candidate.elapsed_time);
-    if (!taskId || (elapsedSeconds !== undefined && elapsedSeconds < 0)) return null;
+    const finalLoss = optionalNonNegativeNumberField(candidate, 'final_loss');
+    const phase = optionalNonEmptyStringField(candidate, 'phase');
+    const step = optionalNonNegativeNumberField(candidate, 'step');
+    const totalSteps = optionalNonNegativeNumberField(candidate, 'total_steps');
+    const epoch = optionalNonNegativeNumberField(candidate, 'epoch');
+    const loss = optionalNonNegativeNumberField(candidate, 'loss');
+    const elapsedSeconds = optionalNonNegativeNumberField(candidate, 'elapsed_time');
+    const etaSeconds = optionalNonNegativeNumberField(candidate, 'eta');
+    const updatedAt = optionalNonEmptyStringField(candidate, 'updated_at');
+    const artifactAvailable = optionalBooleanField(candidate, 'artifact_available');
+    if (
+      !taskId
+      || finalLoss === null
+      || phase === null
+      || step === null
+      || totalSteps === null
+      || epoch === null
+      || loss === null
+      || elapsedSeconds === null
+      || etaSeconds === null
+      || updatedAt === null
+      || artifactAvailable === null
+    ) return null;
     return {
       kind,
       sourceTool,
       taskId,
       taskGoal: optionalString(candidate.task_goal),
       finalLoss,
+      phase,
+      step,
+      totalSteps,
+      epoch,
+      loss,
       elapsedSeconds,
+      etaSeconds,
+      updatedAt,
+      artifactAvailable,
       ...shared,
     };
   }
