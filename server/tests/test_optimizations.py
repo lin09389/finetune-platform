@@ -6,14 +6,15 @@
 2. 训练状态队列更新
 3. 训练队列管理
 """
-import os
 import sys
 import time
 from pathlib import Path
 
-server_path = Path(__file__).parent.parent
-sys.path.insert(0, str(server_path))
-os.chdir(server_path)
+# Keep imports path-only. Never chdir at import time — that permanently mutates
+# process CWD and breaks later tests that resolve workspace roots from CWD.
+server_path = Path(__file__).resolve().parent.parent
+if str(server_path) not in sys.path:
+    sys.path.insert(0, str(server_path))
 
 from core.training_queue import TaskPriority, get_training_queue  # noqa: E402
 from core.training_state import get_training_state  # noqa: E402

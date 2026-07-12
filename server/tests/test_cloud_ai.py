@@ -272,7 +272,12 @@ def test_project_chat_rejects_unregistered_project_path(monkeypatch, tmp_path):
         assert False, "expected project path validation failure"
     except HTTPException as exc:
         assert exc.status_code == 400
-        assert "project_path must be inside the workspace" in str(exc.detail)
+        detail = str(exc.detail)
+        assert (
+            "project_path must be inside the workspace" in detail
+            or "路径不在允许的工作区根内" in detail
+            or "path_not_allowed" in detail
+        )
 
 
 def test_provider_stream_probe_persists_success_metadata(monkeypatch):

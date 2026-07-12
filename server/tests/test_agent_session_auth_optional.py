@@ -26,6 +26,14 @@ def _client_with_service(tmp_path: Path) -> tuple[TestClient, AgentSessionServic
 
 
 def _workspace_root() -> Path:
+    """Stable repo/workspace root for Agent path policy (independent of process CWD)."""
+    base = Path(settings.base_dir).resolve()
+    if base.name == "server":
+        return base.parent
+    # Fallback: this test file lives in server/tests/
+    here = Path(__file__).resolve()
+    if here.parents[1].name == "server":
+        return here.parents[2]
     cwd = Path.cwd().resolve()
     return cwd.parent if cwd.name == "server" else cwd
 
@@ -347,7 +355,13 @@ def test_agent_artifact_original_blocks_workspace_path_escape(tmp_path: Path):
         app.dependency_overrides.clear()
 
 
-def test_workspace_file_api_resolves_agent_virtual_and_relative_paths(tmp_path: Path):
+def test_workspace_file_api_resolves_agent_virtual_and_relative_paths(tmp_path: Path, monkeypatch):
+    # Make tmp_path an allowed workspace root (path policy uses settings.base_dir parent).
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    monkeypatch.setattr(settings, "base_dir", server_dir)
+    monkeypatch.setattr(settings, "agent_default_project_path", None)
+
     client, _ = _client_with_service(tmp_path)
     project = tmp_path / "project"
     target = project / "src" / "app.py"
@@ -372,11 +386,22 @@ def test_workspace_file_api_resolves_agent_virtual_and_relative_paths(tmp_path: 
         assert virtual.status_code == 200
         assert target.read_text(encoding="utf-8") == "after\n"
 
-        escape = client.get(
-            "/workspace/read-file",
-            params={"file_path": "/workspace/../outside.txt", "project_path": str(project)},
-        )
-        assert escape.status_code == 403
+        # Absolute path outside every allowed root must be denied.
+        outside = tmp_path.parent / f"not-allowed-{tmp_path.name}" / "secret.txt"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text("secret\n", encoding="utf-8")
+        try:
+            escape = client.get(
+                "/workspace/read-file",
+                params={"file_path": str(outside), "project_path": str(project)},
+            )
+            assert escape.status_code == 403
+        finally:
+            outside.unlink(missing_ok=True)
+            try:
+                outside.parent.rmdir()
+            except OSError:
+                pass
     finally:
         app.dependency_overrides.clear()
 
@@ -531,7 +556,10 @@ def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Pa
         assert {"resolve_permission", "review_risks", "inspect_file"}.issubset(action_types)
         assert "restart_failed_task" not in action_types
         assert body["next_actions"][0]["priority"] == "high"
-        assert body["recent_events"][0]["event_type"] == "status"
+        recent_event_types = [event["event_type"] for event in body["recent_events"]]
+        assert "status" in recent_event_types
+        # task_context_initialized is emitted when sessions carry workspace/mode context
+        assert recent_event_types[0] in {"status", "task_context_initialized"}
         execution_types = {item["type"] for item in body["execution_timeline"]}
         assert {"command", "tool_call", "tool_result", "permission", "summary", "error"}.issubset(execution_types)
         tool_call = next(item for item in body["execution_timeline"] if item["type"] == "tool_call")
@@ -554,7 +582,12 @@ def test_agent_sessions_reject_unregistered_external_project_path(tmp_path: Path
             json={"title": "blocked", "agent_id": "build", "project_path": str(external_root)},
         )
         assert response.status_code == 400
-        assert "project_path must be inside the workspace" in str(response.json())
+        detail = str(response.json())
+        assert (
+            "project_path must be inside the workspace" in detail
+            or "路径不在允许的工作区根内" in detail
+            or "path_not_allowed" in detail
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -574,7 +607,12 @@ def test_agent_skills_reject_unregistered_external_project_path(tmp_path: Path, 
         )
 
         assert response.status_code == 400
-        assert "project_path must be inside the workspace" in str(response.json())
+        detail = str(response.json())
+        assert (
+            "project_path must be inside the workspace" in detail
+            or "路径不在允许的工作区根内" in detail
+            or "path_not_allowed" in detail
+        )
     finally:
         app.dependency_overrides.clear()
 

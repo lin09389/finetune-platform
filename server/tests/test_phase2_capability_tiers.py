@@ -8,6 +8,33 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def _collect_route_paths(app) -> list[str]:
+    """Collect paths for classic APIRoute, WebSocket routes, and FastAPI 0.137+ IncludedRouter."""
+    paths: list[str] = []
+    try:
+        paths.extend(((app.openapi() or {}).get("paths") or {}).keys())
+    except Exception:
+        pass
+
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str) and path:
+            paths.append(path)
+        contexts = getattr(route, "effective_route_contexts", None)
+        if not callable(contexts):
+            continue
+        for ctx in contexts():
+            original = getattr(ctx, "original_route", None)
+            for candidate in (
+                getattr(ctx, "path", None),
+                getattr(ctx, "path_format", None),
+                getattr(original, "path", None),
+            ):
+                if isinstance(candidate, str) and candidate:
+                    paths.append(candidate)
+    return paths
+
+
 def test_capability_registry_tiers_are_complete():
     from apps.capability_registry import capability_ids_by_tier, list_capabilities
 
@@ -97,11 +124,7 @@ def test_register_profile_skips_experimental_when_disabled(monkeypatch):
     # Only register agent+experimental path pieces without full combined boot deps
     register_profile_routers(app, ApplicationProfile.AGENT)
 
-    paths = []
-    for route in app.routes:
-        p = getattr(route, "path", None)
-        if p:
-            paths.append(p)
+    paths = _collect_route_paths(app)
 
     assert getattr(app.state, "experimental_enabled", None) is False
     assert not any((p or "").startswith("/cua") for p in paths)
@@ -128,7 +151,7 @@ def test_register_profile_mounts_experimental_when_enabled(monkeypatch):
         # still assert isolation middleware wiring via factory in other tests.
         pytest.skip(f"experimental router import blocked by env: {exc}")
 
-    paths = [getattr(r, "path", "") for r in app.routes]
+    paths = _collect_route_paths(app)
     # At least one experimental isolation path or legacy if modules loaded
     has_exp = any("/experimental/" in (p or "") for p in paths)
     has_legacy_or_exp = has_exp or any(
@@ -198,7 +221,7 @@ def test_experimental_isolation_middleware_registered():
         body = resp.body
         assert b"experimental_unavailable" in body
 
-    asyncio.get_event_loop().run_until_complete(run())
+    asyncio.run(run())
 
     async def ok(_req):
         return "ga-ok"
@@ -210,4 +233,4 @@ def test_experimental_isolation_middleware_registered():
         out = await experimental_isolation_middleware(req2, ok)
         assert out == "ga-ok"
 
-    asyncio.get_event_loop().run_until_complete(run2())
+    asyncio.run(run2())

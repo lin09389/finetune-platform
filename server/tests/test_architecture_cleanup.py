@@ -45,6 +45,7 @@ from api.cua import (  # noqa: E402
     save_recorded_actions,
 )  # noqa: E402
 from cua.recorder import RecordedAction  # noqa: E402
+from security.jwt_auth import Role, TokenPayload  # noqa: E402
 
 
 class _VectorStoreStub:
@@ -72,8 +73,15 @@ async def test_workspace_metadata_persists(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_api, "workspaces", {})
     monkeypatch.setattr(workspace_api, "get_vector_store", lambda: _VectorStoreStub())
 
+    # Call the route function directly (no FastAPI DI), so pass an explicit user.
     created = await workspace_api.create_workspace(
-        workspace_api.WorkspaceCreate(name="Persistent", description="test", local_path=str(tmp_path))
+        workspace_api.WorkspaceCreate(name="Persistent", description="test", local_path=str(tmp_path)),
+        current_user=TokenPayload(
+            user_id="test-user",
+            username="tester",
+            role=Role.USER,
+            permissions=["workspace:local"],
+        ),
     )
 
     assert metadata_file.exists()

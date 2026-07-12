@@ -2,12 +2,56 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
 
 def _paths(app) -> set[str]:
-    return {getattr(route, "path", "") for route in app.routes}
+    """Collect registered HTTP + WebSocket paths across FastAPI route layouts.
+
+    FastAPI 0.137+ wraps ``include_router`` entries as ``_IncludedRouter``
+    objects without a top-level ``.path``. OpenAPI covers HTTP routes; WebSocket
+    routes (e.g. ``/gateway/ws``) are recovered from route contexts /
+    ``original_route.path``.
+    """
+    paths: set[str] = set()
+    try:
+        paths.update((app.openapi() or {}).get("paths", {}) or {})
+    except Exception:
+        pass
+
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str) and path:
+            paths.add(path)
+        contexts = getattr(route, "effective_route_contexts", None)
+        if not callable(contexts):
+            continue
+        for ctx in contexts():
+            original = getattr(ctx, "original_route", None)
+            for candidate in (
+                getattr(ctx, "path", None),
+                getattr(ctx, "path_format", None),
+                getattr(original, "path", None),
+                getattr(original, "path_format", None),
+            ):
+                if isinstance(candidate, str) and candidate:
+                    paths.add(candidate)
+    return paths
+
+
+def _endpoint_for_path(app, path: str) -> Callable[..., Any]:
+    for route in app.routes:
+        if getattr(route, "path", None) == path and hasattr(route, "endpoint"):
+            return route.endpoint
+        contexts = getattr(route, "effective_route_contexts", None)
+        if callable(contexts):
+            for ctx in contexts():
+                if getattr(ctx, "path", None) == path and getattr(ctx, "endpoint", None):
+                    return ctx.endpoint
+    raise LookupError(f"No endpoint registered for path {path!r}")
 
 
 def test_combined_profile_preserves_legacy_application_contract():
@@ -86,7 +130,7 @@ def test_finetune_profile_owns_gpu_and_model_lifecycle_routes_only():
 @pytest.mark.parametrize("module", ("apps.agent", "apps.finetune"))
 async def test_api_info_exposes_agent_model_capability_for_each_profile(module):
     app = __import__(module, fromlist=["app"]).app
-    endpoint = next(route.endpoint for route in app.routes if route.path == "/api/info")
+    endpoint = _endpoint_for_path(app, "/api/info")
 
     payload = await endpoint()
 
