@@ -242,7 +242,12 @@ describe('Agent frontend Phase 1 foundation', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByText('请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。')).toBeInTheDocument(), { timeout: 5000 });
+    // Visible composer status (full reason string is tooltip / command-layer only).
+    await waitFor(
+      () => expect(screen.getByText('下一步：选择并确认工作区后，即可发送任务。')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    expect(screen.getByRole('button', { name: '第 1 步：选择并确认工作区' })).toBeEnabled();
     fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '构建项目' } });
     await waitFor(() => expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled(), { timeout: 5000 });
     expect(transport.createSession).not.toHaveBeenCalled();

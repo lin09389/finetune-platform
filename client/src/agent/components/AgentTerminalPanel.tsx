@@ -6,7 +6,6 @@ import '@xterm/xterm/css/xterm.css';
 import { Button, Empty, Input, Select, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgentTerminalWebSocketUrl, type AgentSessionUiTimelineItem } from '../../services/api';
-import { useTheme } from '../../theme';
 import styles from './AgentTerminalPanel.module.css';
 
 type TerminalState = 'snapshot' | 'connecting' | 'connected' | 'closed' | 'error';
@@ -74,7 +73,6 @@ interface AgentTerminalPanelProps {
 }
 
 export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps) {
-  const { theme } = useTheme();
   const records = useMemo(() => terminalRecords(timeline), [timeline]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -182,14 +180,25 @@ export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps
     };
   }, [selected]);
 
-  // xterm stores a copy of its palette. Apply the CSS-token palette whenever
-  // the application theme changes instead of requiring a terminal switch.
+  // xterm stores a copy of its palette. Re-apply CSS-token palette when the
+  // document theme changes (class / data-theme), without requiring ThemeProvider
+  // so workbench tests and isolated mounts stay resilient.
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    terminal.options.theme = readTerminalTheme();
-    terminal.options.fontFamily = readTerminalFontFamily();
-  }, [theme]);
+    const applyTheme = () => {
+      const terminal = terminalRef.current;
+      if (!terminal) return;
+      terminal.options.theme = readTerminalTheme();
+      terminal.options.fontFamily = readTerminalFontFamily();
+    };
+    applyTheme();
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
+      return undefined;
+    }
+    const root = document.documentElement;
+    const observer = new MutationObserver(applyTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
   if (!selected) {
     return <div className={styles.empty}><Empty description="运行命令后，终端输出会显示在这里" /></div>;

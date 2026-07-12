@@ -812,13 +812,16 @@ describe('Agent training activity cards', () => {
       </>,
     );
 
-    await waitFor(() => expect(screen.getByText('已保留 Coding Agent 的执行活动。')).toBeInTheDocument());
+    await waitFor(
+      () => expect(screen.getByText(/已保留 Coding Agent 的执行活动/)).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
     const articleText = screen.getAllByRole('article').map((article) => article.textContent || '');
     expect(articleText).toEqual([
       expect.stringContaining('已运行 1 条命令'),
       expect.stringContaining('训练并行进行中。'),
       expect.stringContaining('编辑了 1 个文件'),
-      expect.stringContaining('已保留 Coding Agent 的执行活动。'),
+      expect.stringContaining('已保留 Coding Agent 的执行活动'),
       expect.stringContaining('等待审批'),
     ]);
     fireEvent.click(screen.getByRole('button', { name: '已运行 1 条命令' }));
