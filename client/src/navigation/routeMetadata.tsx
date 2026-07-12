@@ -43,7 +43,7 @@ export interface NavigationGroup {
   surfaces: Exclude<NavigationSurface, 'bottom'>[];
 }
 
-const routeMetadata: RouteMetadata[] = [
+export const ROUTE_METADATA: readonly RouteMetadata[] = [
   {
     path: '/agent',
     label: 'Agent 工作台',
@@ -118,7 +118,7 @@ const navigationGroups: NavigationGroup[] = [
 ];
 
 export function getRouteMetadata(pathname: string): RouteMetadata | undefined {
-  return routeMetadata.find((route) => route.path === pathname);
+  return ROUTE_METADATA.find((route) => route.path === pathname);
 }
 
 export function getRouteTitle(pathname: string): string {
@@ -142,12 +142,12 @@ export function getNavigationGroups(surface: Exclude<NavigationSurface, 'bottom'
     .filter((group) => group.surfaces.includes(surface))
     .map((group) => ({
       ...group,
-      items: routeMetadata.filter(
+      items: ROUTE_METADATA.filter(
         (route) => route.groups?.includes(group.id) && route.surfaces?.includes(surface),
       ),
     }));
 }
 
 export function getBottomNavigationItems(): RouteMetadata[] {
-  return routeMetadata.filter((route) => route.surfaces?.includes('bottom'));
+  return ROUTE_METADATA.filter((route) => route.surfaces?.includes('bottom'));
 }

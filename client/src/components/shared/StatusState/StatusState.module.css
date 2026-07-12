@@ -1,4 +1,6 @@
 .statusState {
+  width: 100%;
+  box-sizing: border-box;
   border-radius: var(--radius-md);
   border-color: var(--border-color);
   box-shadow: var(--shadow-sm);
@@ -15,7 +17,19 @@
 }
 
 @media (max-width: 480px) {
+  .statusState {
+    flex-wrap: wrap;
+  }
+
   .statusState :global(.ant-alert-action) {
-    margin-inline-start: var(--space-3);
+    flex: 0 0 100%;
+    margin-block-start: var(--space-3);
+    margin-inline-start: 0;
+    padding-inline-start: calc(14px + var(--space-2));
+  }
+
+  .statusState :global(.ant-alert-action .ant-btn) {
+    width: 100%;
+    min-height: 44px;
   }
 }
