@@ -136,6 +136,11 @@ async def test_api_info_exposes_agent_model_capability_for_each_profile(module):
 
     assert "agent_model_runtime" in payload
     assert payload["agent_model_runtime"]["local_tool_calling_supported"] is False
+    assert "backends" in payload["agent_model_runtime"]
+    assert "recommended_agent_providers" in payload["agent_model_runtime"]
+    assert payload["agent_model_runtime"]["backends"]["ollama"]["tool_calling"] is True
+    assert payload["agent_model_runtime"]["backends"]["llama-cpp"]["tool_calling"] is False
+    assert "llamacpp" not in payload["agent_model_runtime"]["backends"]
 
 
 @pytest.mark.parametrize(

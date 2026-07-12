@@ -122,6 +122,7 @@ async def health():
 
 @app.get("/internal/capabilities")
 async def capabilities():
+    from agent_session.model_capabilities import build_inference_tool_calling_features
     from api.inference.openai_routes import list_models
     from api.inference.routes import list_backends
 
@@ -131,6 +132,7 @@ async def capabilities():
     except Exception as exc:
         logger.warning("Inference model capability discovery failed: %s", exc)
         model_payload = {"object": "list", "data": []}
+    tool_features = build_inference_tool_calling_features(settings)
     return {
         "schema_version": "inference.capabilities.v1",
         "api": {
@@ -142,7 +144,9 @@ async def capabilities():
         "features": {
             "chat": True,
             "streaming": True,
-            "tool_calling": False,
+            "tool_calling": tool_features["tool_calling"],
+            "tool_calling_by_backend": tool_features["tool_calling_by_backend"],
+            "tool_calling_details": tool_features["tool_calling_details"],
             "vision": False,
             "json_mode": False,
         },

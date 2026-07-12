@@ -413,19 +413,50 @@ async def _health_payload(include_accelerator: bool) -> dict:
     return health
 
 
+def _agent_runtime_env_for_info() -> dict:
+    """Non-secret Agent process environment probe for operators (Phase 4)."""
+    try:
+        from core.runtime_env import probe_agent_runtime_environment
+
+        payload = probe_agent_runtime_environment()
+        # Keep /api/info compact: drop executable path noise if desired, but path helps ops.
+        return {
+            "in_virtualenv": payload.get("in_virtualenv"),
+            "packages": payload.get("packages"),
+            "warnings": payload.get("warnings") or [],
+            "recommended_command": payload.get("recommended_command"),
+            "app_db_path": payload.get("app_db_path"),
+            "langgraph_checkpoint_db_path": payload.get("langgraph_checkpoint_db_path"),
+        }
+    except Exception as exc:
+        return {"warnings": [f"agent_runtime_env probe failed: {exc}"]}
+
+
+def _storage_info_for_api() -> dict:
+    try:
+        from core.storage import APP_DB_PATH, get_langgraph_checkpoint_db_path
+
+        return {
+            "app_db_path": APP_DB_PATH,
+            "langgraph_checkpoint_db_path": get_langgraph_checkpoint_db_path(),
+            "path_is_absolute": True,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 async def api_info():
     """Capability tiers and mounts are registry-driven (apps.capability_registry)."""
     from apps.capability_registry import build_info_capability_payload
 
     tier_payload = build_info_capability_payload(settings)
     from agent_session.model_capabilities import (
-        local_agent_tool_calling_status,
+        build_agent_model_runtime_payload,
         saved_cloud_agent_model_configured,
     )
     from security.encryption import secure_storage
     from cloud_models import CloudProviderRepository
 
-    local_agent_tools = local_agent_tool_calling_status("local", settings)
     cloud_model_configured = saved_cloud_agent_model_configured(CloudProviderRepository(secure_storage))
     return {
         "name": "Finetune Platform API",
@@ -452,12 +483,12 @@ async def api_info():
             "worker_command": "uv run python -m server.inference_server",
             "cloud_fallback_enabled": settings.inference_cloud_fallback_enabled,
         },
-        "agent_model_runtime": {
-            "cloud_model_configured": cloud_model_configured,
-            "local_tool_calling_supported": local_agent_tools["supported"],
-            "local_tool_calling_message": local_agent_tools["message"],
-            "inference_execution_mode": local_agent_tools["execution_mode"],
-        },
+        "agent_model_runtime": build_agent_model_runtime_payload(
+            settings,
+            cloud_model_configured=cloud_model_configured,
+        ),
+        "agent_runtime_env": _agent_runtime_env_for_info(),
+        "storage": _storage_info_for_api(),
         "endpoints": tier_payload["endpoints"],
     }
 

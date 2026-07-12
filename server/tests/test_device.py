@@ -54,3 +54,5 @@ class TestDeviceAPI:
         assert "experimental" in data["capability_tiers"]
         assert data["agent_model_runtime"]["local_tool_calling_supported"] is False
         assert isinstance(data["agent_model_runtime"]["cloud_model_configured"], bool)
+        assert data["agent_model_runtime"]["backends"]["huggingface"]["tool_calling"] is False
+        assert "deepseek" in data["agent_model_runtime"]["recommended_agent_providers"]

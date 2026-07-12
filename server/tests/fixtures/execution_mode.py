@@ -50,7 +50,29 @@ def fake_inference_service_app():
             "features": {
                 "chat": True,
                 "streaming": True,
-                "tool_calling": False,
+                "tool_calling": True,
+                "tool_calling_by_backend": {
+                    "huggingface": False,
+                    "ollama": True,
+                    "llama-cpp": False,
+                },
+                "tool_calling_details": {
+                    "huggingface": {
+                        "supported": False,
+                        "via": "local_chat_completions",
+                        "message": "当前本地后端不支持 Agent 所需的工具调用。请使用 Ollama（provider=ollama 或 model=ollama/...），或配置支持工具调用的云端 provider:model。",
+                    },
+                    "ollama": {
+                        "supported": True,
+                        "via": "local_chat_completions_ollama",
+                        "message": None,
+                    },
+                    "llama-cpp": {
+                        "supported": False,
+                        "via": "local_chat_completions",
+                        "message": "当前本地后端不支持 Agent 所需的工具调用。请使用 Ollama（provider=ollama 或 model=ollama/...），或配置支持工具调用的云端 provider:model。",
+                    },
+                },
                 "vision": False,
                 "json_mode": False,
             },
