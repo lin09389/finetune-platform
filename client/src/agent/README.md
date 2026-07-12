@@ -21,6 +21,15 @@ User actions pass through the typed command executor so endpoint ordering, idemp
 
 ## Business Contract
 
+Phase 7.5 keeps Coding (Build) and Training (Train/Hybrid) inside the same `/agent`
+Workbench. The audited UI owner, action, feedback, recovery, responsive status, and
+delivery wave for each existing capability live in
+[`docs/frontend-capability-parity-2026-07-12.md`](../../../docs/frontend-capability-parity-2026-07-12.md).
+The matching typed regression fixture is `testing/workbenchCapabilityParity.ts` and
+must remain a record of existing production ownership, not a second feature registry.
+Experimental routes remain application-shell concerns guarded by `/api/info`; they are
+not default Workbench task modes.
+
 Every workflow below must remain covered before an Agent change is merged:
 
 | Workflow | Rewrite acceptance |
