@@ -37,7 +37,9 @@ _worker_owner_id = make_release_owner_id()
 
 
 def _release_registry():
-    return get_release_registry(str(get_settings().outputs_dir_resolved.parent / "data" / "app.db"))
+    from core.storage import APP_DB_PATH
+
+    return get_release_registry(APP_DB_PATH)
 
 @asynccontextmanager
 async def _get_run_lock(run_id: str):

@@ -98,8 +98,15 @@ class TokenPayload:
 class TokenBlacklist:
     """Token 黑名单（持久化到 SQLite）"""
 
-    def __init__(self, db_path: str = "data/app.db"):
-        self._db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        if db_path is None:
+            from core.storage import APP_DB_PATH
+
+            self._db_path = APP_DB_PATH
+        else:
+            from core.storage import resolve_storage_path
+
+            self._db_path = resolve_storage_path(db_path)
         self._ensure_table()
 
     def _ensure_table(self):
@@ -172,9 +179,10 @@ class JWTAuth:
         access_token_expire_minutes: int = 30,
         refresh_token_expire_days: int = 7,
         issuer: str = "finetune-platform",
-        db_path: str = "data/app.db",
+        db_path: str | None = None,
     ):
         from security.runtime_policy import require_configured_jwt_secret
+        from core.storage import APP_DB_PATH, resolve_storage_path
 
         # Fail-closed: never silently mint a random secret (multi-worker inconsistency).
         self.secret_key = require_configured_jwt_secret(secret_key, source="JWTAuth")
@@ -183,10 +191,10 @@ class JWTAuth:
         self.access_token_expire = timedelta(minutes=access_token_expire_minutes)
         self.refresh_token_expire = timedelta(days=refresh_token_expire_days)
         self.issuer = issuer
-        self._db_path = db_path
+        self._db_path = APP_DB_PATH if db_path is None else resolve_storage_path(db_path)
 
         self._ensure_users_table()
-        self.blacklist = TokenBlacklist(db_path)
+        self.blacklist = TokenBlacklist(self._db_path)
         # 内存缓存，实际数据来源为数据库
         self._users: dict[str, dict] = self._load_users_from_db()
 

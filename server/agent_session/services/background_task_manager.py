@@ -197,9 +197,13 @@ class BackgroundTaskManagerService:
                 request.provider or session.get("provider"),
                 request.model or session.get("model"),
             )
-            metadata["model_configured"] = bool(request.provider and request.model) or self.service.lifecycle._has_saved_cloud_model(
-                resolved_provider,
-                resolved_model,
+            metadata["model_configured"] = bool(
+                (request.provider and request.model)
+                or self.service.lifecycle._is_local_tool_capable_provider(resolved_provider)
+                or self.service.lifecycle._has_saved_cloud_model(
+                    resolved_provider,
+                    resolved_model,
+                )
             )
             metadata["model_configuration"] = self.service.lifecycle.get_model_configuration_status(
                 resolved_provider,
@@ -285,10 +289,16 @@ class BackgroundTaskManagerService:
             {
                 "provider": str(session.get("provider") or ""),
                 "model": str(session.get("model") or ""),
-                "model_entry": "injected_model_call" if self.service.model_call is not None else "deepagents_init_chat_model",
+                # Refined to official / openai_compat_fallback / local_ollama_service after graph build.
+                "model_entry": (
+                    "injected_model_call"
+                    if self.service.model_call is not None
+                    else "pending_model_resolution"
+                ),
                 "fallback_used": False,
                 "last_graph_error": None,
                 "last_model_error": None,
+                "last_tool_error": None,
             }
         )
         metadata["execution_trace"] = trace
@@ -509,6 +519,32 @@ class BackgroundTaskManagerService:
             raise ValueError("Agent session not found")
         message = f"模型调用失败或内部错误，已停止且没有继续执行动作。错误：{str(exc)[:600]}"
         metadata = ensure_failed_metadata(session, message, failure_kind="runtime_error", next_action="manual_review", recoverable=True)
+        # Phase 4: keep a durable, non-secret failure fingerprint on execution_trace.
+        try:
+            from agent_session.model_adapter import get_last_chat_model_resolution
+
+            resolution = get_last_chat_model_resolution() or {}
+        except Exception:
+            resolution = {}
+        trace = dict(metadata.get("execution_trace") or {})
+        if resolution:
+            for key in (
+                "model_entry",
+                "path",
+                "fallback_used",
+                "provider",
+                "model",
+                "model_string",
+                "base_url",
+                "has_api_key",
+                "official_error",
+            ):
+                if key in resolution and resolution[key] is not None:
+                    trace[key] = resolution[key]
+        error_text = str(exc)[:600]
+        trace["last_model_error"] = error_text
+        trace["last_graph_error"] = error_text
+        metadata["execution_trace"] = trace
         summary = repository.add_part(
             session_id,
             "summary",

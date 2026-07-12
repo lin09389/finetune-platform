@@ -50,6 +50,16 @@ def _warn_about_auth_configuration() -> None:
         raise
 
 
+def _warn_about_agent_runtime_environment() -> None:
+    """Phase 4: surface venv / agent dependency gaps without failing startup."""
+    try:
+        from core.runtime_env import log_agent_runtime_environment
+
+        log_agent_runtime_environment(logger)
+    except Exception as exc:
+        logger.debug("Agent runtime environment probe skipped: %s", exc)
+
+
 def _initialize_storage() -> None:
     from core.storage import init_storage, migrate_json_state, storage_json_migrate_on_startup
 
@@ -394,6 +404,7 @@ def create_lifespan(profile: ApplicationProfile) -> Callable:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Initializing %s application...", profile.value)
         _warn_about_auth_configuration()
+        _warn_about_agent_runtime_environment()
         _initialize_storage()
         _cleanup_expired_langgraph_checkpoints()
         _cleanup_tmp_residue()

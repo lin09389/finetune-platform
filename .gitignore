@@ -74,6 +74,8 @@ tmp-*.log
 tmp-*.err.log
 tmp_*.txt
 server/scratch/
+server/scripts/_e2e_*_ws/
+server/modelscope_cache/.lock/
 docs/plans/
 COMMIT_PLAN_*.md
 PLAN.md

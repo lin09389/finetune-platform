@@ -64,7 +64,30 @@ class DatabaseConnectionPool:
     """
 
     def __init__(self, db_path: str = None, max_connections: int = 50):
-        self._db_path = str(Path(db_path or "data/app.db"))
+        # Resolve against server base_dir so API/worker/CLI share one absolute DB
+        # regardless of process CWD (Phase 4 ops hygiene).
+        if db_path is None:
+            try:
+                from core.storage import APP_DB_PATH
+
+                resolved = APP_DB_PATH
+            except Exception:
+                from core.config import settings
+
+                resolved = str((settings.base_dir / "data" / "app.db").resolve())
+        else:
+            try:
+                from core.storage import resolve_storage_path
+
+                resolved = resolve_storage_path(db_path)
+            except Exception:
+                candidate = Path(db_path).expanduser()
+                if not candidate.is_absolute():
+                    from core.config import settings
+
+                    candidate = settings.base_dir / candidate
+                resolved = str(candidate.resolve())
+        self._db_path = str(resolved)
         self._max_connections = max_connections
         self._connections: List[sqlite3.Connection] = []
         self._active_connections: set[int] = set()  # 追踪借出连接的 id
@@ -389,12 +412,34 @@ def _evict_idle_pools_locked(exclude_path: str | None = None) -> list[DatabaseCo
     return evicted
 
 
+def _resolve_pool_db_path(db_path: str | None) -> str:
+    """Canonical absolute path used as the connection-pool cache key."""
+    if db_path is None:
+        try:
+            from core.storage import APP_DB_PATH
+
+            return APP_DB_PATH
+        except Exception:
+            from core.config import settings
+
+            return str((settings.base_dir / "data" / "app.db").resolve())
+    try:
+        from core.storage import resolve_storage_path
+
+        return resolve_storage_path(db_path)
+    except Exception:
+        candidate = Path(db_path).expanduser()
+        if not candidate.is_absolute():
+            from core.config import settings
+
+            candidate = settings.base_dir / candidate
+        return str(candidate.resolve())
+
+
 def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
     """获取数据库连接池实例（按路径缓存）"""
     global _db_pools
-    if db_path is None:
-        db_path = "data/app.db"
-    db_path = str(Path(db_path))
+    db_path = _resolve_pool_db_path(db_path)
 
     evicted: list[DatabaseConnectionPool] = []
     with _pool_lock:
@@ -411,7 +456,7 @@ def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
 def init_db_pool(db_path: str) -> DatabaseConnectionPool:
     """初始化数据库连接池"""
     global _db_pools
-    db_path = str(Path(db_path))
+    db_path = _resolve_pool_db_path(db_path)
     evicted: list[DatabaseConnectionPool] = []
     with _pool_lock:
         previous = _db_pools.pop(db_path, None)

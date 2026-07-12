@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def _release_registry():
-    return get_release_registry(str(get_settings().outputs_dir_resolved.parent / "data" / "app.db"))
+    from core.storage import APP_DB_PATH
+
+    return get_release_registry(APP_DB_PATH)
 
 
 class DeploymentPackageRequest(BaseModel):
