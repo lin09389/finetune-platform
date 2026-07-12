@@ -8,14 +8,16 @@ import {
   ThunderboltOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Spin, Tag } from 'antd';
+import { Button, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { GlassHoverCard, NeonProgressRing } from '../components/motion';
 import { CountUp } from '../components/shared/MotionWrapper';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
+import LoadingState from '../components/shared/LoadingState';
 import PageHeader from '../components/shared/PageHeader';
+import StatusState from '../components/shared/StatusState';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import styles from './DeviceInfo.module.css';
@@ -123,9 +125,15 @@ export default function DeviceInfo() {
 
   if (loading && !deviceInfo) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 100 }}>
-        <Spin size="large" />
-      </div>
+      <AnimatedLayout animationKey="device-info-loading">
+        <div className={styles.container}>
+          <LoadingState
+            size="large"
+            tip="正在读取设备状态"
+            style={{ minHeight: 'min(50vh, 420px)' }}
+          />
+        </div>
+      </AnimatedLayout>
     );
   }
 
@@ -154,22 +162,16 @@ export default function DeviceInfo() {
 
         {error && (
           <motion.div initial="hidden" animate="show" variants={itemVariants} style={{ marginTop: 'var(--space-6)' }}>
-            <div
-              style={{
-                padding: '16px 20px',
-                background: 'var(--error-light)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--error-border)',
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                color: 'var(--error)',
-                fontWeight: 500,
-              }}
-            >
-              <ExclamationCircleOutlined style={{ fontSize: 18 }} />
-              <span>{error}</span>
-            </div>
+            <StatusState
+              tone={backendStatus === 'connected' ? 'error' : 'offline'}
+              title={backendStatus === 'connected' ? '设备状态暂时无法读取' : '后端服务未连接'}
+              description={
+                backendStatus === 'connected'
+                  ? `${error}。请确认服务正常运行后重试。`
+                  : '设备信息依赖本地后端。启动服务后可重新读取当前硬件状态。'
+              }
+              action={{ text: '重试读取', onClick: () => void fetchInfo() }}
+            />
           </motion.div>
         )}
 

@@ -14,7 +14,6 @@ import {
   Alert,
   App,
   Button,
-  Empty,
   Input,
   Modal,
   Progress,
@@ -28,6 +27,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import EmptyState from '../components/shared/EmptyState';
+import StatusState from '../components/shared/StatusState';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   deleteLocalModel,
@@ -103,6 +104,7 @@ export default function ModelRuntimeCenter() {
   const runtime = useRuntimeContext();
   const [overview, setOverview] = useState<ModelRuntimeOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('models');
   const [downloadTasks, setDownloadTasks] = useState<Record<string, DownloadTaskState>>({});
   const [searchQuery, setSearchQuery] = useState('');
@@ -121,6 +123,7 @@ export default function ModelRuntimeCenter() {
     try {
       const payload = await getModelRuntimeOverview();
       setOverview(payload);
+      setLoadError(null);
       if (payload.active_selection.backend && payload.active_selection.model_id) {
         runtime.actions.setInferenceSelection({
           backend: payload.active_selection.backend,
@@ -128,7 +131,9 @@ export default function ModelRuntimeCenter() {
         });
       }
     } catch (error) {
-      message.error(extractApiErrorMessage(error, '加载模型运行中心失败'));
+      const errorMessage = extractApiErrorMessage(error, '加载模型运行中心失败');
+      setLoadError(errorMessage);
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -455,6 +460,17 @@ export default function ModelRuntimeCenter() {
         </section>
       </MotionItem>
 
+      {loadError ? (
+        <MotionItem>
+          <StatusState
+            tone="error"
+            title="模型运行中心暂时无法加载"
+            description={`${loadError}。请确认本地后端已启动后重试。`}
+            action={{ text: '重试加载', onClick: () => void refresh() }}
+          />
+        </MotionItem>
+      ) : null}
+
       {overview && !overview.agent.ready ? (
         <MotionItem>
           <Alert
@@ -514,11 +530,12 @@ export default function ModelRuntimeCenter() {
                       loading={loading}
                     />
                   ) : (
-                    <Empty description="还没有可用模型">
-                      <Button type="primary" onClick={() => setActiveTab('discover')}>
-                        下载推荐模型
-                      </Button>
-                    </Empty>
+                    <EmptyState
+                      compact
+                      title="还没有可用模型"
+                      description="下载或导入模型后，即可在本机推理或配置 Agent。"
+                      action={{ text: '下载推荐模型', onClick: () => setActiveTab('discover') }}
+                    />
                   )}
                 </section>
               ),
@@ -529,7 +546,11 @@ export default function ModelRuntimeCenter() {
               children: (
                 <section className={styles.sectionSurface}>
                   {overview?.recommended_models.length ? recommendationCards(overview.recommended_models) : (
-                    <Empty description="暂无推荐模型" />
+                    <EmptyState
+                      compact
+                      title="暂无推荐模型"
+                      description="可以搜索 ModelScope 或 HuggingFace 的模型。"
+                    />
                   )}
                   <div className={styles.searchStrip}>
                     <Segmented

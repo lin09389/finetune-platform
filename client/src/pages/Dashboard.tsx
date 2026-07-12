@@ -16,7 +16,7 @@ import {
   ApiOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Table, Tag } from 'antd';
+import { Button, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -25,6 +25,8 @@ import { InteractiveButton, GlassHoverCard } from '../components/motion';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
+import EmptyState from '../components/shared/EmptyState';
+import StatusState from '../components/shared/StatusState';
 import ThemeToggle from '../components/ThemeToggle';
 import { CountUp } from '../components/shared/MotionWrapper';
 import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
@@ -475,30 +477,15 @@ export default function Dashboard() {
             intensity="high"
             style={{ textAlign: 'center', padding: 'var(--space-12) var(--space-6)' }}
           >
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <div>
-                  <p
-                    style={{
-                      fontSize: 'var(--text-lg)',
-                      color: 'var(--text-secondary)',
-                      marginBottom: 'var(--space-6)',
-                    }}
-                  >
-                    后端服务未连接，请先启动应用以获取实时监控。
-                  </p>
-                  <Button
-                    type="primary"
-                    icon={<SettingOutlined />}
-                    onClick={() => navigate('/device')}
-                    size="large"
-                    style={{ borderRadius: 'var(--radius-md)', fontWeight: 600 }}
-                  >
-                    查看设备状态
-                  </Button>
-                </div>
-              }
+            <StatusState
+              tone="offline"
+              title="后端服务未连接"
+              description="运行中控台无法读取实时监控。启动本地服务后，可在设备状态页确认连接并继续。"
+              action={{
+                text: '查看设备状态',
+                onClick: () => navigate('/device'),
+                icon: <SettingOutlined />,
+              }}
             />
           </GlassCard>
         ) : (
@@ -862,29 +849,16 @@ export default function Dashboard() {
 
                 <div className={styles.tableWrapper} style={{ marginTop: 'var(--space-6)' }}>
                   {recentTrainings.length === 0 ? (
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={
-                        <div>
-                          <p
-                            style={{
-                              color: 'var(--text-tertiary)',
-                              marginBottom: 'var(--space-4)',
-                            }}
-                          >
-                            暂无训练记录
-                          </p>
-                          <Button
-                            type="primary"
-                            icon={<PlusOutlined />}
-                            onClick={() => navigate('/training')}
-                            style={{ borderRadius: 'var(--radius-md)', fontWeight: 600 }}
-                          >
-                            开始训练
-                          </Button>
-                        </div>
-                      }
-                      style={{ padding: 'var(--space-10) 0' }}
+                    <EmptyState
+                      compact
+                      title="暂无训练记录"
+                      description="创建一次训练后，结果会显示在这里。"
+                      action={{
+                        text: '开始训练',
+                        onClick: () => navigate('/training'),
+                        icon: <PlusOutlined />,
+                      }}
+                      style={{ padding: 'var(--space-8) 0' }}
                     />
                   ) : (
                     <Table

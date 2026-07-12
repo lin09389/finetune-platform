@@ -17,6 +17,8 @@ export interface EmptyStateProps {
   };
   className?: string;
   style?: React.CSSProperties;
+  /** Use inside a supporting panel without competing with the page's primary task. */
+  compact?: boolean;
 }
 
 const emptyConfigs: Record<
@@ -51,18 +53,20 @@ const emptyConfigs: Record<
 };
 
 const EmptyState: React.FC<EmptyStateProps> = memo(
-  ({ type = 'default', title, description, icon, image, action, className, style }) => {
+  ({ type = 'default', title, description, icon, image, action, className, style, compact = false }) => {
     const config = emptyConfigs[type];
+    const resolvedTitle = title || config.title;
 
     return (
-      <div
+      <section
+        aria-label={resolvedTitle}
         className={className}
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: 'var(--space-12) var(--space-6)',
+          padding: compact ? 'var(--space-6) var(--space-4)' : 'var(--space-12) var(--space-6)',
           textAlign: 'center',
           ...style,
         }}
@@ -70,14 +74,14 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
         {image || (
           <div
             style={{
-              width: 80,
-              height: 80,
+              width: compact ? 48 : 80,
+              height: compact ? 48 : 80,
               borderRadius: 'var(--radius-xl)',
               background: 'var(--bg-elevated)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              marginBottom: 'var(--space-4)',
+              marginBottom: compact ? 'var(--space-3)' : 'var(--space-4)',
             }}
           >
             {icon || config.icon}
@@ -93,7 +97,7 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
             marginBottom: 'var(--space-2)',
           }}
         >
-          {title || config.title}
+          {resolvedTitle}
         </h3>
 
         <p
@@ -101,7 +105,7 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
             fontSize: 'var(--text-sm)',
             color: 'var(--text-secondary)',
             margin: 0,
-            marginBottom: action ? 'var(--space-4)' : 0,
+            marginBottom: action ? (compact ? 'var(--space-3)' : 'var(--space-4)') : 0,
             maxWidth: 280,
           }}
         >
@@ -111,7 +115,7 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
         {action && (
           <Button
             type="primary"
-            icon={action.icon || <PlusOutlined />}
+            icon={action.icon || <PlusOutlined aria-hidden />}
             onClick={action.onClick}
             style={{
               borderRadius: 'var(--radius-md)',
@@ -120,7 +124,7 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
             {action.text}
           </Button>
         )}
-      </div>
+      </section>
     );
   },
 );

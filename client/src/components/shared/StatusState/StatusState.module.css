@@ -1,0 +1,21 @@
+.statusState {
+  border-radius: var(--radius-md);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.statusState :global(.ant-alert-message) {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
+}
+
+.statusState :global(.ant-alert-description) {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+@media (max-width: 480px) {
+  .statusState :global(.ant-alert-action) {
+    margin-inline-start: var(--space-3);
+  }
+}

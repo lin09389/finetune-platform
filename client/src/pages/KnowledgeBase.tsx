@@ -13,6 +13,7 @@ import type { UploadProps } from 'antd/es/upload/interface';
 import { useCallback, useEffect, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import EmptyState from '../components/shared/EmptyState';
 import { useOperation } from '../hooks/useOperation';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import { extractApiErrorMessage } from '../services/api';
@@ -405,7 +406,11 @@ export default function KnowledgeBase() {
               </div>
             ))
           ) : (
-            <div className={styles.emptyState}>暂无文档，请上传知识库文件</div>
+            <EmptyState
+              compact
+              title="暂无文档"
+              description="上传 PDF、DOCX、TXT 或 MD 文件后，会自动建立检索索引。"
+            />
           )}
         </div>
 

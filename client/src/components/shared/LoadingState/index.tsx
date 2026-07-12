@@ -40,6 +40,9 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
     if (type === 'spinner') {
       return (
         <div
+          role="status"
+          aria-live="polite"
+          aria-label={tip || '正在加载'}
           className={className}
           style={{
             display: 'flex',
@@ -50,7 +53,12 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
             ...style,
           }}
         >
-          <Spin size={size} tip={tip} delay={delay} />
+          <Spin size={size} delay={delay} aria-hidden />
+          {tip ? (
+            <span style={{ marginTop: 'var(--space-3)', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+              {tip}
+            </span>
+          ) : null}
         </div>
       );
     }
@@ -58,6 +66,9 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
     if (type === 'dots') {
       return (
         <div
+          role="status"
+          aria-live="polite"
+          aria-label={tip || '正在加载'}
           className={className}
           style={{
             display: 'flex',
@@ -80,7 +91,7 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
 
     if (type === 'skeleton') {
       return (
-        <div className={className} style={style}>
+        <div role="status" aria-live="polite" aria-label={tip || '正在加载'} className={className} style={style}>
           <Skeleton active paragraph={{ rows: 4 }} />
         </div>
       );
@@ -88,7 +99,7 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
 
     if (type === 'card') {
       return (
-        <Card className={className} style={style}>
+        <Card role="status" aria-live="polite" aria-label={tip || '正在加载'} className={className} style={style}>
           <Skeleton active avatar paragraph={{ rows: 3 }} />
         </Card>
       );
@@ -97,6 +108,9 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
     if (type === 'page') {
       return (
         <div
+          role="status"
+          aria-live="polite"
+          aria-label={tip || '正在加载'}
           className={className}
           style={{
             display: 'flex',

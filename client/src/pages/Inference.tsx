@@ -9,6 +9,7 @@ import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, 
 import { useEffect, useRef, useState } from 'react';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
+import StatusState from '../components/shared/StatusState';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import VersionComparisonChat from '../components/shared/VersionComparisonChat';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
@@ -182,9 +183,12 @@ export default function Inference() {
 
       {backendStatus !== 'connected' ? (
         <MotionItem>
-          <div style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--text-secondary)' }}>
-            后端服务未连接，请先启动应用
-          </div>
+          <StatusState
+            tone="offline"
+            title="推理服务未连接"
+            description="推理测试需要本地后端。启动服务后重试，模型和参数会保留。"
+            action={{ text: '重新检查连接', onClick: () => void refreshInference() }}
+          />
         </MotionItem>
       ) : (
         <MotionItem>
