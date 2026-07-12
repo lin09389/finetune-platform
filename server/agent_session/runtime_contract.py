@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +38,33 @@ EXECUTION_PROMPT = (
     "命令不需要平台白名单审批。"
     "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
 )
+
+
+def build_execution_prompt() -> str:
+    """Return the execution prompt with platform-specific shell guidance.
+
+    The filesystem prompt tells the model to use ``/workspace/...`` for file
+    tools, and the ``PlatformShellBackend`` rewrites those paths in ``execute``
+    commands automatically. But the model also needs to know *which shell* it
+    is targeting so it writes compatible command syntax:
+
+    - Windows: ``cmd.exe`` -- avoid ``ls``/``cat``/``grep`` as shell commands
+      (use the built-in file tools instead); ``;`` is not a command separator.
+    - POSIX: standard ``/bin/sh``.
+
+    This is advisory (the path rewrite is the structural guarantee), but it
+    reduces the number of failed attempts before the model converges.
+    """
+    base = EXECUTION_PROMPT
+    if sys.platform == "win32":
+        return (
+            base
+            + "execute 运行在 Windows cmd 环境。命令中的 `/workspace/...` 路径会自动映射到项目真实路径，"
+            "优先使用相对路径（工作目录已是项目根）。"
+            "不要用 `ls`/`cat`/`grep` 等 Unix 命令做文件操作，改用内置的 ls/read_file/grep 工具。"
+            "多条命令用 `&&` 分隔，不要用 `;`。"
+        )
+    return base + "execute 运行在 POSIX shell 环境。命令中的 `/workspace/...` 路径会自动映射到项目真实路径。"
 PROJECT_CHAT_PROMPT = (
     "你是 Finetune Platform 的只读项目讨论助手。"
     "用户在普通 Chat 中讨论项目时，你可以使用 DeepAgents 官方文件系统工具查看项目。"
@@ -221,7 +249,7 @@ def platform_prompt_sections() -> list[str]:
         FILESYSTEM_PROMPT,
         CONTEXT_PROMPT,
         SKILLS_PROMPT,
-        EXECUTION_PROMPT,
+        build_execution_prompt(),
         ERROR_RECOVERY_PROMPT,
     ]
 
@@ -267,9 +295,11 @@ def permission_policy_for_contract(contract: AgentRuntimeContract) -> AgentRunti
 
 __all__ = [
     "AgentRuntimeContract",
+    "EXECUTION_PROMPT",
     "PROJECT_CHAT_PROMPT",
     "agent_system_prompt",
     "async_subagent_prompt",
+    "build_execution_prompt",
     "build_system_prompt",
     "normalize_enabled_skill_sources",
     "platform_prompt_sections",

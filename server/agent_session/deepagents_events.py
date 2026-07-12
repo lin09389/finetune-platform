@@ -9,6 +9,7 @@ from agent_training.models import training_activity_from_tool_result
 from .execution_plan_events import apply_execution_event_to_session
 from .session_state_machine import AgentSessionStateMachine
 from .state import ensure_session_state
+from .trajectory import content_indicates_tool_failure
 from .training_tools import TRAINING_TOOL_NAMES, safe_training_payload
 
 
@@ -192,24 +193,57 @@ class DeepAgentsEventMapper:
         run_id = str(event.get("run_id") or "")
         output = (event.get("data") or {}).get("output")
         content = getattr(output, "content", output)
+        output_status = getattr(output, "status", None)
         part_id = self.tool_parts.pop(run_id, None)
         part_payload = self.tool_part_payloads.pop(run_id, {})
         agent_context = self._agent_context(event)
-        activity = self._training_activity(name, content)
+        content_text = str(content) if content is not None else ""
+        failed = content_indicates_tool_failure(
+            content_text,
+            tool=name,
+            status=str(output_status) if output_status is not None else None,
+        )
+        # Only attach training activity for successful-looking payloads.
+        activity = None if failed else self._training_activity(name, content)
         if activity:
             part_payload["training_activity"] = activity
+        status = "failed" if failed else "completed"
         if part_id:
-            part = self.repository.update_part(part_id, status="completed", content=str(content), payload=part_payload)
+            part = self.repository.update_part(part_id, status=status, content=content_text, payload=part_payload)
         else:
             part = self.repository.add_part(
                 self.session_id,
                 "tool_result",
-                status="completed",
+                status=status,
                 title=name,
-                content=str(content),
-                payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context, **({"training_activity": activity} if activity else {})},
+                content=content_text,
+                payload={
+                    "tool": name,
+                    "runtime": "deepagents",
+                    "run_id": run_id,
+                    **agent_context,
+                    **({"training_activity": activity} if activity else {}),
+                },
             )
         agent_context = self._agent_context_from_part(part) or agent_context
+        if failed:
+            self._record_last_tool_error(name, content_text)
+            self.publish(
+                "tool_call_failed",
+                f"工具调用失败：{name}",
+                {
+                    "session_id": self.session_id,
+                    "part_id": part.get("id"),
+                    "part_type": part.get("type"),
+                    "status": "failed",
+                    "tool": name,
+                    "error": content_text,
+                    "summary": content_text,
+                    "part": part,
+                    **agent_context,
+                },
+            )
+            return
         self.publish(
             "tool_call_completed",
             f"工具调用完成：{name}",
@@ -237,6 +271,7 @@ class DeepAgentsEventMapper:
                 payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context},
             )
         agent_context = self._agent_context_from_part(part) or agent_context
+        self._record_last_tool_error(name, content)
         self.publish(
             "tool_call_failed",
             f"工具调用失败：{name}",
@@ -252,6 +287,21 @@ class DeepAgentsEventMapper:
                 **agent_context,
             },
         )
+
+    def _record_last_tool_error(self, tool: str, content: str) -> None:
+        """Persist last tool failure fingerprint for ops diagnostics (Phase 4)."""
+        try:
+            session = self.repository.get_session(self.session_id) or {}
+            metadata = dict(session.get("metadata") or {})
+            trace = dict(metadata.get("execution_trace") or {})
+            trace["last_tool_error"] = {
+                "tool": tool,
+                "message": str(content)[:600],
+            }
+            metadata["execution_trace"] = trace
+            self.repository.update_session(self.session_id, metadata=metadata)
+        except Exception:
+            pass
 
     def _chain_stream(self, event: dict[str, Any]) -> None:
         interrupt = self._extract_interrupt(event)

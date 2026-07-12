@@ -350,8 +350,26 @@ class DeepAgentsSessionRunner:
         )
         if self.model_call is not None:
             model = CallableToolCallingChatModel(self.model_call).model
+            self._persist_execution_trace(
+                session_id,
+                {
+                    "model_entry": "injected_model_call",
+                    "path": "injected",
+                    "fallback_used": False,
+                    "provider": str(session.get("provider") or ""),
+                    "model": session.get("model"),
+                },
+            )
         elif context.provider:
             model = get_chat_model(context)
+            try:
+                from agent_session.model_adapter import get_last_chat_model_resolution
+
+                resolution = get_last_chat_model_resolution()
+            except Exception:
+                resolution = None
+            if resolution:
+                self._persist_execution_trace(session_id, resolution)
         else:
             raise RuntimeError("DeepAgents requires a configured provider/model or injected model_call")
         trajectory_middleware = build_trajectory_middleware(
@@ -605,6 +623,32 @@ class DeepAgentsSessionRunner:
     @staticmethod
     def _json_tool_result(result: dict[str, Any]) -> str:
         return json.dumps(result, ensure_ascii=False)
+
+    def _persist_execution_trace(self, session_id: str, resolution: dict[str, Any]) -> None:
+        """Merge non-secret model resolution facts into session execution_trace (Phase 4)."""
+        try:
+            session = self.repository.get_session(session_id) or {}
+            metadata = dict(session.get("metadata") or {})
+            trace = dict(metadata.get("execution_trace") or {})
+            # Never persist raw api keys if a caller accidentally passed one.
+            safe = {
+                key: value
+                for key, value in resolution.items()
+                if key not in {"api_key", "openai_api_key"} and value is not None
+            }
+            if "base_url" in safe and isinstance(safe["base_url"], str):
+                # Keep host path only for diagnostics (no query secrets expected).
+                safe["base_url"] = safe["base_url"][:240]
+            if "last_model_error" in safe and isinstance(safe["last_model_error"], str):
+                safe["last_model_error"] = safe["last_model_error"][:600]
+            if "official_error" in safe and isinstance(safe["official_error"], str):
+                safe["official_error"] = safe["official_error"][:400]
+            trace.update(safe)
+            metadata["execution_trace"] = trace
+            self.repository.update_session(session_id, metadata=metadata)
+        except Exception:
+            # Trace enrichment must never break graph construction.
+            pass
 
     def _subagents_for_agent(self, agent_id: str, model: Any, metadata: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         agent = self.agent_registry.get(agent_id)

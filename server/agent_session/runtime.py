@@ -122,18 +122,23 @@ def build_deepagents_backend(
     the user's project directory.
     """
 
-    from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
+    from deepagents.backends import CompositeBackend, StateBackend
 
     from memory.memory_service import get_memory_service
 
+    from .platform_shell import (
+        EXECUTE_MAX_OUTPUT_BYTES,
+        EXECUTE_TIMEOUT_SECONDS,
+        PlatformShellBackend,
+    )
     from .runtime_factory import deepagents_shell_env
 
     env = deepagents_shell_env()
-    project_backend = LocalShellBackend(
+    project_backend = PlatformShellBackend(
         root_dir=str(Path(project_path).resolve()),
         virtual_mode=True,
-        timeout=120,
-        max_output_bytes=100_000,
+        timeout=EXECUTE_TIMEOUT_SECONDS,
+        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
     )
@@ -141,36 +146,36 @@ def build_deepagents_backend(
     memory_service.store.ensure_namespace("user", user_id)
     memory_service.store.ensure_namespace("agent", agent_id)
     memory_service.store.ensure_namespace("org", org_id)
-    user_memory_backend = LocalShellBackend(
+    user_memory_backend = PlatformShellBackend(
         root_dir=str(memory_service.store.resolver.files_dir_for("user", user_id).resolve()),
         virtual_mode=True,
-        timeout=120,
-        max_output_bytes=100_000,
+        timeout=EXECUTE_TIMEOUT_SECONDS,
+        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
     )
-    agent_memory_backend = LocalShellBackend(
+    agent_memory_backend = PlatformShellBackend(
         root_dir=str(memory_service.store.resolver.files_dir_for("agent", agent_id).resolve()),
         virtual_mode=True,
-        timeout=120,
-        max_output_bytes=100_000,
+        timeout=EXECUTE_TIMEOUT_SECONDS,
+        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
     )
-    org_policy_backend = LocalShellBackend(
+    org_policy_backend = PlatformShellBackend(
         root_dir=str(memory_service.store.resolver.files_dir_for("org", org_id).resolve()),
         virtual_mode=True,
-        timeout=120,
-        max_output_bytes=100_000,
+        timeout=EXECUTE_TIMEOUT_SECONDS,
+        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
     )
     skill_routes = {
-        source.virtual_path: LocalShellBackend(
+        source.virtual_path: PlatformShellBackend(
             root_dir=str(source.path.resolve()),
             virtual_mode=True,
-            timeout=120,
-            max_output_bytes=100_000,
+            timeout=EXECUTE_TIMEOUT_SECONDS,
+            max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
             env=env,
             inherit_env=False,
         )

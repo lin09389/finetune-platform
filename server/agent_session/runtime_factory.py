@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -70,11 +71,58 @@ def build_deep_agent_from_contract(contract: AgentRuntimeContract) -> Any:
 
 
 def deepagents_shell_env() -> dict[str, str]:
-    return {
-        key: value
-        for key, value in os.environ.items()
-        if key.upper() in {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "TEMP", "TMP"}
+    """Build the environment for DeepAgents ``execute`` subprocesses.
+
+    Uses an explicit allowlist (with ``inherit_env=False`` upstream) rather than
+    full ``os.environ`` inheritance: an auditable, production-safe subset that
+    still lets toolchains (npm, git, pip, conda) find their global config and
+    user-site packages.
+
+    The allowlist is platform-aware:
+    - Windows: includes ``USERPROFILE``/``APPDATA``/``HOME`` etc. so that
+      ``~/.npmrc``, ``~/.gitconfig``, pip cache, and Python user-site resolve
+      correctly under ``cmd.exe``. Without these, tools silently fall back to
+      defaults or fail -- a common source of "passed locally but failed in
+      execute" false-negatives.
+    - POSIX: a leaner set (``HOME``/``PATH``/locale).
+    """
+    allowed = _WINDOWS_SHELL_ENV_KEYS if sys.platform == "win32" else _POSIX_SHELL_ENV_KEYS
+    return {key: value for key, value in os.environ.items() if key.upper() in allowed}
+
+
+# Windows: system dirs + user dirs + venv + locale.
+# ``USERPROFILE``/``APPDATA``/``LOCALAPPDATA``/``HOME`` are the key additions
+# over the old 8-variable allowlist -- they let npm/git/pip/Python find global
+# config and user-site packages. ``PROGRAMFILES`` lets ``%PROGRAMFILES%``
+# lookups in commands resolve. None of these carry secrets.
+_WINDOWS_SHELL_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        # System / shell resolution (original 8)
+        "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE",
+        "COMSPEC", "TEMP", "TMP",
+        # User directory -- lets npm/git/pip/conda find global config & caches
+        "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA",
+        "HOMEDRIVE", "HOMEPATH", "USERNAME", "PROGRAMDATA",
+        "PROGRAMFILES", "PROGRAMFILES(X86)",
+        # Virtual environment identity
+        "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "CONDA_PREFIX",
+        # Language runtime defaults
+        "PYTHONPATH", "PYTHONIOENCODING", "LANG", "LC_ALL",
     }
+)
+
+# POSIX: lean set. HOME covers ~ expansion; the rest are locale/venv.
+_POSIX_SHELL_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL",
+        "VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONPATH", "PYTHONIOENCODING",
+    }
+)
 
 
-__all__ = ["DeepAgentsRuntimeFactory", "build_deep_agent_from_contract", "deepagents_shell_env", "ensure_deepagents_available"]
+__all__ = [
+    "DeepAgentsRuntimeFactory",
+    "build_deep_agent_from_contract",
+    "deepagents_shell_env",
+    "ensure_deepagents_available",
+]

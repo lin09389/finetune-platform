@@ -64,20 +64,47 @@ def is_verification_command(command: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in VERIFICATION_PATTERNS)
 
 
+def content_indicates_tool_failure(content: Any, *, tool: str = "", status: str | None = None) -> bool:
+    """Shared classifier for error-like tool payloads (event mapper + trajectory).
+
+    Prefer **prefix / structured** markers so prose like \"Error handling best
+    practices\" or documentation that mentions \"permission denied\" is not
+    flipped to failed. Real DeepAgents FS failures look like
+    ``Error: permission denied for read on ...``.
+    """
+    if status == "error":
+        return True
+    text = str(content or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+    # Require the colon form for "error" so "Error handling…" stays successful.
+    if lower.startswith(("error:", "toolerror:", "failed:", "failure:")):
+        return True
+    # DeepAgents FS soft denials: "permission denied for read on …"
+    # Do not match documentation that merely starts with "permission denied errors…".
+    if re.match(r"permission denied for (read|write|list|access)\b", lower):
+        return True
+    if tool == "execute":
+        exit_code = re.search(r"(?:^|\n)exit code:\s*(-?\d+)(?:\n|$)", lower)
+        if exit_code is not None:
+            return int(exit_code.group(1)) != 0
+        command_exit = re.search(r"command (?:succeeded|failed) with exit code\s+(-?\d+)", lower)
+        if command_exit is not None:
+            return int(command_exit.group(1)) != 0
+        if lower.startswith("command failed") or "command failed with exit code" in lower:
+            return True
+    return False
+
+
 def is_successful_tool_result(result: ToolMessage | Command[Any], *, tool: str = "") -> bool:
     if isinstance(result, Command):
         return True
-    if getattr(result, "status", None) == "error":
+    status = getattr(result, "status", None)
+    if status == "error":
         return False
-    content = str(getattr(result, "content", "") or "").strip().lower()
-    if tool == "execute":
-        exit_code = re.search(r"(?:^|\n)exit code:\s*(-?\d+)(?:\n|$)", content)
-        if exit_code is not None:
-            return int(exit_code.group(1)) == 0
-        command_exit = re.search(r"command (?:succeeded|failed) with exit code\s+(-?\d+)", content)
-        if command_exit is not None:
-            return int(command_exit.group(1)) == 0
-    return not content.startswith(("error:", "toolerror:", "failed:"))
+    content = getattr(result, "content", result)
+    return not content_indicates_tool_failure(content, tool=tool, status=str(status) if status else None)
 
 
 @dataclass(frozen=True)
@@ -1042,6 +1069,7 @@ __all__ = [
     "TrajectoryGuardMiddleware",
     "TrajectoryStateStore",
     "build_trajectory_middleware",
+    "content_indicates_tool_failure",
     "is_successful_tool_result",
     "is_verification_command",
     "normalize_workspace_path",

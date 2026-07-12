@@ -29,10 +29,14 @@ MAX_RETRIEVAL_BRIEF_SOURCES_PER_KIND = 3
 
 @dataclass(frozen=True)
 class DeepAgentsContextPack:
-    """Per-run context package consumed by DeepAgents."""
+    """Per-run context package consumed by DeepAgents.
+
+    ``files`` values are DeepAgents FileData mappings (``content`` + ``encoding``)
+    after build; callers must not pass bare strings into StateBackend.
+    """
 
     prompt: str
-    files: dict[str, str] = field(default_factory=dict)
+    files: dict[str, dict[str, Any]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -117,7 +121,10 @@ async def build_deepagents_context_pack(
             "source_hash": hashlib.sha256(json.dumps(_metadata_seed(active_context, explicit_context), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
         }
     )
-    return DeepAgentsContextPack(prompt=prompt, files=files, metadata=metadata)
+    # Emit FileData at the context-pack boundary so graph injection cannot pass bare strings.
+    from agent_session.runtime import normalize_deepagents_files
+
+    return DeepAgentsContextPack(prompt=prompt, files=normalize_deepagents_files(files), metadata=metadata)
 
 
 async def _build_retrieval_pack(

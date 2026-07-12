@@ -121,11 +121,14 @@ async def test_context_pack_splits_retrieval_context_by_kind(monkeypatch):
     assert "/context/retrieval/memory.md" in pack.files
     assert "/context/retrieval/project.md" in pack.files
     assert "/context/retrieval/knowledge.md" in pack.files
-    assert "用户偏好" in pack.files["/context/retrieval/memory.md"]
-    assert "/memories/preferences.md" in pack.files["/context/retrieval/memory.md"]
-    assert "file-memory snippets" in pack.files["/context/retrieval/memory.md"]
-    assert "read full files" in pack.files["/context/retrieval/index.md"]
-    assert "server/agent_session/service.py" in pack.files["/context/retrieval/project.md"]
+    memory_text = pack.files["/context/retrieval/memory.md"]["content"]
+    index_text = pack.files["/context/retrieval/index.md"]["content"]
+    project_text = pack.files["/context/retrieval/project.md"]["content"]
+    assert "用户偏好" in memory_text
+    assert "/memories/preferences.md" in memory_text
+    assert "file-memory snippets" in memory_text
+    assert "read full files" in index_text
+    assert "server/agent_session/service.py" in project_text
     assert "Retrieved context summary" in pack.prompt
     assert "/memories/preferences.md" in pack.prompt
     assert "server/agent_session/service.py" in pack.prompt
@@ -165,7 +168,7 @@ async def test_context_pack_keeps_long_retrieval_content_out_of_prompt(monkeypat
 
     assert "IMPORTANT_START" in pack.prompt
     assert "IMPORTANT_END" not in pack.prompt
-    assert "IMPORTANT_END" in pack.files["/context/retrieval/project.md"]
+    assert "IMPORTANT_END" in pack.files["/context/retrieval/project.md"]["content"]
     assert "server/context/deepagents.py" in pack.prompt
     assert len(pack.metadata["files"]) == pack.metadata["virtual_file_count"]
 
