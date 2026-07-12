@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import AgentPanelToolbar from '../agent/components/AgentPanelToolbar';
+import AgentWorkbenchShell from '../agent/workbench/AgentWorkbenchShell';
 import {
   DEFAULT_AGENT_PANEL_LAYOUT,
   MAX_DOCK_WIDTH,
@@ -72,5 +73,29 @@ describe('Agent panel layout', () => {
     expect(screen.getByRole('button', { name: '显示任务中心' })).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(screen.getByRole('button', { name: '隐藏终端' }));
     expect(onToggleTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns mobile session navigation to the primary task surface', async () => {
+    const onMobileSessionNavigate = vi.fn();
+    render(
+      <AgentWorkbenchShell
+        title="新任务"
+        subtitle="工作区"
+        connection="open"
+        connectionLabel="已连接"
+        attentionCount={0}
+        desktopSessionRail={<div>desktop sessions</div>}
+        mobileSessionRail={<button type="button" data-agent-session-navigate="true">切换会话</button>}
+        mobileAttentionRail={<div>mobile attention</div>}
+        toolbar={null}
+        onMobileSessionNavigate={onMobileSessionNavigate}
+      >
+        <main>主任务</main>
+      </AgentWorkbenchShell>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '打开会话' }));
+    fireEvent.click(await screen.findByRole('button', { name: '切换会话' }));
+    await waitFor(() => expect(onMobileSessionNavigate).toHaveBeenCalledTimes(1));
   });
 });

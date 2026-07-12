@@ -39,6 +39,27 @@ export default function AgentTaskComposer({
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing', 'waiting_permission', 'waiting_approval'].includes(session.status));
   const isWaitingApproval = Boolean(session && ['waiting_permission', 'waiting_approval'].includes(session.status));
   const activeModeLabel = session?.task_mode ? TASK_MODE_LABELS[session.task_mode] : null;
+  const taskContextBlocked = Boolean(submissionBlockedReason && !session);
+  const composerState = taskContextBlocked
+    ? 'blocked'
+    : isWaitingApproval
+      ? 'waiting'
+      : isRunning
+        ? 'running'
+        : session
+          ? 'terminal'
+          : 'ready';
+  const composerStatus = taskContextBlocked
+    ? '下一步：选择并确认工作区后，即可发送任务。'
+    : isWaitingApproval
+      ? 'Agent 暂停，等待你审批工具执行'
+      : busy
+        ? busyLabel
+        : isRunning
+          ? '输入内容可追加到当前任务 · Enter 发送'
+          : submissionFailed
+            ? '提交失败，内容已恢复，可再次发送'
+            : 'Enter 发送 · Shift+Enter 换行';
   const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
@@ -71,7 +92,7 @@ export default function AgentTaskComposer({
   }, []);
 
   const submit = async () => {
-    if (!draft.trim() || busy) return;
+    if (!draft.trim() || busy || taskContextBlocked) return;
     const content = draft;
     const submittedDraftKey = draftKey;
     setSubmissionFailed(false);
@@ -89,7 +110,7 @@ export default function AgentTaskComposer({
   };
 
   return (
-    <div className={styles.composer}>
+    <div className={styles.composer} data-composer-state={composerState}>
       <TextArea
         ref={inputRef}
         value={draft}
@@ -103,9 +124,12 @@ export default function AgentTaskComposer({
             void submit();
           }
         }}
-        placeholder={session ? (isRunning ? '补充说明或追加要求，Agent 会结合当前上下文处理' : '继续描述任务或补充要求') : '输入任务目标'}
+        placeholder={session
+          ? (isRunning ? '补充说明或追加要求，Agent 会结合当前上下文处理' : '继续描述任务或补充要求')
+          : taskContextBlocked ? '先确认工作区，然后输入任务目标' : '输入任务目标'}
         autoSize={{ minRows: 3, maxRows: 8 }}
         aria-label="任务目标"
+        aria-describedby="agent-task-composer-status"
       />
       <div className={styles.composerFooter}>
         <div className={styles.composerOptions}>
@@ -129,18 +153,12 @@ export default function AgentTaskComposer({
               当前模式：{activeModeLabel}（已锁定）
             </span>
           ) : null}
-          <span aria-live="polite">
-            {submissionBlockedReason && !session
-              ? submissionBlockedReason
-              : isWaitingApproval
-              ? 'Agent 暂停，等待你审批工具执行'
-              : busy
-                ? busyLabel
-                : isRunning
-                  ? '输入内容可追加到当前任务 · Enter 发送'
-                  : submissionFailed
-                    ? '提交失败，内容已恢复，可再次发送'
-                    : 'Enter 发送 · Shift+Enter 换行'}
+          <span
+            id="agent-task-composer-status"
+            className={`${styles.composerStatus} ${taskContextBlocked ? styles.composerPrerequisite : ''}`}
+            aria-live="polite"
+          >
+            {composerStatus}
           </span>
         </div>
         {isRunning ? (
@@ -160,7 +178,7 @@ export default function AgentTaskComposer({
             type="button"
             variant="primary"
             className={styles.composerSend}
-            disabled={!draft.trim() || busy || Boolean(submissionBlockedReason && !session)}
+            disabled={!draft.trim() || busy || taskContextBlocked}
             onClick={() => void submit()}
             aria-label={isRunning ? '追加消息' : '提交任务'}
           >

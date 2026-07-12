@@ -369,12 +369,16 @@ export default function AgentWorkbenchPage({
       unreadSessionIds={state.unreadSessionIds}
       onNew={() => {
         confirmDiscardWorkspaceChanges(() => {
+          setMobileDockOpen(false);
+          setMobileTerminalOpen(false);
           actions.newSession();
         });
       }}
       onSelect={(sessionId) => {
         if (sessionId === state.activeSessionId) return;
         confirmDiscardWorkspaceChanges(() => {
+          setMobileDockOpen(false);
+          setMobileTerminalOpen(false);
           actions.selectSession(sessionId);
         });
       }}
@@ -476,6 +480,10 @@ export default function AgentWorkbenchPage({
       attentionCount={attentionCount}
       attentionOpenRequest={attentionOpenRequest}
       sessionWidth={panelLayout.sessionWidth}
+      onMobileSessionNavigate={() => {
+        setMobileDockOpen(false);
+        setMobileTerminalOpen(false);
+      }}
       desktopSessionRail={(
         <>
           {sessionRail()}

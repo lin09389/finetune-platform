@@ -12,6 +12,7 @@ import AgentRunTimeline, {
 } from '../agent/components/AgentRunTimeline';
 import AgentSessionRail from '../agent/components/AgentSessionRail';
 import AgentTaskComposer from '../agent/components/AgentTaskComposer';
+import AgentTaskContextBar from '../agent/components/AgentTaskContextBar';
 import type { RecentAgentSession } from '../agent/runtime/agentRuntime';
 import { initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import { createFlowScenario } from '../agent/testing/agentFlowScenarios';
@@ -425,6 +426,77 @@ describe('Agent product polish', () => {
     expect(input).toHaveValue('Recovered draft');
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(input).toHaveFocus();
+  });
+
+  it('makes workspace confirmation the explicit first step before a new task can be sent', () => {
+    const onWorkspaceChange = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <>
+        <AgentTaskContextBar
+          workspace={null}
+          mode="build"
+          onWorkspaceChange={onWorkspaceChange}
+          onModeChange={vi.fn()}
+        />
+        <AgentTaskComposer
+          agents={[]}
+          session={null}
+          busy={false}
+          submissionBlockedReason="请先确认工作区，才能创建 Build、Train 或 Hybrid 任务。"
+          onSubmit={onSubmit}
+          onInterrupt={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(screen.getByRole('button', { name: '第 1 步：选择并确认工作区' })).toBeEnabled();
+    expect(screen.getByText('先确认工作区')).toBeInTheDocument();
+    expect(screen.getByText('下一步：选择并确认工作区后，即可发送任务。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '提交任务' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('任务目标'), { target: { value: '修复编译错误' } });
+    fireEvent.keyDown(screen.getByLabelText('任务目标'), { key: 'Enter' });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '第 1 步：选择并确认工作区' }));
+    expect(onWorkspaceChange).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['running', 'running', '输入内容可追加到当前任务 · Enter 发送', '运行中'],
+    ['waiting_permission', 'waiting', 'Agent 暂停，等待你审批工具执行', '等待介入'],
+    ['completed', 'terminal', 'Enter 发送 · Shift+Enter 换行', '已结束'],
+  ] as const)('keeps the composer frame stable for %s sessions', (status, state, statusText, stateLabel) => {
+    const session: AgentSession = {
+      id: `session_${status}`,
+      agent_id: 'build',
+      status,
+      title: stateLabel,
+      metadata: {},
+      parts: [],
+      preferences: {
+        display_title: null,
+        pinned: false,
+        archived: false,
+        updated_at: null,
+      },
+      created_at: '2026-06-20T10:00:00Z',
+      updated_at: '2026-06-20T10:00:00Z',
+    };
+    render(
+      <AgentTaskComposer
+        agents={[]}
+        session={session}
+        busy={false}
+        onSubmit={vi.fn()}
+        onInterrupt={vi.fn()}
+      />,
+    );
+
+    const composer = screen.getByLabelText('任务目标').closest('[data-composer-state]');
+    expect(composer).toHaveAttribute('data-composer-state', state);
+    expect(screen.getByText(statusText)).toBeInTheDocument();
+    expect(composer?.querySelector('textarea')).toBeInTheDocument();
+    expect(composer?.querySelector('button[aria-label]')).toBeInTheDocument();
   });
 
   it('explains that a failed submission restored the draft', async () => {

@@ -13,6 +13,7 @@ interface AgentWorkbenchShellProps {
   attentionCount: number;
   attentionOpenRequest?: number;
   sessionWidth?: number;
+  onMobileSessionNavigate?: () => void;
   desktopSessionRail: ReactNode;
   mobileSessionRail: ReactNode;
   desktopEnvironmentRail?: ReactNode;
@@ -29,6 +30,7 @@ export default function AgentWorkbenchShell({
   attentionCount,
   attentionOpenRequest = 0,
   sessionWidth = 232,
+  onMobileSessionNavigate,
   desktopSessionRail,
   mobileSessionRail,
   mobileAttentionRail,
@@ -97,6 +99,7 @@ export default function AgentWorkbenchShell({
             const target = event.target;
             if (target instanceof Element && target.closest('[data-agent-session-navigate="true"]')) {
               setSessionsOpen(false);
+              onMobileSessionNavigate?.();
             }
           }}
         >

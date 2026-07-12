@@ -329,10 +329,10 @@
 
 .mainSurface[data-dock-visible='true'] {
   grid-template-columns:
-    minmax(320px, 1fr)
+    minmax(480px, 1fr)
     minmax(
       360px,
-      min(var(--agent-dock-width), 46vw, calc(100vw - var(--agent-session-width) - 320px))
+      min(var(--agent-dock-width), 40vw, calc(100vw - var(--agent-session-width) - 480px))
     );
 }
 
@@ -2152,6 +2152,19 @@
   white-space: nowrap;
 }
 
+.composerStatus {
+  min-width: 0;
+}
+
+.composerPrerequisite {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.composer[data-composer-state='blocked'] {
+  border-color: color-mix(in srgb, var(--warning) 52%, var(--border-color));
+}
+
 .composerMode {
   flex: 0 0 auto;
   color: var(--text-secondary);
@@ -2890,6 +2903,17 @@
   }
 }
 
+@media (min-width: 992px) and (max-width: 1199px) {
+  .mainSurface[data-dock-visible='true'] {
+    grid-template-columns:
+      minmax(320px, 1fr)
+      minmax(
+        300px,
+        min(var(--agent-dock-width), 36vw, calc(100vw - var(--agent-session-width) - 320px))
+      );
+  }
+}
+
 @media (max-width: 991px) {
   .mainSurface,
   .mainSurface[data-dock-visible='true'] {
@@ -3085,7 +3109,7 @@
     margin-bottom: 8px;
   }
 
-  .composerOptions > span {
+  .composerOptions > span:not(.composerPrerequisite) {
     display: none;
   }
 
