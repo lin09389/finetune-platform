@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks
 from agent_session.approval import permission_decisions
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentSessionResponse
-from agent_session.permission import validate_hitl_decisions
+from agent_session.permission import apply_hitl_approve_session_trust, validate_hitl_decisions
 from agent_session.training_tools import grant_approved_training_submissions
 from core.db_manager import run_sync
 
@@ -127,6 +127,12 @@ class ApprovalService:
             self.service.state_machine.mark_failed(session_id, metadata=metadata, status="failed")
             event_type, event_message = "action_rejected", "动作已拒绝"
         else:
+            # Legacy single-bool approve: grant trust for the part's tool when approved.
+            metadata = apply_hitl_approve_session_trust(
+                metadata,
+                part,
+                [{"type": "approve"}],
+            )
             self.service.state_machine.mark_waiting_approval(session_id, metadata=metadata)
             event_type, event_message = "action_approved", "动作已批准"
         event = self.service.repository.add_event(
@@ -161,6 +167,10 @@ class ApprovalService:
         if not updated:
             raise ValueError("Permission part is not pending")
         metadata["pending_deepagents_interrupt"] = None
+        # Session-scoped trust: after approve of write/edit/execute, subsequent
+        # interrupts for those tools in THIS session are suppressed (multi-file).
+        # Reject paths pass only reject decisions → no tools granted.
+        metadata = apply_hitl_approve_session_trust(metadata, part, decisions)
         self.service.state_machine.mark_running(session_id, metadata=metadata)
         grant_approved_training_submissions(self.service.repository, part, decisions)
         event = self.service.repository.add_event(

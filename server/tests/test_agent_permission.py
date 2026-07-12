@@ -58,7 +58,8 @@ def test_agent_profile_mapping():
 
 def test_permission_policy_centralizes_runtime_access_rules():
     agent = AgentDefinition(id="limited", name="Limited", tools=["read_file", "grep"])
-    policy = permission_policy_for_agent(agent, "limited", default_deepagents_permission_metadata())
+    # confirm_all still stores legacy deepagents_interrupt_on=True → full HITL map
+    policy = permission_policy_for_agent(agent, "limited", default_deepagents_permission_metadata("confirm_all"))
     named_tools = [
         type("Tool", (), {"name": "read_file"})(),
         type("Tool", (), {"name": "execute"})(),
@@ -68,6 +69,21 @@ def test_permission_policy_centralizes_runtime_access_rules():
     assert [tool.name for tool in policy.filter_named_tools(named_tools)] == ["read_file"]
     assert policy.interrupt_on() == {"write_file": True, "edit_file": True, "execute": True}
     assert _check_fs_permission(policy.filesystem_permissions(), "read", "/workspace/src/app.py") == "deny"
+
+
+def test_default_permission_metadata_safe_auto_is_weaker_than_confirm_all():
+    safe = default_deepagents_permission_metadata("safe_auto")
+    confirm = default_deepagents_permission_metadata("confirm_all")
+    assert safe["autonomy_mode"] == "safe_auto"
+    assert safe["deepagents_interrupt_on"] is False
+    assert confirm["autonomy_mode"] == "confirm_all"
+    assert confirm["deepagents_interrupt_on"] is True
+    assert permission_policy_for_agent(None, "build", safe).interrupt_on() is None
+    assert permission_policy_for_agent(None, "build", confirm).interrupt_on() == {
+        "write_file": True,
+        "edit_file": True,
+        "execute": True,
+    }
 
 
 def test_permission_policy_defaults_to_agent_filesystem_profile_without_tool_limit():

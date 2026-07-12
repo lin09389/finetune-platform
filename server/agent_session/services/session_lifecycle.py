@@ -13,7 +13,7 @@ from agent_session.models import (
     AgentSessionResponse,
 )
 from agent_session.model_capabilities import agent_model_tool_calling_status
-from agent_session.permission import default_deepagents_permission_metadata
+from agent_session.permission import default_deepagents_permission_metadata, normalize_autonomy_mode
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.state import ensure_session_state
 from core.config import settings
@@ -51,9 +51,10 @@ class SessionLifecycleService:
         agent = self._require_direct_agent(request.agent_id)
         provider, model, model_configured = self.resolve_session_model_availability(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
+        autonomy_mode = normalize_autonomy_mode(request.autonomy_mode)
+        # autonomy_mode → deepagents_interrupt_on defaults; explicit override still wins if set later.
         metadata: dict[str, Any] = {
-            "autonomy_mode": request.autonomy_mode or "safe_auto",
-            **default_deepagents_permission_metadata(),
+            **default_deepagents_permission_metadata(autonomy_mode),
             "enabled_skill_sources": enabled_skill_sources,
             "model_configured": model_configured,
             "model_configuration": self.get_model_configuration_status(provider, model, model_configured),
@@ -112,11 +113,28 @@ class SessionLifecycleService:
     ) -> tuple[str | None, str | None, bool]:
         resolved_provider, resolved_model = self._resolve_session_model_defaults(agent_id, provider, model)
         tool_status = agent_model_tool_calling_status(resolved_provider, settings)
-        configured = bool(self.service.model_call is not None) or (
-            bool(tool_status["supported"])
-            and self._has_saved_cloud_model(resolved_provider, resolved_model)
-        )
+        has_identity = bool(resolved_provider and resolved_model)
+        if self.service.model_call is not None:
+            configured = True
+        elif not has_identity or not tool_status.get("supported"):
+            configured = False
+        elif self._is_local_tool_capable_provider(resolved_provider):
+            # Ollama (and future local tool backends): selecting provider:model is enough.
+            # Do not require a cloud API key vault entry.
+            configured = True
+        else:
+            configured = self._has_saved_cloud_model(resolved_provider, resolved_model)
         return resolved_provider, resolved_model, configured
+
+    @staticmethod
+    def _is_local_tool_capable_provider(provider: str | None) -> bool:
+        """True for local providers that support Agent tools without cloud credentials."""
+        status = agent_model_tool_calling_status(provider, settings)
+        if not status.get("supported"):
+            return False
+        # Cloud path uses via=cloud_provider and still needs a saved API key.
+        via = str(status.get("via") or "")
+        return via not in {"", "cloud_provider"} and status.get("backend") in {"ollama"}
 
     def get_model_configuration_status(
         self,

@@ -269,7 +269,13 @@ def test_agent_session_deepagents_edit_file_uses_official_hitl(tmp_path: Path):
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")
         service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
-        session = service.create_session(AgentSessionCreate(title="deepagents action", project_path=str(workspace)))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="deepagents action",
+                project_path=str(workspace),
+                autonomy_mode="confirm_all",
+            )
+        )
         responses = iter(
             [
                 json.dumps(
@@ -314,7 +320,13 @@ def test_agent_session_deepagents_execute_uses_official_hitl_without_whitelist(t
     try:
         target = workspace / "cmd.txt"
         service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
-        session = service.create_session(AgentSessionCreate(title="deepagents execute", project_path=str(workspace)))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="deepagents execute",
+                project_path=str(workspace),
+                autonomy_mode="confirm_all",
+            )
+        )
         responses = iter(
             [
                 json.dumps(
@@ -522,7 +534,9 @@ def test_handoff_subagents_inherit_interrupt_policy(monkeypatch, tmp_path: Path)
     async def model_call(_messages):
         return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
 
+    # Falsy interrupt gates are stripped by resolve; only tools that still require HITL remain.
     interrupt_on = {"write_file": False, "edit_file": True}
+    expected_interrupt = {"edit_file": True}
     runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
     graph = asyncio.run(
         runner._build_graph(
@@ -539,9 +553,9 @@ def test_handoff_subagents_inherit_interrupt_policy(monkeypatch, tmp_path: Path)
     )
 
     assert graph is not None
-    assert captured["interrupt_on"] == interrupt_on
+    assert captured["interrupt_on"] == expected_interrupt
     assert {item["name"] for item in captured["subagents"]} == {"explore", "review"}
-    assert all(item["interrupt_on"] == interrupt_on for item in captured["subagents"])
+    assert all(item["interrupt_on"] == expected_interrupt for item in captured["subagents"])
 
 
 def test_handoff_targets_do_not_implicitly_expose_async_tools(tmp_path: Path):
@@ -1019,10 +1033,21 @@ def test_async_subagent_service_recovers_running_tasks(monkeypatch, tmp_path: Pa
 def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Path):
     from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
 
+    from agent_session.platform_shell import (
+        EXECUTE_MAX_OUTPUT_BYTES,
+        EXECUTE_TIMEOUT_SECONDS,
+        PlatformShellBackend,
+    )
+
     backend = build_deepagents_backend(str(tmp_path))
 
     assert isinstance(backend, CompositeBackend)
+    # PlatformShellBackend subclasses LocalShellBackend, so isinstance still holds.
     assert isinstance(backend.default, LocalShellBackend)
+    assert isinstance(backend.default, PlatformShellBackend)
+    # Verify the execution limits are the tuned values, not the library defaults.
+    assert backend.default._default_timeout == EXECUTE_TIMEOUT_SECONDS
+    assert backend.default._max_output_bytes == EXECUTE_MAX_OUTPUT_BYTES
     assert isinstance(backend.routes[WORKSPACE_BACKEND_ROUTE], LocalShellBackend)
     for route in EPHEMERAL_BACKEND_ROUTES:
         assert isinstance(backend.routes[route], StateBackend)
@@ -1030,10 +1055,29 @@ def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Pat
 
 
 def test_deepagents_runtime_resolves_optional_interrupt_config():
+    # No explicit interrupt key → autonomy default safe_auto → no HITL map.
     assert resolve_interrupt_on({}) is None
-    assert resolve_interrupt_on({"deepagents_interrupt_on": True}) == {"write_file": True, "edit_file": True, "execute": True}
+    assert resolve_interrupt_on({"autonomy_mode": "safe_auto"}) is None
+    assert resolve_interrupt_on({"autonomy_mode": "confirm_all"}) == {
+        "write_file": True,
+        "edit_file": True,
+        "execute": True,
+    }
+    assert resolve_interrupt_on({"deepagents_interrupt_on": True}) == {
+        "write_file": True,
+        "edit_file": True,
+        "execute": True,
+    }
     custom = {"write_file": False, "edit_file": True}
-    assert resolve_interrupt_on({"deepagents_interrupt_on": custom}) == custom
+    # Falsy tool gates are stripped; only tools that still require interrupt remain.
+    assert resolve_interrupt_on({"deepagents_interrupt_on": custom}) == {"edit_file": True}
+    # Explicit interrupt key wins over autonomy_mode.
+    assert resolve_interrupt_on({"autonomy_mode": "safe_auto", "deepagents_interrupt_on": True}) == {
+        "write_file": True,
+        "edit_file": True,
+        "execute": True,
+    }
+    assert resolve_interrupt_on({"autonomy_mode": "confirm_all", "deepagents_interrupt_on": False}) is None
 
 
 def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Path):
@@ -1043,7 +1087,13 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")
         service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
-        session = service.create_session(AgentSessionCreate(title="deepagents hitl", project_path=str(workspace)))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="deepagents hitl",
+                project_path=str(workspace),
+                autonomy_mode="confirm_all",
+            )
+        )
         responses = iter(
             [
                 json.dumps(
@@ -1103,7 +1153,13 @@ def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: P
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")
         service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
-        session = service.create_session(AgentSessionCreate(title="deepagents background hitl", project_path=str(workspace)))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="deepagents background hitl",
+                project_path=str(workspace),
+                autonomy_mode="confirm_all",
+            )
+        )
 
         responses = iter(
             [

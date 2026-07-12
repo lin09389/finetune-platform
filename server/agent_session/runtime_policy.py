@@ -155,7 +155,13 @@ def build_agent_runtime_policy(
     enabled_skill_sources = _enabled_skill_sources(metadata.get("enabled_skill_sources"))
     permission_policy = permission_policy_for_agent(agent, effective_agent_id, metadata)
     manifest = async_subagent_manifest_for_agent(agent_registry or AgentRegistry(), agent)
-    readonly = runtime_kind == "project_chat" or filesystem_permission_profile_for_agent(effective_agent_id) == "readonly"
+    from .permission import is_read_only_autonomy
+
+    readonly = (
+        runtime_kind == "project_chat"
+        or filesystem_permission_profile_for_agent(effective_agent_id) == "readonly"
+        or is_read_only_autonomy(metadata)
+    )
     backend_mode: RuntimeBackendMode = (
         "project_chat_readonly" if runtime_kind == "project_chat" else "workspace" if workspace_root else "definition_only"
     )
