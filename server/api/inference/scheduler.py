@@ -649,7 +649,8 @@ class ModelScheduler:
                 from core.config import get_settings
                 settings = get_settings()
                 try:
-                    async with httpx.AsyncClient() as client:
+                    # trust_env=False: Windows IE/system proxy must not intercept localhost Ollama.
+                    async with httpx.AsyncClient(trust_env=False) as client:
                         resp = await client.get(
                             f"{settings.ollama_base_url}/api/tags",
                             timeout=2.0
@@ -691,7 +692,8 @@ class ModelScheduler:
 
                 from core.config import get_settings
                 settings = get_settings()
-                async with httpx.AsyncClient() as client:
+                # Bypass system HTTP proxy so local Ollama is reachable on Windows.
+                async with httpx.AsyncClient(trust_env=False) as client:
                     resp = await client.get(
                         f"{settings.ollama_base_url}/api/tags",
                         timeout=5.0

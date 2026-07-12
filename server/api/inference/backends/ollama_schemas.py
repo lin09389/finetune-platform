@@ -1,5 +1,6 @@
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OllamaOptions(BaseModel):
@@ -32,8 +33,15 @@ class OllamaGenerateRequest(BaseModel):
 
 
 class OllamaMessage(BaseModel):
+    """Ollama chat message; content may be empty when tool_calls are present."""
+
+    model_config = ConfigDict(extra="allow")
+
     role: str
-    content: str
+    content: Optional[str] = ""
+    tool_calls: Optional[list[dict[str, Any]]] = None
+    tool_name: Optional[str] = None
+    tool_call_id: Optional[str] = None
 
 
 class OllamaChatRequest(BaseModel):
@@ -44,3 +52,5 @@ class OllamaChatRequest(BaseModel):
     options: Optional[OllamaOptions] = None
     keep_alive: Optional[str] = None
     think: Optional[bool] = None
+    tools: Optional[list[dict[str, Any]]] = None
+    tool_choice: Optional[str | dict[str, Any]] = None

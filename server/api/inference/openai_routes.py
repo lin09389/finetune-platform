@@ -208,6 +208,12 @@ async def _resolve_runtime_target(
         backend_name = str(default_backend)
 
     if not deployment_target and not matches:
+        # Ollama models live in the Ollama daemon, not the HF disk catalog. When the
+        # caller explicitly targets the ollama backend (canonical id or X-Backend),
+        # accept the tag name and let Ollama validate existence at request time.
+        ollama_backend = BackendType.OLLAMA.value
+        if (canonical_backend or explicit_backend or backend_name) == ollama_backend and model_name:
+            return model_name, ollama_backend, None, None
         raise _openai_http_error(
             404,
             f"The local model '{model_name}' was not found. Use GET /v1/models to list available models.",
@@ -360,60 +366,90 @@ async def _release_model(scheduler: ModelScheduler, lease_name: str) -> None:
         logger.error("Failed to release model lease %s", lease_name, exc_info=True)
 
 
-def _validate_supported_features(request: ChatCompletionRequest) -> None:
-    if request.tools:
-        raise _openai_http_error(
-            400,
-            "Tool calling is not supported by the local Chat Completions endpoint.",
-            error_type="invalid_request_error",
-            code="unsupported_tools",
-            param="tools",
-        )
-    if request.tool_choice not in (None, "none"):
-        raise _openai_http_error(
-            400,
-            "tool_choice is unsupported unless it is 'none'.",
-            error_type="invalid_request_error",
-            code="unsupported_tool_choice",
-            param="tool_choice",
-        )
-    if request.parallel_tool_calls is not None:
-        raise _openai_http_error(
-            400,
-            "parallel_tool_calls is unavailable because local tool calling is not supported.",
-            error_type="invalid_request_error",
-            code="unsupported_tools",
-            param="parallel_tool_calls",
-        )
-    if any(message.tool_calls for message in request.messages):
-        raise _openai_http_error(
-            400,
-            "Historical tool calls are not supported by the local runtime.",
-            error_type="invalid_request_error",
-            code="unsupported_tools",
-            param="messages",
-        )
-    unsupported_role = next(
-        (message.role for message in request.messages if message.role in {"tool", "function"}),
-        None,
+def _request_requires_tools(request: ChatCompletionRequest) -> bool:
+    from api.inference.openai_tool_bridge import request_requires_tools
+
+    return request_requires_tools(
+        tools=request.tools,
+        tool_choice=request.tool_choice,
+        messages=request.messages,
+        parallel_tool_calls=request.parallel_tool_calls,
     )
-    if unsupported_role:
+
+
+def _validate_supported_features(
+    request: ChatCompletionRequest,
+    *,
+    backend_name: str | None = None,
+) -> None:
+    """Validate OpenAI-compatible features for the resolved local backend.
+
+    Tool fields are allowed only when ``backend_name`` is Ollama (Phase 2 passthrough).
+    HuggingFace / llama-cpp remain fail-closed for tools.
+    """
+    from api.inference.openai_tool_bridge import backend_allows_tools, tools_denied_message
+
+    requires_tools = _request_requires_tools(request)
+    tools_allowed = backend_allows_tools(backend_name)
+
+    if requires_tools and not tools_allowed:
+        # Prefer the most specific param for diagnostics.
+        if request.tools:
+            param = "tools"
+        elif request.tool_choice not in (None, "none"):
+            param = "tool_choice"
+        elif request.parallel_tool_calls is not None:
+            param = "parallel_tool_calls"
+        elif any(message.tool_calls for message in request.messages):
+            param = "messages"
+        elif any(message.role in {"tool", "function"} for message in request.messages):
+            param = "messages"
+        else:
+            param = "tools"
         raise _openai_http_error(
             400,
-            f"Message role '{unsupported_role}' requires tool-calling support.",
+            tools_denied_message(backend_name),
             error_type="invalid_request_error",
-            code="unsupported_message_role",
-            param="messages",
+            code="unsupported_tools",
+            param=param,
         )
-    empty_message = next((message for message in request.messages if message.content is None), None)
-    if empty_message:
+
+    if requires_tools and request.stream:
         raise _openai_http_error(
             400,
-            "Each local inference message must contain text content.",
+            "Streaming tool calls are not supported on the local Ollama path yet; set stream=false.",
             error_type="invalid_request_error",
-            code="unsupported_message_content",
-            param="messages",
+            code="unsupported_stream_tools",
+            param="stream",
         )
+
+    # Non-tool messages must still have text content. Tool-loop assistant/tool
+    # messages may legally omit content when tool_calls / tool results are present.
+    if not requires_tools:
+        empty_message = next((message for message in request.messages if message.content is None), None)
+        if empty_message:
+            raise _openai_http_error(
+                400,
+                "Each local inference message must contain text content.",
+                error_type="invalid_request_error",
+                code="unsupported_message_content",
+                param="messages",
+            )
+    else:
+        for message in request.messages:
+            if message.role in {"tool", "function"}:
+                continue
+            if message.role == "assistant" and message.tool_calls:
+                continue
+            if message.content is None:
+                raise _openai_http_error(
+                    400,
+                    "Non-tool messages must contain text content.",
+                    error_type="invalid_request_error",
+                    code="unsupported_message_content",
+                    param="messages",
+                )
+
     if request.presence_penalty != 0 or request.frequency_penalty != 0:
         raise _openai_http_error(
             400,
@@ -457,14 +493,27 @@ def _validate_supported_features(request: ChatCompletionRequest) -> None:
         )
 
 
-def _messages_for_backend(messages: list[ChatCompletionMessage]) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system" if message.role == "developer" else message.role,
-            "content": message.content or "",
+def _messages_for_backend(
+    messages: list[ChatCompletionMessage],
+    *,
+    include_tools: bool = False,
+) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for message in messages:
+        role = "system" if message.role == "developer" else message.role
+        item: dict[str, Any] = {
+            "role": role,
+            "content": message.content if message.content is not None else "",
         }
-        for message in messages
-    ]
+        if include_tools:
+            if message.tool_calls:
+                item["tool_calls"] = message.tool_calls
+            if message.tool_call_id:
+                item["tool_call_id"] = message.tool_call_id
+            if message.name:
+                item["name"] = message.name
+        converted.append(item)
+    return converted
 
 
 def _stop_sequences(stop: list[str] | str | None) -> list[str]:
@@ -581,18 +630,31 @@ async def _stream_generator(
 @router.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
     """Run an OpenAI-compatible completion on the unified local scheduler."""
-    _validate_supported_features(request)
+    # Fail-closed early when the client forces a non-Ollama backend with tools
+    # (avoids model_not_found masking unsupported_tools).
+    explicit_backend = raw_request.headers.get("x-backend")
+    if explicit_backend and _request_requires_tools(request):
+        _validate_supported_features(request, backend_name=explicit_backend)
+
     runtime = await _prepare_runtime(
         request.model,
-        raw_request.headers.get("x-backend"),
+        explicit_backend,
         request.resolved_max_tokens,
         model_path_override=raw_request.headers.get("x-model-path"),
         lora_adapter_override=raw_request.headers.get("x-lora-adapter"),
     )
-    messages = _messages_for_backend(request.messages)
+    try:
+        _validate_supported_features(request, backend_name=runtime.backend_name)
+    except HTTPException:
+        await _release_model(runtime.scheduler, runtime.lease_name)
+        raise
+
+    requires_tools = _request_requires_tools(request)
+    messages = _messages_for_backend(request.messages, include_tools=requires_tools)
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
 
+    # Stream path owns lease release inside _stream_generator.
     if request.stream:
         return StreamingResponse(
             _stream_generator(runtime, request, messages, completion_id, created),
@@ -605,13 +667,33 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
         )
 
     try:
-        result = await runtime.backend.chat(messages, _generation_config(request, stream=False))
+        config = _generation_config(request, stream=False)
+        if requires_tools and runtime.backend_name == BackendType.OLLAMA.value:
+            result = await runtime.backend.chat(
+                messages,
+                config,
+                tools=request.tools,
+                tool_choice=request.tool_choice,
+            )
+        else:
+            result = await runtime.backend.chat(messages, config)
         _raise_for_failed_result(result)
         usage = Usage(
             completion_tokens=result.tokens_generated,
             prompt_tokens=result.prompt_tokens,
             total_tokens=result.total_tokens or result.prompt_tokens + result.tokens_generated,
         )
+        tool_calls = None
+        if isinstance(result.metadata, dict):
+            tool_calls = result.metadata.get("tool_calls")
+        assistant_message = ChatCompletionMessage(
+            role="assistant",
+            content=result.text if result.text is not None else "",
+            tool_calls=tool_calls or None,
+        )
+        finish_reason = result.finish_reason
+        if tool_calls and finish_reason == "stop":
+            finish_reason = "tool_calls"
         return ChatCompletionResponse(
             id=completion_id,
             created=created,
@@ -619,8 +701,8 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
             choices=[
                 Choice(
                     index=0,
-                    message=ChatCompletionMessage(role="assistant", content=result.text),
-                    finish_reason=result.finish_reason,
+                    message=assistant_message,
+                    finish_reason=finish_reason,
                 )
             ],
             usage=usage,

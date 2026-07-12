@@ -130,7 +130,9 @@ class OllamaResilientBackend(InferenceBackend):
                 self._session = aiohttp.ClientSession(
                     connector=connector,
                     timeout=timeout,
-                    raise_for_status=False
+                    raise_for_status=False,
+                    # Do not honor system HTTP(S)_PROXY for local Ollama.
+                    trust_env=False,
                 )
                 logger.info("Created new persistent aiohttp session for Ollama")
             
@@ -392,15 +394,28 @@ class OllamaResilientBackend(InferenceBackend):
             yield f"[Error: {e}]"
 
 
-    async def chat(self, request, context=None) -> GenerationResult:
-        """对话生成"""
+    async def chat(self, request, context=None, *, tools=None, tool_choice=None) -> GenerationResult:
+        """对话生成（支持 OpenAI 风格 tools 透传到 Ollama /api/chat）。"""
+        from api.inference.openai_tool_bridge import (
+            build_ollama_chat_payload,
+            finish_reason_for_ollama_message,
+            ollama_chat_result_to_openai_message,
+            ollama_tool_calls_to_openai,
+        )
+
         if hasattr(request, 'model'):
             model_name = request.model
             if model_name and model_name != self.model_name:
                 self.model_name = model_name
 
             messages = [
-                {"role": m.role.value if hasattr(m.role, 'value') else m.role, "content": m.content}
+                {
+                    "role": m.role.value if hasattr(m.role, 'value') else m.role,
+                    "content": m.content,
+                    **({"tool_calls": m.tool_calls} if getattr(m, "tool_calls", None) else {}),
+                    **({"tool_call_id": m.tool_call_id} if getattr(m, "tool_call_id", None) else {}),
+                    **({"name": m.name} if getattr(m, "name", None) else {}),
+                }
                 for m in request.messages
             ]
 
@@ -411,6 +426,10 @@ class OllamaResilientBackend(InferenceBackend):
                 top_k=request.options.top_k if hasattr(request, 'options') and request.options else 50,
                 repetition_penalty=request.options.repetition_penalty if hasattr(request, 'options') and request.options else 1.0,
             )
+            if tools is None and hasattr(request, "tools"):
+                tools = request.tools
+            if tool_choice is None and hasattr(request, "tool_choice"):
+                tool_choice = request.tool_choice
         else:
             messages = request if isinstance(request, list) else []
             config = context if isinstance(context, GenerationConfig) else GenerationConfig()
@@ -422,34 +441,70 @@ class OllamaResilientBackend(InferenceBackend):
 
         async def _chat():
             session = await self._get_session()
-            payload = OllamaChatRequest(
+            options = self._get_ollama_options(config)
+            payload_dict = build_ollama_chat_payload(
                 model=self.model_name,
-                messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
                 stream=False,
+                options=options.model_dump(exclude_none=True) if options is not None else None,
                 keep_alive="5m",
-                options=self._get_ollama_options(config)
+                think=False if self.disable_thinking else None,
             )
-            if self.disable_thinking:
-                payload.think = False
+            # Keep schema validation for the common path without tools.
+            if not tools:
+                payload = OllamaChatRequest(
+                    model=self.model_name,
+                    messages=[
+                        OllamaMessage(
+                            role=m["role"],
+                            content=m.get("content") or "",
+                            tool_calls=m.get("tool_calls"),
+                            tool_name=m.get("tool_name") or m.get("name"),
+                            tool_call_id=m.get("tool_call_id"),
+                        )
+                        for m in payload_dict["messages"]
+                    ],
+                    stream=False,
+                    keep_alive="5m",
+                    options=options,
+                    think=False if self.disable_thinking else None,
+                )
+                body = payload.model_dump(exclude_none=True)
+            else:
+                body = {k: v for k, v in payload_dict.items() if v is not None}
 
-            async with session.post(f"{self.base_url}/api/chat", json=payload.model_dump(exclude_none=True)) as response:
+            async with session.post(f"{self.base_url}/api/chat", json=body) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
 
                 result = await response.json()
                 latency_ms = (time.time() - start_time) * 1000
-                message = result.get("message", {})
-                text = message.get("content", "") or message.get("thinking", "")
+                message = result.get("message", {}) or {}
+                openai_message = ollama_chat_result_to_openai_message(message)
+                tool_calls = ollama_tool_calls_to_openai(message.get("tool_calls"))
+                text = openai_message.get("content") or ""
+                finish_reason = finish_reason_for_ollama_message(
+                    message,
+                    done_reason=result.get("done_reason"),
+                )
 
                 return GenerationResult(
                     text=text,
                     tokens_generated=result.get("eval_count", 0),
-                    finish_reason="stop",
+                    finish_reason=finish_reason,
                     model=self.model_name,
                     prompt_tokens=result.get("prompt_eval_count", 0),
                     total_tokens=result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
-                    latency_ms=latency_ms
+                    latency_ms=latency_ms,
+                    metadata={
+                        "tool_calls": tool_calls or None,
+                        "ollama_message": message,
+                        "openai_message": openai_message,
+                        "outbound_tools": bool(tools),
+                    },
                 )
 
         try:

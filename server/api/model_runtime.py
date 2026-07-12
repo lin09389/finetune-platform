@@ -323,7 +323,7 @@ def _agent_defaults(models: list[dict[str, Any]]) -> dict[str, Any]:
         "provider": None,
         "model": None,
         "model_string": None,
-        "message": "Agent 需要支持工具调用的 provider:model；当前本地推理服务仅支持文本聊天，请配置云端模型。",
+        "message": "Agent 需要支持工具调用的 provider:model；请连接 Ollama 并选择工具能力模型，或配置云端模型。",
     }
 
 

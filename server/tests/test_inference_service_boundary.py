@@ -56,7 +56,11 @@ def test_native_inference_capability_contract(monkeypatch):
     payload = response.json()
     assert payload["schema_version"] == "inference.capabilities.v1"
     assert payload["api"]["streaming"] is True
-    assert payload["features"]["tool_calling"] is False
+    assert payload["features"]["tool_calling"] is True
+    assert payload["features"]["tool_calling_by_backend"]["ollama"] is True
+    assert payload["features"]["tool_calling_by_backend"]["huggingface"] is False
+    assert payload["features"]["tool_calling_by_backend"]["llama-cpp"] is False
+    assert "llamacpp" not in payload["features"]["tool_calling_by_backend"]
     assert payload["models"] == [{"id": "qwen"}]
 
 
@@ -298,22 +302,30 @@ def test_control_profile_does_not_import_native_inference_runtime():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_agent_ollama_provider_rejects_text_only_local_service(monkeypatch):
+def test_agent_ollama_provider_uses_local_service_openai_compat_in_service_mode(monkeypatch):
+    """Phase 2: ollama+service routes through local OpenAI-compatible inference (tools passthrough)."""
     adapter = importlib.import_module("agent_session.model_adapter")
-    captured = {}
+    from langchain_openai import ChatOpenAI
 
     monkeypatch.setattr(adapter.settings, "inference_execution_mode", "service")
     monkeypatch.setattr(adapter.settings, "inference_service_url", "http://127.0.0.1:8020")
     monkeypatch.setattr(adapter.settings, "inference_internal_api_key", "internal-key")
+    # Official init must not be required for the local-service Ollama route.
     monkeypatch.setattr(
         "langchain.chat_models.init_chat_model",
-        lambda **kwargs: captured.update(kwargs) or object(),
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("init_chat_model should not run for ollama service")),
     )
     context = SimpleNamespace(provider="ollama", model="qwen3:8b", metadata={})
 
-    with pytest.raises(adapter.ProviderAdapterError, match="不支持 Agent 所需的工具调用"):
-        adapter.get_chat_model(context)
-    assert captured == {}
+    model = adapter.get_chat_model(context)
+    assert isinstance(model, ChatOpenAI)
+    assert model.model_name == "ollama/qwen3:8b"
+    base = str(model.openai_api_base or "")
+    assert "8020" in base
+    assert base.rstrip("/").endswith("/v1")
+    assert hasattr(model, "bind_tools")
+    # Local facade rejects tools+stream; Agent astream must not send stream=true with tools.
+    assert model.disable_streaming == "tool_calling"
 
 
 @pytest.mark.asyncio

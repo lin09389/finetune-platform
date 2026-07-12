@@ -14,12 +14,57 @@ class OpenAIModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def normalize_message_content(content: Any) -> str | None:
+    """Coerce OpenAI multimodal / content-block payloads to a plain string.
+
+    LangChain / DeepAgents may send ``content`` as a list of blocks
+    (``[{"type":"text","text":"..."}]``) even for text-only local backends.
+    Ollama and our HF backends expect a string.
+    """
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if item.get("type") == "text" and item.get("text") is not None:
+                    parts.append(str(item.get("text")))
+                elif item.get("text") is not None:
+                    parts.append(str(item.get("text")))
+                elif item.get("content") is not None:
+                    parts.append(str(item.get("content")))
+                else:
+                    # Skip non-text blocks (images, etc.) for local text backends.
+                    continue
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    if isinstance(content, dict):
+        if content.get("text") is not None:
+            return str(content.get("text"))
+        if content.get("content") is not None:
+            nested = content.get("content")
+            return nested if isinstance(nested, str) else str(nested)
+        return str(content)
+    return str(content)
+
+
 class ChatCompletionMessage(OpenAIModel):
     role: Literal["developer", "system", "user", "assistant", "tool", "function"]
-    content: str | None = None
+    # Accept list/dict content from modern clients; normalize via validator.
+    content: str | list[Any] | dict[str, Any] | None = None
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
+
+    @model_validator(mode="after")
+    def _normalize_content(self) -> ChatCompletionMessage:
+        self.content = normalize_message_content(self.content)
+        return self
 
 
 class StreamOptions(OpenAIModel):

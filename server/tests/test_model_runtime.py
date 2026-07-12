@@ -93,7 +93,8 @@ async def test_model_runtime_overview_guides_setup_when_no_models(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_model_runtime_overview_does_not_advertise_service_ollama_for_agent(monkeypatch):
+async def test_model_runtime_overview_advertises_ollama_for_agent_when_tools_supported(monkeypatch):
+    """Phase 2: Ollama endpoint tools passthrough makes Ollama Agent-ready."""
     async def _backends():
         return {
             "current": "ollama",
@@ -118,32 +119,41 @@ async def test_model_runtime_overview_does_not_advertise_service_ollama_for_agen
 
     payload = await model_runtime.get_model_runtime_overview()
 
-    assert payload["summary"]["state"] == "degraded"
-    assert payload["agent"] == {
-        "ready": False,
-        "provider": None,
-        "model": None,
-        "model_string": None,
-        "message": "Agent 需要支持工具调用的 provider:model；当前本地推理服务仅支持文本聊天，请配置云端模型。",
-    }
-    assert payload["local_models"][0]["recommended_for"] == ["chat"]
-    assert "agent" not in payload["local_models"][0]["capabilities"]
+    assert payload["summary"]["state"] == "ready"
+    assert payload["agent"]["ready"] is True
+    assert payload["agent"]["provider"] == "ollama"
+    assert payload["agent"]["model"] == "qwen2.5:7b"
+    assert "agent" in payload["local_models"][0]["capabilities"]
 
 
 @pytest.mark.asyncio
-async def test_model_runtime_selection_rejects_service_ollama_for_agent(reset_selection):
+async def test_model_runtime_selection_allows_ollama_for_agent(reset_selection):
+    """Phase 2: Ollama tools passthrough makes ollama a valid Agent backend."""
+    result = await model_runtime.set_model_runtime_selection(
+        model_runtime.ModelRuntimeSelectionRequest(
+            backend="ollama",
+            model_id="qwen2.5:7b",
+            scope="agent",
+        )
+    )
+    assert result["selected"]["backend"] == "ollama"
+    assert result["selected"]["scope"] == "agent"
+    assert reset_selection.default_backend == "ollama"
+
+
+@pytest.mark.asyncio
+async def test_model_runtime_selection_rejects_huggingface_for_agent(reset_selection):
     with pytest.raises(HTTPException) as exc_info:
         await model_runtime.set_model_runtime_selection(
             model_runtime.ModelRuntimeSelectionRequest(
-                backend="ollama",
-                model_id="qwen2.5:7b",
+                backend="huggingface",
+                model_id="mock-model",
                 scope="agent",
             )
         )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "agent_tool_calling_unsupported"
-    assert reset_selection.default_backend == "huggingface"
 
 
 def test_model_runtime_normalizes_model_center_entries_without_config():
