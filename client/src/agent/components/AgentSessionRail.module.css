@@ -1,0 +1,62 @@
+.rail {
+  scrollbar-gutter: stable;
+}
+
+.newTask {
+  min-height: 36px;
+}
+
+.secondaryLabel {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.sessionItem {
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+  min-height: 56px;
+}
+
+.sessionSelect {
+  gap: 5px;
+}
+
+.sessionTitle {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sessionStatus {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.taskMode {
+  color: var(--text-tertiary);
+}
+
+.sessionAction {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 6px;
+}
+
+.sessionAction:focus-visible,
+.sessionSelect:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .sessionItem {
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    min-height: 60px;
+  }
+
+  .sessionAction {
+    min-width: 44px;
+    min-height: 44px;
+    opacity: 1;
+  }
+}

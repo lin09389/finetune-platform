@@ -13,6 +13,7 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import type { RecentAgentSession } from '../runtime/agentRuntime';
 import { SESSION_STATUS_LABELS } from '../selectors/sessionStatus';
 import styles from '../workbench/AgentWorkbench.module.css';
+import polish from './AgentSessionRail.module.css';
 
 const PINNED_SESSIONS_KEY = 'finetune.agent.pinned-sessions.v1';
 const SESSION_PREFERENCES_KEY = 'finetune.agent.session-preferences.v1';
@@ -50,7 +51,11 @@ interface AgentSessionRailProps {
   onSelect: (sessionId: string) => void;
   onUpdatePreferences?: (
     sessionId: string,
-    preferences: { display_title?: string | null; pinned?: boolean | null; archived?: boolean | null },
+    preferences: {
+      display_title?: string | null;
+      pinned?: boolean | null;
+      archived?: boolean | null;
+    },
   ) => Promise<unknown>;
   embedded?: boolean;
 }
@@ -71,38 +76,53 @@ export default function AgentSessionRail({
     if (typeof localStorage === 'undefined') return [];
     try {
       const value = JSON.parse(localStorage.getItem(PINNED_SESSIONS_KEY) || '[]');
-      return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+      return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string')
+        : [];
     } catch {
       return [];
     }
   });
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const visibleSessions = useMemo(() => sessions
-    .filter((session) => {
-      const archived = Boolean(session.preferences?.archived) || preferences.archivedIds.includes(session.id);
-      if (scope === 'archived' ? !archived : archived) return false;
-      if (scope === 'active' && ![
-        'running',
-        'waiting_permission',
-        'waiting_approval',
-        'verifying',
-        'repairing',
-      ].includes(session.status)) return false;
-      if (scope === 'done' && !['completed', 'failed', 'interrupted'].includes(session.status)) return false;
-      const title = session.preferences?.display_title
-        || preferences.aliases[session.id]
-        || session.displayTitle
-        || session.title;
-      return !deferredQuery
-        || title.toLowerCase().includes(deferredQuery)
-        || session.projectPath?.toLowerCase().includes(deferredQuery);
-    })
-    .sort((left, right) => {
-      const leftPinned = Boolean(left.preferences?.pinned) || pinnedIds.includes(left.id);
-      const rightPinned = Boolean(right.preferences?.pinned) || pinnedIds.includes(right.id);
-      const pinDelta = Number(rightPinned) - Number(leftPinned);
-      return pinDelta || right.updatedAt.localeCompare(left.updatedAt);
-    }), [deferredQuery, pinnedIds, preferences.aliases, preferences.archivedIds, scope, sessions]);
+  const visibleSessions = useMemo(
+    () =>
+      sessions
+        .filter((session) => {
+          const archived =
+            Boolean(session.preferences?.archived) || preferences.archivedIds.includes(session.id);
+          if (scope === 'archived' ? !archived : archived) return false;
+          if (
+            scope === 'active' &&
+            ![
+              'running',
+              'waiting_permission',
+              'waiting_approval',
+              'verifying',
+              'repairing',
+            ].includes(session.status)
+          )
+            return false;
+          if (scope === 'done' && !['completed', 'failed', 'interrupted'].includes(session.status))
+            return false;
+          const title =
+            session.preferences?.display_title ||
+            preferences.aliases[session.id] ||
+            session.displayTitle ||
+            session.title;
+          return (
+            !deferredQuery ||
+            title.toLowerCase().includes(deferredQuery) ||
+            session.projectPath?.toLowerCase().includes(deferredQuery)
+          );
+        })
+        .sort((left, right) => {
+          const leftPinned = Boolean(left.preferences?.pinned) || pinnedIds.includes(left.id);
+          const rightPinned = Boolean(right.preferences?.pinned) || pinnedIds.includes(right.id);
+          const pinDelta = Number(rightPinned) - Number(leftPinned);
+          return pinDelta || right.updatedAt.localeCompare(left.updatedAt);
+        }),
+    [deferredQuery, pinnedIds, preferences.aliases, preferences.archivedIds, scope, sessions],
+  );
 
   const updatePreferences = (updater: (current: SessionPreferences) => SessionPreferences) => {
     setPreferences((current) => {
@@ -140,7 +160,11 @@ export default function AgentSessionRail({
 
   const updateSessionPreferences = async (
     sessionId: string,
-    serverPayload: { display_title?: string | null; pinned?: boolean | null; archived?: boolean | null },
+    serverPayload: {
+      display_title?: string | null;
+      pinned?: boolean | null;
+      archived?: boolean | null;
+    },
     localFallback: () => void,
   ) => {
     if (!onUpdatePreferences) {
@@ -156,11 +180,11 @@ export default function AgentSessionRail({
 
   return (
     <aside
-      className={`${styles.sessionRail} ${embedded ? styles.embeddedRail : ''}`}
+      className={`${styles.sessionRail} ${polish.rail} ${embedded ? styles.embeddedRail : ''}`}
       aria-label="Agent 会话"
     >
       <Button
-        className={styles.newTask}
+        className={`${styles.newTask} ${polish.newTask}`}
         icon={<PlusOutlined />}
         aria-label="新建任务"
         data-agent-session-navigate="true"
@@ -192,121 +216,152 @@ export default function AgentSessionRail({
         ]}
       />
       <div className={styles.railSection}>
-        <span className={styles.railLabel}>最近运行 · {visibleSessions.length}</span>
+        <span
+          className={`${styles.railLabel} ${polish.secondaryLabel}`}
+          data-session-secondary="true"
+        >
+          最近运行 · {visibleSessions.length}
+        </span>
         {visibleSessions.length === 0 ? (
           <div className={styles.railEmpty}>{sessions.length ? '没有匹配的会话' : '暂无运行'}</div>
         ) : (
           <div className={styles.sessionList}>
-            {visibleSessions.map((session) => (
+            {visibleSessions.map((session) =>
               (() => {
-                const title = session.preferences?.display_title
-                  || preferences.aliases[session.id]
-                  || session.displayTitle
-                  || session.title;
-                const archived = Boolean(session.preferences?.archived) || preferences.archivedIds.includes(session.id);
-                const pinned = Boolean(session.preferences?.pinned) || pinnedIds.includes(session.id);
+                const title =
+                  session.preferences?.display_title ||
+                  preferences.aliases[session.id] ||
+                  session.displayTitle ||
+                  session.title;
+                const archived =
+                  Boolean(session.preferences?.archived) ||
+                  preferences.archivedIds.includes(session.id);
+                const pinned =
+                  Boolean(session.preferences?.pinned) || pinnedIds.includes(session.id);
                 return (
-              <div
-                key={session.id}
-                className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
-              >
-                <button
-                  type="button"
-                  className={styles.sessionSelect}
-                  data-agent-session-navigate="true"
-                  onClick={() => onSelect(session.id)}
-                >
-                  <span className={styles.sessionTitle}>{title}</span>
-                  <span className={styles.sessionMeta}>
-                    <span className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`} />
-                    {SESSION_STATUS_LABELS[session.status] || session.status}
-                    {session.taskMode ? (
-                      <span className={styles.sessionTaskMode} title={`任务模式：${TASK_MODE_LABELS[session.taskMode]}`}>
-                        {TASK_MODE_LABELS[session.taskMode]}
+                  <div
+                    key={session.id}
+                    className={`${session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem} ${polish.sessionItem}`}
+                  >
+                    <button
+                      type="button"
+                      className={`${styles.sessionSelect} ${polish.sessionSelect}`}
+                      data-agent-session-navigate="true"
+                      onClick={() => onSelect(session.id)}
+                    >
+                      <span className={`${styles.sessionTitle} ${polish.sessionTitle}`}>
+                        {title}
                       </span>
-                    ) : null}
-                    {unreadSessionIds?.includes(session.id) ? (
-                      <span className={styles.unreadDot} aria-label="有新动态" />
-                    ) : null}
-                  </span>
-                </button>
-                <Tooltip title={pinned ? '取消置顶' : '置顶'}>
-                  <button
-                    type="button"
-                    className={styles.sessionPin}
-                    aria-label={`${pinned ? '取消置顶' : '置顶'} ${session.title}`}
-                    aria-pressed={pinned}
-                    onClick={() => togglePin(session.id)}
-                  >
-                    {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                  </button>
-                </Tooltip>
-                <Dropdown
-                  trigger={['click']}
-                  menu={{
-                    items: archived ? [{
-                      key: 'restore',
-                      icon: <UndoOutlined />,
-                      label: '恢复会话',
-                    }] : [
-                      { key: 'rename', icon: <EditOutlined />, label: '重命名' },
-                      { key: 'archive', icon: <InboxOutlined />, label: '归档' },
-                    ],
-                    onClick: ({ key }) => {
-                      if (key === 'rename') {
-                        let nextTitle = title;
-                        Modal.confirm({
-                          title: '重命名会话',
-                          content: (
-                            <Input
-                              defaultValue={title}
-                              maxLength={80}
-                              autoFocus
-                              onChange={(event) => { nextTitle = event.target.value; }}
-                            />
-                          ),
-                          okText: '保存',
-                          cancelText: '取消',
-                          onOk: () => {
-                            const normalized = nextTitle.trim();
-                            if (!normalized) return Promise.reject(new Error('会话名称不能为空'));
-                            return updateSessionPreferences(
+                      <span
+                        className={`${styles.sessionMeta} ${polish.sessionStatus}`}
+                        aria-label={`会话状态：${SESSION_STATUS_LABELS[session.status] || session.status}`}
+                      >
+                        <span
+                          className={`${styles.statusDot} ${styles[`status_${session.status}`] || ''}`}
+                        />
+                        {SESSION_STATUS_LABELS[session.status] || session.status}
+                        {session.taskMode ? (
+                          <span
+                            className={`${styles.sessionTaskMode} ${polish.taskMode}`}
+                            title={`任务模式：${TASK_MODE_LABELS[session.taskMode]}`}
+                          >
+                            {TASK_MODE_LABELS[session.taskMode]}
+                          </span>
+                        ) : null}
+                        {unreadSessionIds?.includes(session.id) ? (
+                          <span className={styles.unreadDot} aria-label="有新动态" />
+                        ) : null}
+                      </span>
+                    </button>
+                    <Tooltip title={pinned ? '取消置顶' : '置顶'}>
+                      <button
+                        type="button"
+                        className={`${styles.sessionPin} ${polish.sessionAction}`}
+                        aria-label={`${pinned ? '取消置顶' : '置顶'} ${session.title}`}
+                        aria-pressed={pinned}
+                        onClick={() => togglePin(session.id)}
+                      >
+                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                      </button>
+                    </Tooltip>
+                    <Dropdown
+                      trigger={['click']}
+                      menu={{
+                        items: archived
+                          ? [
+                              {
+                                key: 'restore',
+                                icon: <UndoOutlined />,
+                                label: '恢复会话',
+                              },
+                            ]
+                          : [
+                              { key: 'rename', icon: <EditOutlined />, label: '重命名' },
+                              { key: 'archive', icon: <InboxOutlined />, label: '归档' },
+                            ],
+                        onClick: ({ key }) => {
+                          if (key === 'rename') {
+                            let nextTitle = title;
+                            Modal.confirm({
+                              title: '重命名会话',
+                              content: (
+                                <Input
+                                  defaultValue={title}
+                                  maxLength={80}
+                                  autoFocus
+                                  onChange={(event) => {
+                                    nextTitle = event.target.value;
+                                  }}
+                                />
+                              ),
+                              okText: '保存',
+                              cancelText: '取消',
+                              onOk: () => {
+                                const normalized = nextTitle.trim();
+                                if (!normalized)
+                                  return Promise.reject(new Error('会话名称不能为空'));
+                                return updateSessionPreferences(
+                                  session.id,
+                                  { display_title: normalized },
+                                  () =>
+                                    updatePreferences((current) => ({
+                                      ...current,
+                                      aliases: { ...current.aliases, [session.id]: normalized },
+                                    })),
+                                );
+                              },
+                            });
+                          } else {
+                            void updateSessionPreferences(
                               session.id,
-                              { display_title: normalized },
-                              () => updatePreferences((current) => ({
-                                ...current,
-                                aliases: { ...current.aliases, [session.id]: normalized },
-                              })),
+                              { archived: key === 'archive' },
+                              () =>
+                                updatePreferences((current) => ({
+                                  ...current,
+                                  archivedIds:
+                                    key === 'archive'
+                                      ? Array.from(
+                                          new Set([session.id, ...current.archivedIds]),
+                                        ).slice(0, 100)
+                                      : current.archivedIds.filter((id) => id !== session.id),
+                                })),
                             );
-                          },
-                        });
-                      } else {
-                        void updateSessionPreferences(
-                          session.id,
-                          { archived: key === 'archive' },
-                          () => updatePreferences((current) => ({
-                            ...current,
-                            archivedIds: key === 'archive'
-                              ? Array.from(new Set([session.id, ...current.archivedIds])).slice(0, 100)
-                              : current.archivedIds.filter((id) => id !== session.id),
-                          })),
-                        );
-                      }
-                    },
-                  }}
-                >
-                  <button
-                    type="button"
-                    className={styles.sessionMore}
-                    aria-label={`会话操作 ${title}`}
-                  >
-                    <MoreOutlined />
-                  </button>
-                </Dropdown>
-              </div>
+                          }
+                        },
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className={`${styles.sessionMore} ${polish.sessionAction}`}
+                        aria-label={`会话操作 ${title}`}
+                      >
+                        <MoreOutlined />
+                      </button>
+                    </Dropdown>
+                  </div>
                 );
-              })()
-            ))}
+              })(),
+            )}
           </div>
         )}
       </div>

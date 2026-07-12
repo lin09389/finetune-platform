@@ -1,0 +1,50 @@
+.dock {
+  --auxiliary-control-size: 32px;
+}
+
+.panelHeader {
+  padding-inline: 12px 8px;
+}
+
+.tab {
+  min-height: var(--auxiliary-control-size);
+}
+
+.panelHeader .dismissButton,
+.mobileClose {
+  width: var(--auxiliary-control-size);
+  height: var(--auxiliary-control-size);
+  border-radius: 6px;
+}
+
+.taskCenterTabs {
+  align-items: stretch;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .dock {
+    --auxiliary-control-size: 44px;
+  }
+
+  .dock .workspacePanel {
+    grid-template-rows: 44px minmax(0, 1fr);
+  }
+
+  .dock .taskCenterPanel {
+    grid-template-rows: 44px 44px minmax(0, 1fr);
+  }
+
+  .panelHeader {
+    min-height: 44px;
+  }
+
+  .tab {
+    min-width: 64px;
+    min-height: 44px;
+  }
+
+  .mobileClose {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

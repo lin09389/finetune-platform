@@ -2,17 +2,15 @@ import { DownOutlined } from '@ant-design/icons';
 import { Tooltip } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Suspense, lazy } from 'react';
-import type { AgentSessionUiTimelineItem } from '../../services/api';
-import { fadeVariants } from '../../theme/motion-tokens';
 import { SmoothLoader } from '../../components/motion';
 import { useMotionConfig } from '../../components/motion/useMotionConfig';
-import type { PanelResizeHandlers } from '../workbench/usePanelResize';
-import {
-  MAX_TERMINAL_HEIGHT,
-  MIN_TERMINAL_HEIGHT,
-} from '../config/panelLayout';
-import AgentResizeHandle from './AgentResizeHandle';
+import type { AgentSessionUiTimelineItem } from '../../services/api';
+import { fadeVariants } from '../../theme/motion-tokens';
+import { MAX_TERMINAL_HEIGHT, MIN_TERMINAL_HEIGHT } from '../config/panelLayout';
 import styles from '../workbench/AgentWorkbench.module.css';
+import type { PanelResizeHandlers } from '../workbench/usePanelResize';
+import AgentResizeHandle from './AgentResizeHandle';
+import polish from './AgentTerminalDock.module.css';
 
 const AgentTerminalPanel = lazy(() => import('./AgentTerminalPanel'));
 
@@ -44,7 +42,7 @@ export default function AgentTerminalDock({
   const { getSafeVariants } = useMotionConfig();
   return (
     <section
-      className={styles.terminalDock}
+      className={`${styles.terminalDock} ${polish.terminalDock}`}
       data-visible={visible ? 'true' : 'false'}
       aria-label="终端面板"
       aria-hidden={!visible}
@@ -58,12 +56,14 @@ export default function AgentTerminalDock({
         resize={resize}
         className={styles.terminalResizeHandle}
       />
-      <header className={styles.terminalDockHeader}>
-        <span>终端</span>
+      <header className={`${styles.terminalDockHeader} ${polish.header}`}>
+        <strong>终端</strong>
         <Tooltip title="隐藏终端">
           <button
             type="button"
             aria-label="隐藏终端"
+            className={polish.dismissButton}
+            data-auxiliary-control="true"
             onClick={onClose}
           >
             <DownOutlined />
@@ -75,17 +75,32 @@ export default function AgentTerminalDock({
           {mounted ? (
             <motion.div
               key="terminal-content"
+              className={polish.terminalContent}
               variants={getSafeVariants(fadeVariants)}
               initial="initial"
               animate="animate"
               exit="exit"
               style={{ width: '100%', height: '100%' }}
             >
-              <Suspense fallback={<div className={styles.panelLoading}><SmoothLoader size="sm" /></div>}>
+              <Suspense
+                fallback={
+                  <div className={styles.panelLoading}>
+                    <SmoothLoader size="sm" />
+                  </div>
+                }
+              >
                 <AgentTerminalPanel timeline={timeline} />
               </Suspense>
             </motion.div>
-          ) : null}
+          ) : (
+            <div
+              className={polish.compactEmpty}
+              data-compact-empty-state="true"
+              aria-label="终端尚未运行"
+            >
+              运行命令后，输出会显示在这里
+            </div>
+          )}
         </AnimatePresence>
       </div>
     </section>

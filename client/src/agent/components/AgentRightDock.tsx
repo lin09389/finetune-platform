@@ -4,16 +4,21 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { type ReactNode } from 'react';
 import { useMotionConfig } from '../../components/motion/useMotionConfig';
 import { fadeVariants } from '../../theme/motion-tokens';
-import type { AgentPanelLayout, AgentTaskCenterTab, AgentWorkspacePanelTab } from '../config/panelLayout';
+import type {
+  AgentPanelLayout,
+  AgentTaskCenterTab,
+  AgentWorkspacePanelTab,
+} from '../config/panelLayout';
 import {
   MAX_DOCK_WIDTH,
   MAX_WORKSPACE_SPLIT,
   MIN_DOCK_WIDTH,
   MIN_WORKSPACE_SPLIT,
 } from '../config/panelLayout';
+import styles from '../workbench/AgentWorkbench.module.css';
 import type { PanelResizeHandlers } from '../workbench/usePanelResize';
 import AgentResizeHandle from './AgentResizeHandle';
-import styles from '../workbench/AgentWorkbench.module.css';
+import polish from './AgentRightDock.module.css';
 
 interface WorkspaceTabDef {
   key: AgentWorkspacePanelTab;
@@ -70,7 +75,7 @@ export default function AgentRightDock({
   return (
     <aside
       ref={rightDockRef}
-      className={styles.rightDock}
+      className={`${styles.rightDock} ${polish.dock}`}
       data-visible={rightDockVisible ? 'true' : 'false'}
       data-workspace-open={panelLayout.workspaceOpen ? 'true' : 'false'}
       data-tasks-open={panelLayout.taskCenterOpen ? 'true' : 'false'}
@@ -88,14 +93,19 @@ export default function AgentRightDock({
       />
       <button
         type="button"
-        className={styles.mobileDockClose}
+        className={`${styles.mobileDockClose} ${polish.mobileClose}`}
         aria-label="关闭工作台侧栏"
+        data-auxiliary-control="true"
         onClick={onMobileDockClose}
       >
         <CloseOutlined />
       </button>
-      <section className={styles.workspaceDockPanel} hidden={!panelLayout.workspaceOpen} aria-label="工作区">
-        <header className={styles.dockPanelHeader}>
+      <section
+        className={`${styles.workspaceDockPanel} ${polish.workspacePanel}`}
+        hidden={!panelLayout.workspaceOpen}
+        aria-label="工作区"
+      >
+        <header className={`${styles.dockPanelHeader} ${polish.panelHeader}`}>
           <div role="tablist" aria-label="工作区视图">
             {workspaceTabs.map((tab) => (
               <button
@@ -103,7 +113,7 @@ export default function AgentRightDock({
                 type="button"
                 role="tab"
                 aria-selected={panelLayout.workspaceTab === tab.key}
-                className={panelLayout.workspaceTab === tab.key ? styles.dockPanelTabActive : styles.dockPanelTab}
+                className={`${panelLayout.workspaceTab === tab.key ? styles.dockPanelTabActive : styles.dockPanelTab} ${polish.tab}`}
                 onClick={() => onOpenWorkspaceTab(tab.key)}
               >
                 {tab.label}
@@ -114,6 +124,8 @@ export default function AgentRightDock({
             <button
               type="button"
               aria-label="隐藏工作区"
+              className={polish.dismissButton}
+              data-auxiliary-control="true"
               onClick={onCollapseWorkspace}
             >
               <DoubleRightOutlined />
@@ -145,26 +157,35 @@ export default function AgentRightDock({
         resize={resize}
         className={styles.workspaceSplitResizeHandle}
       />
-      <section className={styles.taskCenterDockPanel} hidden={!panelLayout.taskCenterOpen} aria-label="任务中心">
-        <header className={styles.dockPanelHeader}>
+      <section
+        className={`${styles.taskCenterDockPanel} ${polish.taskCenterPanel}`}
+        hidden={!panelLayout.taskCenterOpen}
+        aria-label="任务中心"
+      >
+        <header className={`${styles.dockPanelHeader} ${polish.panelHeader}`}>
           <div className={styles.taskCenterTitle}>任务中心</div>
           <Tooltip title="隐藏任务中心">
             <button
               type="button"
               aria-label="隐藏任务中心"
+              className={polish.dismissButton}
+              data-auxiliary-control="true"
               onClick={onCollapseTaskCenter}
             >
               <DoubleRightOutlined />
             </button>
           </Tooltip>
         </header>
-        <nav className={styles.taskCenterTabs} aria-label="任务中心视图">
+        <nav
+          className={`${styles.taskCenterTabs} ${polish.taskCenterTabs}`}
+          aria-label="任务中心视图"
+        >
           {taskCenterTabs.map((tab) => (
             <button
               key={tab.key}
               type="button"
               aria-current={panelLayout.taskCenterTab === tab.key ? 'page' : undefined}
-              className={panelLayout.taskCenterTab === tab.key ? styles.dockPanelTabActive : styles.dockPanelTab}
+              className={`${panelLayout.taskCenterTab === tab.key ? styles.dockPanelTabActive : styles.dockPanelTab} ${polish.tab}`}
               onClick={() => onOpenTaskCenterTab(tab.key)}
             >
               {tab.label}
