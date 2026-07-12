@@ -12,13 +12,14 @@ import { useShallow } from 'zustand/react/shallow';
 import styles from './HeaderBar.module.css';
 import { NotificationPanel, useNotifications } from './NotificationPanel';
 import ThemeToggle from './ThemeToggle';
-import { getRouteTitle } from '../routes/meta';
+import { getRouteCapabilityTier, getRouteTitle } from '../navigation/routeMetadata';
 
 const { Header } = Layout;
 
 export default function HeaderBar() {
   const location = useLocation();
   const currentTitle = getRouteTitle(location.pathname);
+  const currentTier = getRouteCapabilityTier(location.pathname);
   const { backendStatus, setDeviceInfo } = useAppStore(useShallow(state => ({
     backendStatus: state.backendStatus,
     setDeviceInfo: state.setDeviceInfo
@@ -77,7 +78,7 @@ export default function HeaderBar() {
       <Header className={styles.header} role="banner" aria-label="页头">
         <div className={styles.leftSection}>
           {currentTitle && (
-            <h1 className={styles.pageTitle}>{currentTitle}</h1>
+            <h1 className={styles.pageTitle} data-capability-tier={currentTier ?? 'none'}>{currentTitle}</h1>
           )}
         </div>
 
