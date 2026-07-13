@@ -1,4 +1,5 @@
 import type { RecentAgentSession } from './agentRuntime';
+import type { AgentSession } from '../../services/api';
 
 const STORAGE_KEY = 'finetune.agent-workbench.sessions.v1';
 
@@ -60,4 +61,36 @@ export function persistAgentRuntime(
   } catch {
     // Storage can be unavailable or full. The server-side session index remains authoritative.
   }
+}
+
+/** Make a server-created continuation the active Workbench task before navigation. */
+export function activatePersistedAgentSession(
+  session: AgentSession,
+  storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage,
+): void {
+  const current = readPersistedAgentRuntime(storage);
+  const preferences = session.preferences || {
+    display_title: null,
+    pinned: false,
+    archived: false,
+    updated_at: null,
+  };
+  const recent: RecentAgentSession = {
+    id: session.id,
+    title: session.title || '未命名任务',
+    displayTitle: preferences.display_title || session.title || '未命名任务',
+    status: session.status,
+    agentId: session.agent_id,
+    projectPath: session.project_path,
+    taskMode: session.task_mode,
+    updatedAt: session.updated_at,
+    preferences,
+  };
+  persistAgentRuntime(
+    {
+      activeSessionId: session.id,
+      sessions: [recent, ...current.sessions.filter((item) => item.id !== session.id)].slice(0, 20),
+    },
+    storage,
+  );
 }

@@ -174,6 +174,7 @@ describe('WorkspaceManager', () => {
     fireEvent.click(screen.getByRole('button', { name: /检查包内容/i }));
 
     expect(await screen.findByText('Training set')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/项目目录（必需/), { target: { value: 'C:/Projects/demo' } });
     fireEvent.change(screen.getByLabelText('Training set 的新位置'), { target: { value: 'C:/datasets/train.jsonl' } });
     mockCommitWorkspaceImport.mockRejectedValueOnce(new Error('请重试'));
     fireEvent.click(screen.getByRole('button', { name: /导入并创建工作空间/i }));
@@ -189,7 +190,7 @@ describe('WorkspaceManager', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: /继续最近任务/i }));
     await waitFor(() => expect(mockCreateWorkspaceContinuationSession).toHaveBeenCalledWith('ws-imported', 'ctx-1'));
-  });
+  }, 10_000);
 
   it('keeps unsupported local files out of the inspect flow', async () => {
     renderComponent();

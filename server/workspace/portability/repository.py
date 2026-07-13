@@ -80,26 +80,26 @@ class WorkspacePortabilityRepository:
         cutoff = (now or _now()).isoformat()
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT archive_path FROM workspace_portability_inspections "
+                "SELECT token, archive_path FROM workspace_portability_inspections "
                 "WHERE expires_at <= ? AND committed_import_id IS NULL",
                 (cutoff,),
             ).fetchall()
-            conn.execute(
-                "DELETE FROM workspace_portability_inspections WHERE expires_at <= ? AND committed_import_id IS NULL",
-                (cutoff,),
-            )
         deleted: list[str] = []
         for row in rows:
             archive_path = row["archive_path"]
-            if not archive_path:
-                continue
-            try:
-                Path(str(archive_path)).unlink(missing_ok=True)
-            except OSError:
-                # The DB record is gone; a later startup cleanup can retry a
-                # stale temporary file without retaining an inspect token.
-                pass
-            deleted.append(str(archive_path))
+            if archive_path:
+                try:
+                    Path(str(archive_path)).unlink(missing_ok=True)
+                except OSError:
+                    # Retain the expired record so a later cleanup can retry.
+                    continue
+                deleted.append(str(archive_path))
+            with self._connect() as conn:
+                conn.execute(
+                    "DELETE FROM workspace_portability_inspections "
+                    "WHERE token = ? AND expires_at <= ? AND committed_import_id IS NULL",
+                    (row["token"], cutoff),
+                )
         return deleted
 
     def create_inspection(
@@ -144,6 +144,8 @@ class WorkspacePortabilityRepository:
                 "SELECT * FROM workspace_portability_inspections WHERE token = ? AND owner_id = ?", (token, owner_id)
             ).fetchone()
         if row is None or (not include_committed and row["committed_import_id"]):
+            return None
+        if not row["committed_import_id"] and row["expires_at"] <= _now().isoformat():
             return None
         return self._inspection_row(row)
 

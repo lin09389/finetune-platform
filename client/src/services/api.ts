@@ -631,7 +631,7 @@ export interface WorkspaceImportResourceBinding {
 export interface WorkspaceImportCommitRequest {
   name: string;
   description?: string;
-  project_path?: string;
+  project_path: string;
   resource_bindings: WorkspaceImportResourceBinding[];
 }
 

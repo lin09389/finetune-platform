@@ -30,8 +30,10 @@ def test_workspace_task_projection_is_owner_scoped_and_excludes_authority(tmp_pa
 
     assert provider.list_task_contexts("ws-a", "owner-b") == []
     [context] = provider.list_task_contexts("ws-a", "owner-a")
-    assert context["title"] == "Port this workspace"
-    assert context["changed_files"] == [{"path": "src/app.py", "additions": None, "deletions": None}]
+    assert context.title == "Port this workspace"
+    assert [item.model_dump() for item in context.changed_files] == [
+        {"path": "src/app.py", "additions": 0, "deletions": 0}
+    ]
     assert "session_tool_trust" not in str(context)
     assert "deepagents_checkpoint" not in str(context)
     assert "approval" not in str(context)
@@ -74,7 +76,7 @@ def test_continuation_metadata_is_an_explicit_safe_allowlist():
     metadata = SessionLifecycleService._safe_continuation_metadata(
         {
             "title": "Continue safely",
-            "task_mode": "hybrid",
+            "mode": "hybrid",
             "execution_plan": {"nodes": []},
             "session_tool_trust": {"execute": True},
             "approval": {"id": "old"},
@@ -83,4 +85,4 @@ def test_continuation_metadata_is_an_explicit_safe_allowlist():
         }
     )
 
-    assert metadata == {"title": "Continue safely", "task_mode": "hybrid", "execution_plan": {"nodes": []}}
+    assert metadata == {"title": "Continue safely", "mode": "hybrid", "execution_plan": {"nodes": []}}

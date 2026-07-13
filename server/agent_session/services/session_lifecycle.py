@@ -98,7 +98,7 @@ class SessionLifecycleService:
         runtime snapshot.  In particular, the new DeepAgents thread, permission
         policy and tool trust are created by the current machine's defaults.
         """
-        task_mode = continuation_context.get("task_mode")
+        task_mode = continuation_context.get("mode")
         task_mode = task_mode if task_mode in {"build", "train", "hybrid"} else "build"
         title = str(continuation_context.get("title") or "Continued Agent task").strip()[:200]
         session = self.create_session(
@@ -131,12 +131,12 @@ class SessionLifecycleService:
         for key in (
             "source_task_fingerprint",
             "title",
-            "task_mode",
+            "mode",
             "status",
             "execution_plan",
-            "completion_summary",
+            "summary",
             "changed_files",
-            "verification",
+            "verifications",
             "resource_references",
             "updated_at",
         ):

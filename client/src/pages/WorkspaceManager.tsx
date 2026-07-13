@@ -40,6 +40,7 @@ import {
   updateWorkspace,
 } from '../services/api';
 import { appModal } from '../utils/modal';
+import { activatePersistedAgentSession } from '../agent/runtime/sessionPersistence';
 import styles from './WorkspaceManager.module.css';
 
 const { TextArea } = Input;
@@ -341,8 +342,9 @@ export default function WorkspaceManager() {
     } catch (error) {
       const portabilityError = getWorkspacePortabilityError(error);
       const friendlyMessage: Record<string, string> = {
-        unsupported_version: '这个包使用了当前版本尚不支持的 schema，未写入任何工作空间。',
-        tampered: '完整性检查未通过。请重新获取原始导出包。',
+          unsupported_version: '这个包使用了当前版本尚不支持的 schema，未写入任何工作空间。',
+          tampered: '完整性检查未通过。请重新获取原始导出包。',
+          archive_tampered: '完整性检查未通过。请重新获取原始导出包。',
         unsafe_archive: '这个导入包不符合安全归档规范，未写入任何工作空间。',
       };
       setImportError(friendlyMessage[portabilityError.code] || portabilityError.message);
@@ -366,6 +368,10 @@ export default function WorkspaceManager() {
       setImportError('请为导入的 Workspace 填写名称。');
       return;
     }
+    if (!normalizePath(projectPath)) {
+      setImportError('请选择当前设备上的项目目录；源码不会包含在导入包中。');
+      return;
+    }
     const incomplete = repairableResources.find((resource) => !resourceBindings[resource.reference_id]?.trim());
     if (incomplete) {
       setImportError(`请先为“${incomplete.display_name}”重新绑定资源。`);
@@ -376,7 +382,7 @@ export default function WorkspaceManager() {
     try {
       const result = await commitWorkspaceImport(inspectResult.import_token, {
         name: importName.trim(),
-        project_path: normalizePath(projectPath) || undefined,
+        project_path: normalizePath(projectPath),
         resource_bindings: repairableResources.map((resource) => ({
           reference_id: resource.reference_id,
           locator: resourceBindings[resource.reference_id]!.trim(),
@@ -394,9 +400,10 @@ export default function WorkspaceManager() {
   const handleContinueTask = async (continuation: WorkspaceContinuationContext) => {
     if (!commitResult) return;
     try {
-      await createWorkspaceContinuationSession(commitResult.workspace.id, continuation.id);
+      const session = await createWorkspaceContinuationSession(commitResult.workspace.id, continuation.id);
+      activatePersistedAgentSession(session);
       message.success('已在当前设备策略下新建任务会话');
-      navigate('/chat');
+      navigate('/agent');
     } catch (error) {
       message.error(getWorkspacePortabilityError(error).message);
     }
@@ -568,7 +575,7 @@ export default function WorkspaceManager() {
               </div>
               <label className={styles.fieldLabel} htmlFor="workspace-import-name">新 Workspace 名称</label>
               <Input id="workspace-import-name" value={importName} onChange={(event) => setImportName(event.target.value)} />
-              <label className={styles.fieldLabel} htmlFor="workspace-import-project">项目目录（可选）</label>
+              <label className={styles.fieldLabel} htmlFor="workspace-import-project">项目目录（必需，不会从包中恢复）</label>
               <Space.Compact block>
                 <Input id="workspace-import-project" value={projectPath} placeholder="选择此设备上的项目目录" onChange={(event) => setProjectPath(event.target.value)} />
                 <Button icon={<FolderOpenOutlined />} onClick={() => void handleBrowseImportProject()}>浏览</Button>
