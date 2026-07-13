@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .state import ensure_session_state
+from .trajectory import content_indicates_tool_failure
 
 DEFAULT_LOOP_GUARD_THRESHOLD = 3
 MAX_RECENT_FAILURES = 8
@@ -18,30 +19,6 @@ MAX_RECENT_OBSERVATIONS = 10
 MAX_GUARD_HISTORY = 10
 
 _OBSERVATION_TOOLS = {"read_file", "grep", "glob", "ls"}
-_ERROR_PATTERNS = (
-    "error",
-    "exception",
-    "traceback",
-    "failed",
-    "failure",
-    "syntaxerror",
-    "typeerror",
-    "valueerror",
-    "modulenotfounderror",
-    "filenotfounderror",
-    "no such file",
-    "not found",
-    "command failed",
-    "exit code",
-    "non-zero",
-    "permission denied",
-    "timed out",
-    "timeout",
-    "no matches",
-    "no match",
-    "0 matches",
-    "nothing found",
-)
 
 
 class AgentLoopGuardTriggered(RuntimeError):
@@ -376,7 +353,7 @@ class AgentFailureGuard:
             or event.get("message")
             or ""
         )
-        if event_type == "tool_call_completed" and not self._looks_like_failure(error_text):
+        if event_type == "tool_call_completed" and not content_indicates_tool_failure(error_text, tool=tool):
             return None
         input_value = part_payload.get("input") if "input" in part_payload else payload.get("input")
         error_excerpt = self._normalize_text(error_text, limit=500)
@@ -415,10 +392,10 @@ class AgentFailureGuard:
         part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
         part_payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
         content = str(part.get("content") or payload.get("content") or event.get("message") or "")
-        if self._looks_like_failure(content):
+        tool = str(payload.get("tool") or part_payload.get("tool") or part.get("title") or "")
+        if content_indicates_tool_failure(content, tool=tool):
             return None
         if event_type == "tool_call_completed":
-            tool = str(payload.get("tool") or part_payload.get("tool") or part.get("title") or "")
             if tool not in _OBSERVATION_TOOLS:
                 return None
             input_value = part_payload.get("input") if "input" in part_payload else payload.get("input")
@@ -452,11 +429,6 @@ class AgentFailureGuard:
             part_id=str(payload.get("part_id") or part.get("id") or ""),
             threshold=threshold,
         )
-
-    @staticmethod
-    def _looks_like_failure(text: str) -> bool:
-        normalized = text.lower()
-        return any(pattern in normalized for pattern in _ERROR_PATTERNS)
 
     @staticmethod
     def _error_family(text: str) -> str:

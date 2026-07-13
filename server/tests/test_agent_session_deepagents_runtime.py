@@ -1531,17 +1531,25 @@ def test_loop_guard_blocks_repeated_identical_tool_failures(tmp_path: Path):
         part = service.repository.add_part(
             session.id,
             "tool_call",
-            status="completed",
-            title="grep",
-            content="No matches found for pattern missing_symbol",
-            payload={"tool": "grep", "input": {"pattern": "missing_symbol", "path": "/workspace/server"}},
+            status="failed",
+            title="execute",
+            content="exit code: 1\nAssertionError: missing_symbol",
+            payload={"tool": "execute", "input": {"command": "python -m pytest server/tests/test_demo.py"}},
         )
         return {
             "id": f"event-{index}",
             "session_id": session.id,
-            "event_type": "tool_call_completed",
-            "message": "工具调用完成：grep",
-            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "grep", "part": part},
+            "event_type": "tool_call_failed",
+            "message": "工具调用失败：execute",
+            "payload": {
+                "session_id": session.id,
+                "part_id": part["id"],
+                "part_type": "tool_call",
+                "status": "failed",
+                "tool": "execute",
+                "error": part["content"],
+                "part": part,
+            },
         }
 
     service._notify_event(session.id, repeated_failure_event(1))
@@ -1562,31 +1570,45 @@ def test_loop_guard_resets_after_successful_tool_result(tmp_path: Path):
     session = service.create_session(AgentSessionCreate(title="loop guard reset", project_path=str(Path.cwd())))
     service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
 
-    def tool_event(index: int, content: str, pattern: str = "missing_symbol") -> dict[str, object]:
+    def tool_event(index: int, *, failed: bool) -> dict[str, object]:
+        status = "failed" if failed else "completed"
+        event_type = "tool_call_failed" if failed else "tool_call_completed"
+        content = "exit code: 1\nAssertionError" if failed else "exit code: 0\nAll tests passed"
         part = service.repository.add_part(
             session.id,
             "tool_call",
-            status="completed",
-            title="grep",
+            status=status,
+            title="execute",
             content=content,
-            payload={"tool": "grep", "input": {"pattern": pattern, "path": "/workspace/server"}},
+            payload={"tool": "execute", "input": {"command": "python -m pytest server/tests/test_demo.py"}},
         )
         return {
             "id": f"event-{index}",
             "session_id": session.id,
-            "event_type": "tool_call_completed",
-            "message": "工具调用完成：grep",
-            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "grep", "part": part},
+            "event_type": event_type,
+            "message": f"工具调用{'失败' if failed else '完成'}：execute",
+            "payload": {
+                "session_id": session.id,
+                "part_id": part["id"],
+                "part_type": "tool_call",
+                "status": status,
+                "tool": "execute",
+                "error": part["content"] if failed else None,
+                "part": part,
+            },
         }
 
-    service._notify_event(session.id, tool_event(1, "No matches found for pattern missing_symbol"))
-    service._notify_event(session.id, tool_event(2, "server/agent_session/service.py:95:def _notify_event"))
-    service._notify_event(session.id, tool_event(3, "No matches found for pattern missing_symbol"))
-    service._notify_event(session.id, tool_event(4, "No matches found for pattern missing_symbol"))
+    # Two real failures -> consecutive_failure_count reaches 2; then a genuine
+    # success resets the counters; two more failures start the count over at 2.
+    service._notify_event(session.id, tool_event(1, failed=True))
+    service._notify_event(session.id, tool_event(2, failed=True))
+    service._notify_event(session.id, tool_event(3, failed=False))
+    service._notify_event(session.id, tool_event(4, failed=True))
+    service._notify_event(session.id, tool_event(5, failed=True))
 
     current = service.get_session(session.id)
     assert current.status == "running"
-    assert current.metadata["loop_guard"]["repeat_count"] == 2
+    assert current.metadata["loop_guard"]["consecutive_failure_count"] == 2
 
 
 def test_loop_guard_blocks_same_failure_family_with_varying_error_text(tmp_path: Path):
@@ -1660,11 +1682,14 @@ def test_loop_guard_blocks_alternating_tool_failures(tmp_path: Path):
             },
         }
 
-    service._notify_event(session.id, failed_tool_event(1, "grep", {"pattern": "missing_symbol"}, "No matches found"))
-    service._notify_event(session.id, failed_tool_event(2, "read_file", {"file_path": "/workspace/missing.py"}, "FileNotFoundError: missing.py"))
-    service._notify_event(session.id, failed_tool_event(3, "glob", {"pattern": "**/missing*.py"}, "No matches found"))
+    # Four distinct genuine tool failures (different tools/inputs/errors, all
+    # tool_call_failed) -- not a normal search result. The guard still caps the
+    # session to avoid an agent thrashing across unrelated errors.
+    service._notify_event(session.id, failed_tool_event(1, "execute", {"command": "python -m pytest a"}, "exit code: 1\nAssertionError in a"))
+    service._notify_event(session.id, failed_tool_event(2, "execute", {"command": "python -m pytest b"}, "exit code: 1\nAssertionError in b"))
+    service._notify_event(session.id, failed_tool_event(3, "execute", {"command": "npm run build"}, "Command failed with exit code 2"))
     with pytest.raises(AgentLoopGuardTriggered):
-        service._notify_event(session.id, failed_tool_event(4, "read_file", {"file_path": "/workspace/other.py"}, "FileNotFoundError: other.py"))
+        service._notify_event(session.id, failed_tool_event(4, "execute", {"command": "npx tsc --noEmit"}, "Command failed with exit code 1"))
 
     blocked = service.get_session(session.id)
     assert blocked.status == "needs_manual_review"
@@ -1785,6 +1810,47 @@ def test_loop_guard_resets_model_no_action_after_successful_write(tmp_path: Path
     current = service.get_session(session.id)
     assert current.status == "running"
     assert current.metadata["loop_guard"]["no_progress_repeat_count"] == 0
+
+
+def test_loop_guard_ignores_normal_search_results(tmp_path: Path):
+    # The event mapper classifies "No matches found" / "FileNotFoundError" prose
+    # in a completed tool call as a successful result. The guard must not
+    # second-guess that with a looser substring check -- otherwise normal
+    # exploration (grep a few symbols, read a missing file) gets counted as
+    # consecutive failures and pushes the session to needs_manual_review.
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="normal exploration", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def completed_event(index: int, tool: str, input_payload: dict[str, str], content: str) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="completed",
+            title=tool,
+            content=content,
+            payload={"tool": tool, "input": input_payload},
+        )
+        return {
+            "id": f"event-search-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_completed",
+            "message": f"工具调用完成：{tool}",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": tool, "part": part},
+        }
+
+    # Different patterns/inputs keep signatures distinct -- this is varied
+    # exploration, not a stuck loop. None of these should count as a failure.
+    service._notify_event(session.id, completed_event(1, "grep", {"pattern": "missing_symbol"}, "No matches found for pattern missing_symbol"))
+    service._notify_event(session.id, completed_event(2, "grep", {"pattern": "another_symbol"}, "No matches found for pattern another_symbol"))
+    service._notify_event(session.id, completed_event(3, "glob", {"pattern": "**/missing*.py"}, "No matches found"))
+    service._notify_event(session.id, completed_event(4, "read_file", {"file_path": "/workspace/missing.py"}, "FileNotFoundError: missing.py"))
+
+    current = service.get_session(session.id)
+    assert current.status == "running"
+    guard = current.metadata.get("loop_guard") or {}
+    assert guard.get("consecutive_failure_count", 0) == 0
+    assert guard.get("blocked") is not True
 
 
 def test_deepagents_mapper_records_tool_error_event(tmp_path: Path):
