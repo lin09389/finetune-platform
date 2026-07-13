@@ -68,6 +68,7 @@ AGENT_ROUTERS = (
     RouterSpec("api.knowledge", prefix="/knowledge", tags=("Knowledge",)),
     RouterSpec("api.knowledge", prefix="/v2/knowledge", tags=("Knowledge v2",)),
     RouterSpec("api.workspace", prefix="/workspace", tags=("Workspace",)),
+    RouterSpec("api.workspace_portability", prefix="/workspace", tags=("Workspace Portability",)),
     RouterSpec("api.chat_agent"),
     RouterSpec("api.agent_sessions"),
     RouterSpec("api.agent_sessions", attribute="permission_router"),

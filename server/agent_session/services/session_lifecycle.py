@@ -83,6 +83,68 @@ class SessionLifecycleService:
         )
         return self._session_response(session)
 
+    def create_continuation_session(
+        self,
+        *,
+        workspace_id: str,
+        continuation_context: dict[str, Any],
+        user_id: str,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> AgentSessionResponse:
+        """Create a fresh, policy-checked session from read-only import context.
+
+        This intentionally calls the normal lifecycle rather than restoring a
+        runtime snapshot.  In particular, the new DeepAgents thread, permission
+        policy and tool trust are created by the current machine's defaults.
+        """
+        task_mode = continuation_context.get("task_mode")
+        task_mode = task_mode if task_mode in {"build", "train", "hybrid"} else "build"
+        title = str(continuation_context.get("title") or "Continued Agent task").strip()[:200]
+        session = self.create_session(
+            AgentSessionCreate(
+                agent_id="build",
+                title=title or "Continued Agent task",
+                workspace_id=workspace_id,
+                task_mode=task_mode,
+                provider=provider,
+                model=model,
+                # No autonomy value is inherited: current local default wins.
+                autonomy_mode=None,
+            ),
+            user_id=user_id,
+        )
+        metadata = dict(session.metadata or {})
+        metadata["continuation"] = self._safe_continuation_metadata(continuation_context)
+        # Defensive assertions against accidentally transferring authority when
+        # a future context schema gains fields.
+        for key in ("session_tool_trust", "approval", "approvals", "deepagents_checkpoint", "deepagents_thread_id"):
+            metadata.pop(key, None)
+        updated = self.service.repository.update_session(session.id, metadata=metadata)
+        updated["parts"] = []
+        return self._session_response(updated)
+
+    @staticmethod
+    def _safe_continuation_metadata(context: dict[str, Any]) -> dict[str, Any]:
+        """An allowlist makes continuation context non-executable by design."""
+        safe: dict[str, Any] = {}
+        for key in (
+            "source_task_fingerprint",
+            "title",
+            "task_mode",
+            "status",
+            "execution_plan",
+            "completion_summary",
+            "changed_files",
+            "verification",
+            "resource_references",
+            "updated_at",
+        ):
+            value = context.get(key)
+            if value is not None:
+                safe[key] = value
+        return safe
+
     def _require_direct_agent(self, agent_id: str):
         agent = self.service.agent_registry.get(agent_id)
         if agent is None:

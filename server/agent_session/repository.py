@@ -275,6 +275,32 @@ class AgentSessionRepository:
             ).fetchall()
         return [_row(row) or {} for row in rows]
 
+    def list_sessions_for_workspace(self, workspace_id: str, owner_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Return only sessions owned by ``owner_id`` for a single Workspace.
+
+        Workspace and owner live in JSON metadata for backwards compatibility,
+        so this method applies the authorization predicate before exposing any
+        row to callers.
+        """
+        bounded_limit = max(1, min(int(limit), 100))
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_sessions ORDER BY updated_at DESC",
+            ).fetchall()
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            session = _row(row) or {}
+            metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
+            workspace = metadata.get("workspace") if isinstance(metadata.get("workspace"), dict) else {}
+            if str(workspace.get("id") or "") != workspace_id:
+                continue
+            if str(metadata.get("user_id") or "") != owner_id:
+                continue
+            matches.append(session)
+            if len(matches) >= bounded_limit:
+                break
+        return matches
+
     _SESSION_UPDATABLE = {"status", "title", "project_path", "provider", "model", "metadata", "updated_at"}
 
     def update_session(self, session_id: str, **updates: Any) -> dict[str, Any]:
