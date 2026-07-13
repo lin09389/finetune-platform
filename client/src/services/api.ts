@@ -579,6 +579,83 @@ export interface WorkspaceUpdateRequest {
   local_path?: string;
 }
 
+export type WorkspacePortableResourceKind =
+  | 'project'
+  | 'dataset'
+  | 'model'
+  | 'checkpoint'
+  | 'artifact'
+  | 'knowledge';
+
+export type WorkspacePortableResourceStatus = 'resolved' | 'missing' | 'mismatch' | 'unsupported';
+
+export interface WorkspacePortabilityIntegrity {
+  algorithm: 'sha256' | string;
+  status?: 'valid' | 'tampered' | 'unknown';
+  checksums_entry?: string;
+}
+
+export interface WorkspacePortabilityResource {
+  reference_id: string;
+  kind: WorkspacePortableResourceKind;
+  display_name: string;
+  status: WorkspacePortableResourceStatus;
+  detail?: string | null;
+  required?: boolean;
+  locator_hint?: string | null;
+}
+
+export interface WorkspacePortabilityPreview {
+  schema_version: number;
+  portable_workspace_id?: string;
+  exported_at?: string;
+  workspace?: { name: string; description?: string | null };
+  project?: { display_name?: string; git_head?: string | null; remote_hint?: string | null };
+  integrity: WorkspacePortabilityIntegrity;
+  task_count: number;
+  resources: WorkspacePortabilityResource[];
+  exclusions: string[];
+}
+
+export interface WorkspaceImportInspectResult {
+  import_token: string;
+  expires_at?: string;
+  preview: WorkspacePortabilityPreview;
+}
+
+export interface WorkspaceImportResourceBinding {
+  reference_id: string;
+  locator: string;
+}
+
+export interface WorkspaceImportCommitRequest {
+  name: string;
+  description?: string;
+  project_path?: string;
+  resource_bindings: WorkspaceImportResourceBinding[];
+}
+
+export interface WorkspaceContinuationContext {
+  id: string;
+  title: string;
+  mode: 'build' | 'train' | 'hybrid';
+  status: string;
+  summary?: string | null;
+  updated_at?: string;
+  blocked?: boolean;
+  blocked_reason?: string | null;
+}
+
+export interface WorkspaceImportCommitResult {
+  workspace: Pick<WorkspaceSummary, 'id' | 'name'>;
+  continuations: WorkspaceContinuationContext[];
+}
+
+export interface WorkspacePortabilityError {
+  code: string;
+  message: string;
+}
+
 export interface AgentPromptRequest {
   content: string;
   provider?: string;
@@ -1428,6 +1505,84 @@ export const updateWorkspace = async (workspaceId: string, payload: WorkspaceUpd
 
 export const deleteWorkspace = async (workspaceId: string): Promise<void> => {
   await apiClient.delete(`/workspace/workspaces/${workspaceId}`);
+};
+
+export const getWorkspacePortabilityPreview = async (
+  workspaceId: string,
+): Promise<WorkspacePortabilityPreview> => {
+  const response = await apiClient.get(`/workspace/workspaces/${encodeURIComponent(workspaceId)}/portability/preview`);
+  return response.data;
+};
+
+export const exportWorkspacePackage = async (workspaceId: string): Promise<Blob> => {
+  const response = await apiClient.post(
+    `/workspace/workspaces/${encodeURIComponent(workspaceId)}/exports`,
+    undefined,
+    { responseType: 'blob' },
+  );
+  return response.data as Blob;
+};
+
+export const inspectWorkspacePackage = async (file: File): Promise<WorkspaceImportInspectResult> => {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  const response = await apiClient.post('/workspace/imports/inspect', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+export const commitWorkspaceImport = async (
+  importToken: string,
+  payload: WorkspaceImportCommitRequest,
+): Promise<WorkspaceImportCommitResult> => {
+  const response = await apiClient.post(
+    `/workspace/imports/${encodeURIComponent(importToken)}/commit`,
+    payload,
+  );
+  return response.data;
+};
+
+export const listWorkspaceContinuations = async (
+  workspaceId: string,
+): Promise<WorkspaceContinuationContext[]> => {
+  const response = await apiClient.get(`/workspace/workspaces/${encodeURIComponent(workspaceId)}/continuations`);
+  return Array.isArray(response.data) ? response.data : response.data?.continuations || [];
+};
+
+export const createWorkspaceContinuationSession = async (
+  workspaceId: string,
+  contextId: string,
+): Promise<AgentSession> => {
+  const response = await apiClient.post(
+    `/workspace/workspaces/${encodeURIComponent(workspaceId)}/continuations/${encodeURIComponent(contextId)}/sessions`,
+    undefined,
+  );
+  return response.data;
+};
+
+export const getWorkspacePortabilityError = (error: unknown): WorkspacePortabilityError => {
+  const detail = (error as { response?: { data?: { detail?: unknown; code?: unknown; message?: unknown } } })?.response?.data?.detail;
+  if (detail && typeof detail === 'object') {
+    const record = detail as { code?: unknown; message?: unknown };
+    if (typeof record.code === 'string') {
+      return {
+        code: record.code,
+        message: typeof record.message === 'string' ? record.message : '工作空间迁移操作失败',
+      };
+    }
+  }
+  const data = (error as { response?: { data?: { code?: unknown; message?: unknown } } })?.response?.data;
+  if (data && typeof data.code === 'string') {
+    return {
+      code: data.code,
+      message: typeof data.message === 'string' ? data.message : '工作空间迁移操作失败',
+    };
+  }
+  return {
+    code: 'unknown',
+    message: '工作空间迁移操作失败，请重试。',
+  };
 };
 
 export const getWorkspaceTree = async (params: {
