@@ -48,14 +48,30 @@ def build_execution_prompt() -> str:
     commands automatically. But the model also needs to know *which shell* it
     is targeting so it writes compatible command syntax:
 
-    - Windows: ``cmd.exe`` -- avoid ``ls``/``cat``/``grep`` as shell commands
-      (use the built-in file tools instead); ``;`` is not a command separator.
+    - WSL mode (Windows + ``SANDBOX_EXECUTION_MODE=wsl``): real Linux ``bash``,
+      so ``ls``/``cat``/``grep``/pipes/heredocs all work natively.
+    - Windows local: ``cmd.exe`` -- avoid Unix commands; use ``&&`` not ``;``.
     - POSIX: standard ``/bin/sh``.
 
     This is advisory (the path rewrite is the structural guarantee), but it
     reduces the number of failed attempts before the model converges.
     """
     base = EXECUTION_PROMPT
+    # Check WSL mode first -- it takes precedence over the win32 default.
+    try:
+        from core.config import settings
+
+        wsl_mode = settings.sandbox_execution_mode == "wsl" and sys.platform == "win32"
+    except Exception:
+        wsl_mode = False
+
+    if wsl_mode:
+        return (
+            base
+            + "execute 运行在 WSL2 Linux (bash) 环境。命令中的 `/workspace/...` 路径会自动映射到项目真实路径。"
+            "你可以使用标准 Unix 命令（ls/cat/grep/管道/heredoc 等），工作目录已是项目根。"
+            "WSL 只是命令兼容环境，不是额外的安全边界；仍必须遵守 Workspace 和审批策略。"
+        )
     if sys.platform == "win32":
         return (
             base

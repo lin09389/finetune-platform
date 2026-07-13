@@ -9,22 +9,23 @@ Covers three layers that together eliminate the "Windows false-failure" problem:
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from agent_session.platform_shell import (
     EXECUTE_MAX_OUTPUT_BYTES,
     EXECUTE_TIMEOUT_SECONDS,
     PlatformShellBackend,
+    decode_wsl_list_output,
     rewrite_workspace_paths,
+    select_wsl_distribution,
+    win_path_to_wsl_path,
+    wsl_host_environment,
 )
 from agent_session.runtime import build_deepagents_backend
 from agent_session.runtime_contract import build_execution_prompt
 from agent_session.runtime_factory import deepagents_shell_env
-
 
 # ---------------------------------------------------------------------------
 # rewrite_workspace_paths -- pure function tests
@@ -329,3 +330,384 @@ class TestBuildDeepagentsBackendConfig:
         backend = build_deepagents_backend(str(tmp_path))
         route_backend = backend.routes[WORKSPACE_BACKEND_ROUTE]
         assert isinstance(route_backend, PlatformShellBackend)
+
+
+# ---------------------------------------------------------------------------
+# win_path_to_wsl_path -- pure function tests
+# ---------------------------------------------------------------------------
+
+
+class TestWinPathToWsl:
+    """Verify Windows path to WSL path conversion."""
+
+    def test_backslash_drive_path(self):
+        assert win_path_to_wsl_path(r"C:\Users\foo") == "/mnt/c/Users/foo"
+
+    def test_forward_slash_drive_path(self):
+        assert win_path_to_wsl_path("C:/Users/foo") == "/mnt/c/Users/foo"
+
+    def test_lowercase_drive(self):
+        assert win_path_to_wsl_path(r"d:\projects") == "/mnt/d/projects"
+
+    def test_already_posix_unchanged(self):
+        assert win_path_to_wsl_path("/home/user/project") == "/home/user/project"
+
+    def test_relative_path_unchanged(self):
+        assert win_path_to_wsl_path("relative/path") == "relative/path"
+
+    def test_empty_string(self):
+        assert win_path_to_wsl_path("") == ""
+
+    def test_trailing_separator(self):
+        assert win_path_to_wsl_path("C:\\Users\\foo\\") == "/mnt/c/Users/foo/"
+
+    def test_wsl_target_separator_keeps_full_path_posix(self):
+        rewritten, changed = rewrite_workspace_paths(
+            "pytest /workspace/server/tests",
+            "/mnt/c/Users/test/project",
+            path_separator="/",
+        )
+        assert changed is True
+        assert rewritten == 'pytest "/mnt/c/Users/test/project/server/tests"'
+
+
+class TestWslDistributionSelection:
+    """WSL selection must not depend on docker-desktop being the default."""
+
+    def test_decodes_utf16_list_output(self):
+        raw = "docker-desktop\r\nUbuntu\r\n".encode("utf-16-le")
+        assert decode_wsl_list_output(raw).splitlines() == ["docker-desktop", "Ubuntu"]
+
+    def test_prefers_explicit_distribution_without_probing(self):
+        with patch("agent_session.platform_shell.subprocess.run") as mock_run:
+            selected = select_wsl_distribution("Debian")
+        assert selected == "Debian"
+        mock_run.assert_not_called()
+
+    def test_auto_selects_first_non_docker_distribution(self):
+        mock_result = type(
+            "MockResult",
+            (),
+            {
+                "stdout": "docker-desktop\r\nUbuntu\r\nDebian\r\n".encode("utf-16-le"),
+                "stderr": b"",
+                "returncode": 0,
+            },
+        )()
+        with patch("agent_session.platform_shell.subprocess.run", return_value=mock_result):
+            selected = select_wsl_distribution(None)
+        assert selected == "Ubuntu"
+
+    def test_returns_none_when_only_docker_distribution_exists(self):
+        mock_result = type(
+            "MockResult",
+            (),
+            {
+                "stdout": "docker-desktop\r\n".encode("utf-16-le"),
+                "stderr": b"",
+                "returncode": 0,
+            },
+        )()
+        with patch("agent_session.platform_shell.subprocess.run", return_value=mock_result):
+            assert select_wsl_distribution(None) is None
+
+    def test_wsl_host_environment_is_allowlisted(self):
+        with patch.dict(
+            "agent_session.platform_shell.os.environ",
+            {"SystemRoot": r"C:\\Windows", "MIMO_API_KEY": "must-not-leak"},
+            clear=True,
+        ):
+            env = wsl_host_environment({"PATH": r"C:\\Windows\\System32"})
+        normalized = {key.upper(): value for key, value in env.items()}
+        assert normalized["SYSTEMROOT"] == r"C:\\Windows"
+        assert "MIMO_API_KEY" not in normalized
+
+
+# ---------------------------------------------------------------------------
+# PlatformShellBackend WSL mode -- mock-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlatformShellBackendWSL:
+    """Verify WSL execution mode via mocked subprocess."""
+
+    def test_wsl_enabled_flag_windows_only(self, tmp_path: Path):
+        """wsl_enabled=True is only effective on Windows."""
+        with patch("agent_session.platform_shell.sys.platform", "win32"):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path), virtual_mode=True, wsl_enabled=True
+            )
+            assert backend._wsl_enabled is True
+
+        with patch("agent_session.platform_shell.sys.platform", "linux"):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path), virtual_mode=True, wsl_enabled=True
+            )
+            assert backend._wsl_enabled is False
+
+    def test_wsl_disabled_by_default(self, tmp_path: Path):
+        backend = PlatformShellBackend(root_dir=str(tmp_path), virtual_mode=True)
+        assert backend._wsl_enabled is False
+
+    def test_wsl_execute_calls_wsl_exe(self, tmp_path: Path):
+        """When wsl_enabled, execute should call wsl.exe via subprocess."""
+        # Mock subprocess.run to avoid actually calling WSL
+        mock_result = type("MockResult", (), {
+            "stdout": b"hello from wsl\n",
+            "stderr": b"",
+            "returncode": 0,
+        })()
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run", return_value=mock_result) as mock_run:
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+                env={"PATH": "/usr/bin"},
+            )
+            result = backend.execute("echo hello from wsl")
+
+        assert mock_run.called
+        call_args = mock_run.call_args
+        # First positional arg should be the command list starting with wsl.exe
+        cmd_list = call_args[0][0]
+        assert cmd_list[0] == "wsl.exe"
+        assert cmd_list[1:3] == ["--distribution", "Ubuntu"]
+        assert "timeout" in cmd_list
+        assert "bash" in cmd_list
+        # The bash -c payload should contain cd <wsl_root>
+        bash_cmd = cmd_list[-1]
+        assert "cd " in bash_cmd
+        assert "echo hello from wsl" in bash_cmd
+        assert result.exit_code == 0
+        assert "hello from wsl" in result.output
+
+    def test_wsl_execute_rewrites_workspace_path(self, tmp_path: Path):
+        """In WSL mode, /workspace/ should be rewritten to the WSL path."""
+        mock_result = type("MockResult", (), {
+            "stdout": b"", "stderr": b"", "returncode": 0,
+        })()
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run", return_value=mock_result) as mock_run:
+            backend = PlatformShellBackend(
+                root_dir=r"C:\Users\test\project",
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+            )
+            backend.execute("pytest /workspace/server/tests")
+
+        bash_cmd = mock_run.call_args[0][0][-1]
+        # /workspace/ should be replaced with the WSL path /mnt/c/Users/test/project
+        assert "/workspace" not in bash_cmd
+        assert "/mnt/c/Users/test/project" in bash_cmd
+
+    def test_wsl_execute_timeout_handling(self, tmp_path: Path):
+        """TimeoutExpired should return exit_code=124."""
+        import subprocess as sp
+
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run", side_effect=sp.TimeoutExpired("wsl.exe", 300)):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+                timeout=300,
+            )
+            result = backend.execute("sleep 999")
+
+        assert result.exit_code == 124
+        assert "timed out" in result.output.lower()
+
+    def test_wsl_not_available_returns_error(self, tmp_path: Path):
+        """FileNotFoundError (no wsl.exe) should return a helpful error."""
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run", side_effect=FileNotFoundError("wsl.exe not found")):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+            )
+            result = backend.execute("echo test")
+
+        assert result.exit_code == 1
+        assert "WSL" in result.output
+
+    def test_wsl_output_truncation(self, tmp_path: Path):
+        """Output exceeding max_output_bytes should be truncated."""
+        long_output = "x" * 200_000
+        mock_result = type("MockResult", (), {
+            "stdout": long_output.encode(), "stderr": b"", "returncode": 0,
+        })()
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run", return_value=mock_result):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+                max_output_bytes=100_000,
+            )
+            result = backend.execute("cat big_file")
+
+        assert result.truncated is True
+        assert "truncated" in result.output.lower()
+        assert len(result.output) < len(long_output)
+
+    def test_non_wsl_mode_does_not_call_wsl(self, tmp_path: Path):
+        """When wsl_enabled=False, execute should NOT call wsl.exe."""
+        with patch("agent_session.platform_shell.sys.platform", "win32"), \
+             patch("agent_session.platform_shell.subprocess.run") as mock_run:
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=False,
+                env={"PATH": "/usr/bin"},
+            )
+            # This will call the parent LocalShellBackend.execute which also
+            # uses subprocess.run, but with shell=True, not wsl.exe.
+            # We just verify the command list doesn't start with wsl.exe.
+            mock_result = type("MockResult", (), {
+                "stdout": b"ok", "stderr": b"", "returncode": 0,
+            })()
+            mock_run.return_value = mock_result
+            backend.execute("echo test")
+
+        if mock_run.called:
+            cmd = mock_run.call_args[0][0]
+            # In non-WSL mode, the parent passes command as a string (shell=True),
+            # not a list starting with wsl.exe.
+            assert not (isinstance(cmd, list) and cmd and cmd[0] == "wsl.exe")
+
+    def test_wsl_empty_command_returns_error(self, tmp_path: Path):
+        with patch("agent_session.platform_shell.sys.platform", "win32"):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+                wsl_distribution="Ubuntu",
+            )
+            result = backend.execute("")
+        assert result.exit_code == 1
+        assert "non-empty" in result.output.lower()
+
+    def test_wsl_auto_selection_avoids_docker_desktop(self, tmp_path: Path):
+        list_result = type(
+            "MockResult",
+            (),
+            {
+                "stdout": "docker-desktop\r\nUbuntu\r\n".encode("utf-16-le"),
+                "stderr": b"",
+                "returncode": 0,
+            },
+        )()
+        execute_result = type(
+            "MockResult",
+            (),
+            {"stdout": b"ok\n", "stderr": b"", "returncode": 0},
+        )()
+        with patch("agent_session.platform_shell.sys.platform", "win32"), patch(
+            "agent_session.platform_shell.subprocess.run",
+            side_effect=[list_result, execute_result],
+        ) as mock_run:
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+            )
+            result = backend.execute("echo ok")
+
+        command = mock_run.call_args_list[1].args[0]
+        assert command[1:3] == ["--distribution", "Ubuntu"]
+        assert result.exit_code == 0
+
+    def test_wsl_reports_when_no_non_docker_distribution_exists(self, tmp_path: Path):
+        list_result = type(
+            "MockResult",
+            (),
+            {
+                "stdout": "docker-desktop\r\n".encode("utf-16-le"),
+                "stderr": b"",
+                "returncode": 0,
+            },
+        )()
+        with patch("agent_session.platform_shell.sys.platform", "win32"), patch(
+            "agent_session.platform_shell.subprocess.run", return_value=list_result
+        ):
+            backend = PlatformShellBackend(
+                root_dir=str(tmp_path),
+                virtual_mode=True,
+                wsl_enabled=True,
+            )
+            result = backend.execute("echo test")
+
+        assert result.exit_code == 1
+        assert "no usable WSL Linux distribution" in result.output
+
+
+# ---------------------------------------------------------------------------
+# build_execution_prompt -- WSL mode
+# ---------------------------------------------------------------------------
+
+
+class TestBuildExecutionPromptWSL:
+    """Verify the execution prompt adapts to WSL mode."""
+
+    def test_wsl_mode_prompt_mentions_linux(self):
+        with patch("agent_session.runtime_contract.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "wsl"):
+            prompt = build_execution_prompt()
+        assert "WSL" in prompt or "Linux" in prompt or "bash" in prompt
+        assert "sandbox execute" in prompt
+
+    def test_wsl_mode_allows_unix_commands(self):
+        """WSL prompt should tell the model Unix commands are OK."""
+        with patch("agent_session.runtime_contract.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "wsl"):
+            prompt = build_execution_prompt()
+        # Should NOT contain the Windows cmd restriction
+        assert "不要用" not in prompt or "cmd" not in prompt
+
+    def test_local_mode_still_mentions_cmd_on_windows(self):
+        with patch("agent_session.runtime_contract.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "local"):
+            prompt = build_execution_prompt()
+        assert "Windows" in prompt or "cmd" in prompt
+
+
+# ---------------------------------------------------------------------------
+# build_deepagents_backend -- WSL configuration
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDeepagentsBackendWSLConfig:
+    """Verify the backend picks up WSL mode from settings."""
+
+    def test_wsl_enabled_when_mode_is_wsl_on_windows(self, tmp_path: Path):
+        with patch("agent_session.runtime.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "wsl"):
+            backend = build_deepagents_backend(str(tmp_path))
+        assert backend.default._wsl_enabled is True
+
+    def test_wsl_disabled_when_mode_is_local(self, tmp_path: Path):
+        with patch("agent_session.runtime.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "local"):
+            backend = build_deepagents_backend(str(tmp_path))
+        assert backend.default._wsl_enabled is False
+
+    def test_wsl_disabled_on_non_windows(self, tmp_path: Path):
+        with patch("agent_session.runtime.sys.platform", "linux"), \
+             patch("core.config.settings.sandbox_execution_mode", "wsl"):
+            backend = build_deepagents_backend(str(tmp_path))
+        # Even with mode=wsl, non-Windows should not enable WSL.
+        assert backend.default._wsl_enabled is False
+
+    def test_configured_distribution_reaches_backend(self, tmp_path: Path):
+        with patch("agent_session.runtime.sys.platform", "win32"), \
+             patch("core.config.settings.sandbox_execution_mode", "wsl"), \
+             patch("core.config.settings.sandbox_wsl_distribution", "Ubuntu"):
+            backend = build_deepagents_backend(str(tmp_path))
+        assert backend.default._wsl_distribution == "Ubuntu"

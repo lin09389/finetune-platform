@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,6 +125,7 @@ def build_deepagents_backend(
 
     from deepagents.backends import CompositeBackend, StateBackend
 
+    from core.config import settings
     from memory.memory_service import get_memory_service
 
     from .platform_shell import (
@@ -134,6 +136,8 @@ def build_deepagents_backend(
     from .runtime_factory import deepagents_shell_env
 
     env = deepagents_shell_env()
+    wsl_enabled = settings.sandbox_execution_mode == "wsl" and sys.platform == "win32"
+    wsl_distribution = settings.sandbox_wsl_distribution
     project_backend = PlatformShellBackend(
         root_dir=str(Path(project_path).resolve()),
         virtual_mode=True,
@@ -141,6 +145,8 @@ def build_deepagents_backend(
         max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
+        wsl_enabled=wsl_enabled,
+        wsl_distribution=wsl_distribution,
     )
     memory_service = get_memory_service()
     memory_service.store.ensure_namespace("user", user_id)
@@ -153,6 +159,8 @@ def build_deepagents_backend(
         max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
+        wsl_enabled=wsl_enabled,
+        wsl_distribution=wsl_distribution,
     )
     agent_memory_backend = PlatformShellBackend(
         root_dir=str(memory_service.store.resolver.files_dir_for("agent", agent_id).resolve()),
@@ -161,6 +169,8 @@ def build_deepagents_backend(
         max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
+        wsl_enabled=wsl_enabled,
+        wsl_distribution=wsl_distribution,
     )
     org_policy_backend = PlatformShellBackend(
         root_dir=str(memory_service.store.resolver.files_dir_for("org", org_id).resolve()),
@@ -169,6 +179,8 @@ def build_deepagents_backend(
         max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
         env=env,
         inherit_env=False,
+        wsl_enabled=wsl_enabled,
+        wsl_distribution=wsl_distribution,
     )
     skill_routes = {
         source.virtual_path: PlatformShellBackend(
@@ -178,6 +190,8 @@ def build_deepagents_backend(
             max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
             env=env,
             inherit_env=False,
+            wsl_enabled=wsl_enabled,
+            wsl_distribution=wsl_distribution,
         )
         for source in resolve_enabled_skill_source_specs(project_path, agent_id=agent_id, enabled_skill_sources=enabled_skill_sources)
     }
@@ -440,4 +454,3 @@ __all__ = [
     "resolve_interrupt_on",
     "validate_skill_tool_compatibility",
 ]
-

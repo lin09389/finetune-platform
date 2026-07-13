@@ -163,6 +163,21 @@ class Settings(BaseSettings):
         default=False,
         description="Explicit opt-in for local agent auth fallback (ALLOW_LOCAL_AGENT_AUTH)",
     )
+    sandbox_execution_mode: Literal["local", "wsl"] = Field(
+        default="local",
+        description=(
+            "Agent execute 工具的沙箱模式（SANDBOX_EXECUTION_MODE）："
+            "local=本机 cmd/shell 直接执行（默认）；"
+            "wsl=在 WSL2 Linux bash 中执行（仅 Windows 生效，提供 Linux 工具链兼容；不是安全边界）"
+        ),
+    )
+    sandbox_wsl_distribution: str | None = Field(
+        default=None,
+        description=(
+            "WSL execute 使用的发行版名称（SANDBOX_WSL_DISTRIBUTION）；"
+            "未配置时自动选择首个非 Docker 且可用于 Agent 的发行版"
+        ),
+    )
     gpu_coordination: bool = Field(
         default=True,
         description="Cross-process GPU train/infer coordination (GPU_COORDINATION)",

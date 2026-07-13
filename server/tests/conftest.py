@@ -16,6 +16,8 @@ os.environ.setdefault("ALLOW_LOCAL_AGENT_AUTH", "true")
 os.environ.setdefault("INFERENCE_INTERNAL_API_KEY", "test-internal-inference-key")
 # Development tests expect experimental routes (CUA/MCP/…) registered.
 os.environ.setdefault("ENABLE_EXPERIMENTAL_CAPABILITIES", "true")
+# Agent execute sandbox: default to local (no WSL) in tests for portability.
+os.environ.setdefault("SANDBOX_EXECUTION_MODE", "local")
 # Align default test execution mode with production defaults.
 # Tests now run against the worker/service boundary by default, using
 # Test Doubles for the GPU worker and the inference service process.
