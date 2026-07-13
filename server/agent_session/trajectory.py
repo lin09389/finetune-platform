@@ -37,12 +37,23 @@ DOCUMENT_EXTENSIONS = {".md", ".mdx", ".rst", ".txt", ".adoc"}
 VERIFICATION_PATTERNS = (
     r"(?:^|\s)(?:python|py)\s+-m\s+pytest(?:\s|$)",
     r"(?:^|\s)(?:python|py)\s+-m\s+(?:compileall|py_compile)(?:\s|$)",
+    r"(?:^|\s)(?:python|py)\s+-m\s+unittest(?:\s|$)",
     r"(?:^|\s)pytest(?:\s|$)",
     r"(?:^|\s)(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:test|test:[\w-]+|typecheck|lint|build)(?:\s|$)",
     r"(?:^|\s)npx\s+(?:vitest|tsc|eslint)(?:\s|$)",
     r"(?:^|\s)(?:tsc|eslint|ruff\s+check|mypy)(?:\s|$)",
     r"(?:^|\s)(?:cargo\s+(?:test|check)|go\s+test|dotnet\s+(?:test|build))(?:\s|$)",
     r"(?:^|\s)(?:mvn|gradle|gradlew)\s+(?:test|check|build)(?:\s|$)",
+    r"(?:^|\s)make\s+(?:test|check|build)(?:\s|$)",
+    r"(?:^|\s)(?:tox|nox)(?:\s|$)",
+    r"(?:^|\s)cmake\s+--build(?:\s|$)",
+    r"(?:^|\s)ctest(?:\s|$)",
+    r"(?:^|\s)ruby\s+-c(?:\s|$)",
+    r"(?:^|\s)php\s+-l(?:\s|$)",
+    r"(?:^|\s)swift\s+(?:build|test)(?:\s|$)",
+    r"(?:^|\s)(?:javac|rustc)(?:\s|$)",
+    r"(?:^|\s)(?:bash|sh)\s+\S*(?:test|check)\S*\.sh(?:\s|$)",
+    r"(?:^|\s)\.\/\S*(?:test|check)\S*\.sh(?:\s|$)",
 )
 
 

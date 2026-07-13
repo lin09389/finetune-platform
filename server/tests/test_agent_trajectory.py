@@ -260,6 +260,27 @@ def test_verification_classifier_rejects_arbitrary_commands():
     assert not is_verification_command("echo looks good")
 
 
+def test_verification_classifier_recognizes_extended_verification_commands():
+    assert is_verification_command("python -m unittest discover -s tests")
+    assert is_verification_command("make test")
+    assert is_verification_command("make check")
+    assert is_verification_command("tox")
+    assert is_verification_command("nox")
+    assert is_verification_command("cmake --build build")
+    assert is_verification_command("ctest --test-dir build")
+    assert is_verification_command("ruby -c lib/parser.rb")
+    assert is_verification_command("php -l src/index.php")
+    assert is_verification_command("swift build")
+    assert is_verification_command("swift test")
+    assert is_verification_command("javac -d out src/Main.java")
+    assert is_verification_command("rustc --edition 2021 src/main.rs")
+    assert is_verification_command("bash scripts/run_tests.sh")
+    assert is_verification_command("./run_tests.sh --check")
+    # 自定义脚本只有含 test/check 字样才算验证，纯运行不算
+    assert not is_verification_command("bash scripts/deploy.sh")
+    assert not is_verification_command("./build.sh")
+
+
 def test_workspace_path_normalization_rejects_escape():
     assert normalize_workspace_path("/workspace/pkg/../app.py") == "/workspace/app.py"
     assert normalize_workspace_path("../../outside.txt") == ""
