@@ -54,6 +54,16 @@ export function tierLabel(tier: CapabilityTier): string {
   return 'Exp';
 }
 
+/**
+ * Tooltip copy for capability-tier badges, aligned with docs/capability-truth-table.md.
+ * Returns null for GA (no badge shown, no tooltip needed).
+ */
+export function tierTooltip(tier: CapabilityTier): string | null {
+  if (tier === 'ga') return null;
+  if (tier === 'beta') return '已可用但接口/UI 可能变动，不建议生产使用';
+  return '实验性能力，API/UI 可能变动，依赖缺失时显式失败';
+}
+
 export function isExperimentalRoute(path: string): boolean {
   const meta = ROUTE_CAPABILITY[path];
   return meta?.tier === 'experimental';

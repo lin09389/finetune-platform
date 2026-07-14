@@ -87,6 +87,38 @@ Write-Host "  启动服务..." -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
+# 启动推理服务
+Write-Host "[推理服务] 启动中..." -ForegroundColor Yellow
+$inferenceJob = Start-Job -ScriptBlock {
+    param($dir, $useUv)
+    if (-not $env:SystemRoot) { $env:SystemRoot = "C:\Windows" }
+    if (-not $env:WINDIR) { $env:WINDIR = "C:\Windows" }
+    if (-not $env:SystemDrive) { $env:SystemDrive = "C:" }
+    Set-Location $dir
+    if ($useUv) {
+        uv run --extra all python -m server.inference_server
+    } else {
+        Set-Location (Join-Path $dir "server")
+        python -m inference_server
+    }
+} -ArgumentList $projectRoot, $useUv
+
+# 启动训练 Worker
+Write-Host "[训练 Worker] 启动中..." -ForegroundColor Yellow
+$workerJob = Start-Job -ScriptBlock {
+    param($dir, $useUv)
+    if (-not $env:SystemRoot) { $env:SystemRoot = "C:\Windows" }
+    if (-not $env:WINDIR) { $env:WINDIR = "C:\Windows" }
+    if (-not $env:SystemDrive) { $env:SystemDrive = "C:" }
+    Set-Location $dir
+    if ($useUv) {
+        uv run --extra all python -m server.training_worker
+    } else {
+        Set-Location (Join-Path $dir "server")
+        python -m training_worker
+    }
+} -ArgumentList $projectRoot, $useUv
+
 # 启动后端
 Write-Host "[后端] 启动中..." -ForegroundColor Yellow
 $backendJob = Start-Job -ScriptBlock {
@@ -131,6 +163,7 @@ Write-Host ""
 Write-Host "  后端地址：http://127.0.0.1:8010" -ForegroundColor White
 Write-Host "  前端地址：http://localhost:5173" -ForegroundColor White
 Write-Host "  API 文档：http://127.0.0.1:8010/docs" -ForegroundColor White
+Write-Host "  推理服务：http://127.0.0.1:8020（内部）" -ForegroundColor White
 Write-Host ""
 Write-Host "  提示：首次启动可能需要几分钟安装依赖" -ForegroundColor Gray
 Write-Host ""
@@ -143,7 +176,9 @@ try {
         Start-Sleep -Seconds 1
     }
 } finally {
+    Stop-Job -Job $inferenceJob -ErrorAction SilentlyContinue
+    Stop-Job -Job $workerJob -ErrorAction SilentlyContinue
     Stop-Job -Job $backendJob -ErrorAction SilentlyContinue
     Stop-Job -Job $frontendJob -ErrorAction SilentlyContinue
-    Remove-Job -Job $backendJob, $frontendJob -Force -ErrorAction SilentlyContinue
+    Remove-Job -Job $inferenceJob, $workerJob, $backendJob, $frontendJob -Force -ErrorAction SilentlyContinue
 }

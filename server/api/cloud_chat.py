@@ -835,7 +835,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
 @router.post("/api-keys", response_model=APIKeyResponse, dependencies=[Depends(require_local_request)])
 async def set_api_key(
     request: APIKeyRequest,
-    http_request: Request | None = None,
+    http_request: Request,
     current_user: TokenPayload | None = Depends(get_current_user_optional),
 ):
     """设置服务商 API Key（加密存储）"""
@@ -991,7 +991,7 @@ async def get_api_key_data(provider: str):
 @router.delete("/api-keys/{provider}", dependencies=[Depends(require_local_request)])
 async def delete_api_key(
     provider: str,
-    http_request: Request | None = None,
+    http_request: Request,
     current_user: TokenPayload | None = Depends(get_current_user_optional),
 ):
     """删除 API Key"""
