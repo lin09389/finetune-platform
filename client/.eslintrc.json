@@ -30,7 +30,19 @@
     "react-hooks/exhaustive-deps": "warn",
     "react/react-in-jsx-scope": "off",
     "@typescript-eslint/no-empty-interface": "off",
-    "no-console": ["error", { "allow": ["warn", "error"] }]
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "paths": [
+          {
+            "name": "framer-motion",
+            "importNames": ["motion", "AnimatePresence"],
+            "message": "Use useMotionConfig (components/motion/useMotionConfig) or useMotion (hooks/useMotion) for prefers-reduced-motion support. If you must import directly, add an eslint-disable comment with a reason."
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "node_modules/",

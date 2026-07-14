@@ -3,6 +3,7 @@ Logging configuration module
 """
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,19 @@ class CustomJsonFormatter(JsonFormatter):
 def setup_logging(
     log_dir: Path,
     log_level: str = "INFO",
-    enable_json: bool = False
+    enable_json: bool = False,
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 5,
 ) -> logging.Logger:
     """
-    Setup logging
+    Setup logging with rotating file handler.
 
     Args:
         log_dir: Log directory
         log_level: Log level
         enable_json: Whether to enable JSON format
+        max_bytes: Max file size in bytes before rotation (default 10 MB)
+        backup_count: Number of rotated backup files to keep
 
     Returns:
         Configured logger instance
@@ -54,7 +59,12 @@ def setup_logging(
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

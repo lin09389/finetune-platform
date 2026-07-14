@@ -17,6 +17,10 @@ export interface ApiInfoCapabilityPayload {
     high_risk?: boolean;
     mounts?: string[];
   }>;
+  ocr_backends?: {
+    tesseract?: { available?: boolean };
+    rapidocr?: { available?: boolean };
+  };
 }
 
 /** Map SPA paths to backend capability ids (for badge + guard). */
