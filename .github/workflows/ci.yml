@@ -159,6 +159,9 @@ jobs:
       - name: Run tests
         run: cd client && npx vitest run --reporter=basic
 
+      # TODO(P2-7): add Playwright Firefox smoke test for cross-browser coverage
+      # and backdrop-filter fallback verification. See docs/ux-audit-2026-07-14.md §5.4.
+
       - name: Build
         run: cd client && npm run build
 

@@ -152,29 +152,16 @@ npm run dev
 
 ### Docker 启动
 
-仅启动 API：
+根据你的场景选择合适的启动方式：
 
-```bash
-docker compose up -d api
-```
+| 场景 | 命令 | 说明 |
+|------|------|------|
+| 仅 API（CPU） | `docker compose up -d api` | 最小部署，不含训练 worker / 推理服务 / 前端 |
+| 完整开发栈（含前端） | `docker compose --profile dev up -d` | API + 前端 + 推理 + 训练 worker |
+| GPU 训练 | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build` | 启用 GPU 覆盖配置 |
+| 仅 Ollama | `docker compose --profile ollama up -d` | 单独启动 Ollama 服务 |
 
-启动开发栈：
-
-```bash
-docker compose --profile dev up -d
-```
-
-启动 Ollama：
-
-```bash
-docker compose --profile ollama up -d
-```
-
-使用 GPU 覆盖配置：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-```
+> 依赖 profile 与 Dockerfile 选型详见 [`docs/dependency-profiles.md`](docs/dependency-profiles.md)。
 
 查看日志：
 

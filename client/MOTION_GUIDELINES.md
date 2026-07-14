@@ -1,5 +1,8 @@
 # Finetune Platform 高级质感动效规范 (Motion Guidelines)
 
+> **权威令牌源**：动效令牌以 `client/src/styles/variables.css`（`--duration-*` / `--ease-*`）为准，本文档仅描述设计意图。
+> **reduce-motion 实现**：集中封装在 `client/src/hooks/useMotion.ts`（`useMotion`）与 `client/src/components/motion/useMotionConfig.ts`（`useMotionConfig`）。所有 Framer Motion 使用应优先通过这两个 hook，而非直接 import `motion`。
+
 ## 1. 核心设计原则 (Core Principles)
 
 ### 1.1 目的性动效 (Purposeful Motion)

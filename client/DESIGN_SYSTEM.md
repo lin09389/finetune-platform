@@ -1,5 +1,8 @@
 # Finetune Platform 设计系统 (Design System 2.0)
 
+> **权威令牌源**：`client/src/styles/variables.css` 是唯一设计令牌事实源。本文档仅描述设计意图与用法指引，若具体数值与 `variables.css` 冲突，以 `variables.css` 为准。
+> **运行时样式入口**：`client/src/styles/index.css`（非已删除的 `client/src/index.css`）。
+
 ## 1. 核心视觉哲学 (Core Visual Philosophy)
 
 ### 1.1 玻璃拟态 (Glassmorphism)
@@ -54,4 +57,11 @@
 - **FCP (First Contentful Paint)**: 目标 1.5s - 1.8s。
 - **CLS (Cumulative Layout Shift)**: 目标 < 0.1。
 - **60fps**: 在所有主流桌面浏览器（Chrome, Safari, Edge）中实测交互动效稳定在 60fps。
-- **WCAG**: 关键文本对比度符合 AA 级标准。
+- **WCAG**: 关键文本对比度符合 AA 级标准（4.5:1）。
+
+### 4.1 跨浏览器兼容承诺
+
+- `backdrop-filter` 玻璃拟态效果在 Firefox（需 `layout.css.backdrop-filter.enabled`）或 Safari <16 不支持时，自动降级为纯色背景 + `border-radius`。`variables.css` 中 `--glass-blur` 在浅色主题已设为 `none`，深色主题保留 blur 但配套 `--glass-bg` 纯色 fallback。
+- `:has()` 选择器需 Safari 15.4+，使用时必须提供非 `:has()` 的 fallback 规则。
+- 终端（xterm.js）与 Monaco Editor 在移动浏览器上触控体验受限，桌面端为首要支持目标。
+- **CI TODO（P2-7）**：当前 CI 仅运行 vitest 单元测试 + 生产构建，尚未接入 Playwright 跨浏览器 smoke。计划后续引入 Firefox smoke 测试覆盖核心页面渲染与 `backdrop-filter` fallback。

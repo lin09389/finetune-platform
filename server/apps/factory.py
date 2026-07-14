@@ -50,6 +50,8 @@ logger = setup_logging(
     log_dir=LOG_DIR,
     log_level=settings.log_level,
     enable_json=settings.log_format == "json",
+    max_bytes=settings.log_max_bytes,
+    backup_count=settings.log_backup_count,
 )
 logger.info("=" * 50)
 logger.info("Finetune Platform Backend Starting")
@@ -458,6 +460,20 @@ async def api_info():
     from cloud_models import CloudProviderRepository
 
     cloud_model_configured = saved_cloud_agent_model_configured(CloudProviderRepository(secure_storage))
+
+    # OCR backend availability (experimental capability; safe to probe even if deps missing)
+    try:
+        from api.ocr import RAPIDOCR_AVAILABLE, TESSERACT_AVAILABLE
+        ocr_backends = {
+            "tesseract": {"available": TESSERACT_AVAILABLE},
+            "rapidocr": {"available": RAPIDOCR_AVAILABLE},
+        }
+    except Exception:
+        ocr_backends = {
+            "tesseract": {"available": False},
+            "rapidocr": {"available": False},
+        }
+
     return {
         "name": "Finetune Platform API",
         "version": "2.1.0",
@@ -489,6 +505,7 @@ async def api_info():
         ),
         "agent_runtime_env": _agent_runtime_env_for_info(),
         "storage": _storage_info_for_api(),
+        "ocr_backends": ocr_backends,
         "endpoints": tier_payload["endpoints"],
     }
 

@@ -32,7 +32,7 @@ from agent_session.models import (
 )
 from agent_session.service import AgentSessionService
 from api.workspace import AgentWorkspaceNotFoundError
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from core.config import settings
@@ -187,9 +187,15 @@ async def get_agent_frontend_diagnostics_summary(
 @router.post("", response_model=AgentSessionResponse)
 async def create_agent_session(
     request: AgentSessionCreate,
+    response: Response,
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    # 仅传 project_path 未传 workspace_id 时标记为已弃用路径，引导迁移到 workspace_id
+    if request.project_path and not request.workspace_id:
+        response.headers["X-Deprecated"] = (
+            "use workspace_id; project_path will be removed after 2026-08-01"
+        )
     try:
         return await run_sync(service.create_session, request, current_user.user_id)
     except AgentWorkspaceNotFoundError as exc:

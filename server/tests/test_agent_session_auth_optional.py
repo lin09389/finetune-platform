@@ -76,6 +76,51 @@ def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path
         app.dependency_overrides.clear()
 
 
+def test_agent_session_project_path_only_sets_deprecation_header(tmp_path: Path):
+    """POST /agent-sessions 仅传 project_path 时应返回 X-Deprecated header 引导迁移到 workspace_id。"""
+    client, _ = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    try:
+        response = client.post(
+            "/agent-sessions",
+            json={"title": "legacy path", "agent_id": "build", "project_path": str(workspace)},
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Deprecated") is not None
+        assert "workspace_id" in response.headers["X-Deprecated"]
+        assert "2026-08-01" in response.headers["X-Deprecated"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_session_workspace_id_path_has_no_deprecation_header(tmp_path: Path):
+    """POST /agent-sessions 传 workspace_id 时不应返回 X-Deprecated header。"""
+    from api.workspace import DEFAULT_WORKSPACE_ID, workspaces
+
+    client, _ = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    # 注入测试 workspace 到内存 store（避免依赖磁盘 metadata）
+    original = workspaces.get(DEFAULT_WORKSPACE_ID)
+    workspaces[DEFAULT_WORKSPACE_ID] = {
+        "id": DEFAULT_WORKSPACE_ID,
+        "name": "Test",
+        "local_path": str(workspace),
+    }
+    try:
+        response = client.post(
+            "/agent-sessions",
+            json={"title": "workspace path", "agent_id": "build", "workspace_id": DEFAULT_WORKSPACE_ID},
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Deprecated") is None
+    finally:
+        if original is not None:
+            workspaces[DEFAULT_WORKSPACE_ID] = original
+        else:
+            workspaces.pop(DEFAULT_WORKSPACE_ID, None)
+        app.dependency_overrides.clear()
+
+
 def test_agent_session_endpoints_enforce_session_owner(tmp_path: Path):
     client, service = _client_with_service(tmp_path)
     workspace = _workspace_root()

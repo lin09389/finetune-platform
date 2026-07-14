@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
-import { type ApiInfoCapabilityPayload, isExperimentalEnabled, tierLabel } from '../capability/tiers';
+import { type ApiInfoCapabilityPayload, isExperimentalEnabled, tierLabel, tierTooltip } from '../capability/tiers';
 import {
   getNavigationGroups,
   getRouteCapabilityTier,
@@ -112,7 +112,7 @@ export default function Sidebar() {
                   {!sidebarCollapsed && <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div className={styles.menuLabelRow}>
                       <div className={styles.menuLabel}>{item.label}</div>
-                      {tier && tier !== 'ga' && <span className={tier === 'beta' ? styles.tierBadgeBeta : styles.tierBadgeExp} data-testid={`tier-badge-${tier}`}>{tierLabel(tier)}</span>}
+                      {tier && tier !== 'ga' && <Tooltip title={tierTooltip(tier) ?? undefined} placement="right"><span className={tier === 'beta' ? styles.tierBadgeBeta : styles.tierBadgeExp} data-testid={`tier-badge-${tier}`} aria-label={tierTooltip(tier) ?? undefined}>{tierLabel(tier)}</span></Tooltip>}
                     </div>
                     {item.description && <div className={styles.menuDesc}>{item.description}</div>}
                   </div>}

@@ -92,8 +92,16 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
       setOcrResult(result);
       onOCR?.(result);
       message.success('OCR 识别完成');
-    } catch {
-      message.error('OCR 识别失败');
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 503) {
+        message.error(
+          'OCR 依赖未安装。请运行 assets/tesseract/tesseract-setup.exe 安装 Tesseract，或配置 RapidOCR 后重试。',
+          8,
+        );
+      } else {
+        message.error('OCR 识别失败，请稍后重试');
+      }
     } finally {
       setOcrLoading(false);
     }

@@ -33,6 +33,16 @@ class Settings(BaseSettings):
         default="text",
         description="应用日志格式（LOG_FORMAT）：text 或 json",
     )
+    log_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        description="日志文件轮转上限字节（LOG_MAX_BYTES），默认 10MB",
+    )
+    log_backup_count: int = Field(
+        default=5,
+        ge=1,
+        description="轮转备份文件数（LOG_BACKUP_COUNT），默认 5",
+    )
     observability_max_series: int = Field(
         default=256,
         ge=16,
