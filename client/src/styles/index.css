@@ -330,6 +330,37 @@
   }
 }
 
+/* 高对比度偏好支持（Windows 高对比模式、macOS 增强对比度）
+   参考 docs/ux-audit-2026-07-14.md §5.5：进一步压深文本/边框色阶，
+   将强调色回退到能保证 AA+ 对比度的深色值。 */
+@media (prefers-contrast: more) {
+  :root,
+  .light-theme {
+    --text-secondary: #4b4a45;
+    --text-tertiary: #4b4a45;
+    --border-color: #7a776c;
+    --border-hover: #5f5c53;
+    --focus-ring-color: #7a3418;
+    --accent-primary: #7a3418;
+    --success: #3f4a2e;
+    --warning: #6b4d06;
+  }
+  .dark-theme {
+    --text-secondary: #ded9c9;
+    --text-tertiary: #d5d1c1;
+    --border-color: #7c7970;
+    --border-hover: #a5a29a;
+    --focus-ring-color: #ffc4a3;
+    --accent-primary: #ffb192;
+    --success: #a9d380;
+    --warning: #ffcc55;
+  }
+  *:focus-visible {
+    outline: 3px solid var(--focus-ring-color) !important;
+    outline-offset: 3px !important;
+  }
+}
+
 /* ============================================
    全局 UX 打磨层
    ============================================ */

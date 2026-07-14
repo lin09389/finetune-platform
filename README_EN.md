@@ -115,7 +115,7 @@ To verify the environment first:
 verify.bat
 ```
 
-To install the GPU PyTorch stack for NVIDIA GPUs:
+To install the GPU PyTorch stack for NVIDIA GPUs (the root-level `install-pytorch-gpu.bat` forwards to `server\install-gpu.bat`):
 
 ```bat
 install-pytorch-gpu.bat

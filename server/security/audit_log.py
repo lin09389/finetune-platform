@@ -9,6 +9,7 @@
 """
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,6 +21,20 @@ from core.storage import AuditRepository
 from security.data_masking import mask
 
 logger = logging.getLogger(__name__)
+
+
+# 审计日志的默认存储位置：<repo>/server/data/audit_logs
+# 使用基于 __file__ 的绝对路径，避免受进程 cwd 影响（历史上 start.bat 与
+# start-backend.bat 的 cwd 差异导致审计日志被写到两个位置）。
+_DEFAULT_AUDIT_LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "audit_logs"
+
+
+def _resolve_default_audit_log_dir() -> Path:
+    """解析默认审计日志目录：优先读取环境变量 AUDIT_LOG_DIR。"""
+    env_value = os.getenv("AUDIT_LOG_DIR")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return _DEFAULT_AUDIT_LOG_DIR
 
 
 class AuditEventType(str, Enum):
@@ -113,7 +128,14 @@ class AuditLogger:
     ):
         if log_dir is not None and storage_path is None:
             storage_path = Path(log_dir)
-        self.storage_path = storage_path or Path("data/audit_logs")
+        # 相对路径会随进程 cwd 漂移；统一解析为基于 <server>/data 的绝对路径。
+        if storage_path is None:
+            storage_path = _resolve_default_audit_log_dir()
+        else:
+            storage_path = Path(storage_path)
+            if not storage_path.is_absolute():
+                storage_path = storage_path.expanduser().resolve()
+        self.storage_path = storage_path
         self.log_dir = self.storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
@@ -189,10 +211,19 @@ class AuditLogger:
         latency: float | None = None,
         error: str | None = None,
         user_id: str | None = None,
+        session_id: str | None = None,
+        agent_id: str | None = None,
+        source_ip: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
         trace_id: str | None = None,
         **kwargs: Any,
     ) -> AuditEvent:
-        """兼容旧调用：audit_logger.log(action=..., params=..., result=...)."""
+        """兼容旧调用：audit_logger.log(action=..., params=..., result=...).
+
+        补充身份/来源上下文字段（user_id/session_id/agent_id/source_ip 等）
+        供调用方按需透传，避免历史上审计条目大量身份字段为 null 的问题。
+        """
         severity = AuditSeverity.ERROR if error else AuditSeverity.INFO
         details = params or kwargs.pop("details", {}) or {}
         if trace_id:
@@ -204,6 +235,11 @@ class AuditLogger:
             event_type=AuditEventType.API_CALL,
             severity=severity,
             user_id=user_id,
+            session_id=session_id,
+            agent_id=agent_id,
+            source_ip=source_ip,
+            resource_type=resource_type,
+            resource_id=resource_id,
             action=action,
             details=details,
             result=result_value,

@@ -22,7 +22,9 @@ from agent_session.service import AgentSessionService
 from agent_session.project_chat import DeepAgentsProjectChatRunner, ProjectChatResult, can_use_deepagents_project_chat
 from context.deepagents import build_deepagents_context_pack
 from security.audit_log import audit_logger
+from security.auth_middleware import get_current_user_optional
 from security.encryption import secure_storage
+from security.jwt_auth import TokenPayload
 from cloud_models import CloudModelService, CloudProviderRepository
 from cloud_models.resolver import resolve_provider
 
@@ -125,6 +127,28 @@ def require_local_request(request: Request) -> None:
         # Tests and non-networked API clients often run without a client host.
         # Only block explicit non-local remote callers.
         raise HTTPException(status_code=403, detail="Cloud API key operations are only allowed from localhost")
+
+
+def _extract_source_ip(request: Request) -> str | None:
+    """从 Request 中提取来源 IP，兼容反向代理 X-Forwarded-For。"""
+    forwarded = request.headers.get("x-forwarded-for") if request else None
+    if forwarded:
+        # X-Forwarded-For 可能是逗号分隔的链条，取第一个
+        return forwarded.split(",")[0].strip() or None
+    if request and request.client and request.client.host:
+        return request.client.host
+    return None
+
+
+def _audit_user_id(current_user: TokenPayload | None) -> str | None:
+    """从可选的 JWT 上下文中解析 user_id / username，None 表示匿名本地调用。
+
+    该函数需能容忍非 FastAPI 调用路径下 ``current_user`` 仍是 ``Depends``
+    对象或其它非 TokenPayload 值的场景（例如现存的 pytest 直接调用协程）。
+    """
+    if not isinstance(current_user, TokenPayload):
+        return None
+    return current_user.username or getattr(current_user, "user_id", None)
 
 
 def _mask_secret(value: str | None) -> str:
@@ -809,7 +833,11 @@ async def cloud_chat_stream(request: CloudChatRequest):
 
 
 @router.post("/api-keys", response_model=APIKeyResponse, dependencies=[Depends(require_local_request)])
-async def set_api_key(request: APIKeyRequest):
+async def set_api_key(
+    request: APIKeyRequest,
+    http_request: Request | None = None,
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
+):
     """设置服务商 API Key（加密存储）"""
     try:
         existing_key_data = cloud_model_service.repository.get(request.provider)
@@ -846,7 +874,11 @@ async def set_api_key(request: APIKeyRequest):
         audit_logger.log(
             action="set_api_key",
             params={"provider": request.provider},
-            result={"success": True}
+            result={"success": True},
+            user_id=_audit_user_id(current_user),
+            source_ip=_extract_source_ip(http_request) if http_request else None,
+            resource_type="cloud_api_key",
+            resource_id=request.provider,
         )
 
         return APIKeyResponse(
@@ -957,7 +989,11 @@ async def get_api_key_data(provider: str):
 
 
 @router.delete("/api-keys/{provider}", dependencies=[Depends(require_local_request)])
-async def delete_api_key(provider: str):
+async def delete_api_key(
+    provider: str,
+    http_request: Request | None = None,
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
+):
     """删除 API Key"""
     try:
         cloud_model_service.repository.delete(provider)
@@ -965,7 +1001,11 @@ async def delete_api_key(provider: str):
         audit_logger.log(
             action="delete_api_key",
             params={"provider": provider},
-            result={"success": True}
+            result={"success": True},
+            user_id=_audit_user_id(current_user),
+            source_ip=_extract_source_ip(http_request) if http_request else None,
+            resource_type="cloud_api_key",
+            resource_id=provider,
         )
 
         return {"success": True, "message": "API Key 已删除"}

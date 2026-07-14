@@ -37,6 +37,7 @@ from fastapi.responses import StreamingResponse
 
 from core.config import settings
 from core.db_manager import run_sync
+from security.audit_log import audit_logger
 from security.auth_middleware import get_current_user_optional
 from security.jwt_auth import Role, TokenPayload
 
@@ -642,6 +643,22 @@ async def get_artifact_original(
 
 permission_router = APIRouter(tags=["Agent Sessions"])
 
+
+def _permission_audit_user_id(current_user: TokenPayload | None) -> str | None:
+    """从可选 JWT 上下文中解析 user_id，供审计日志使用。"""
+    if not isinstance(current_user, TokenPayload):
+        return None
+    return current_user.username or getattr(current_user, "user_id", None)
+
+
+def _permission_audit_session_id(session: Any) -> str | None:
+    if session is None:
+        return None
+    if isinstance(session, dict):
+        return session.get("id") or session.get("session_id")
+    return getattr(session, "id", None) or getattr(session, "session_id", None)
+
+
 @permission_router.post("/agent-permissions/{permission_id}/approve", response_model=AgentApprovalResponse)
 async def approve_agent_permission(
     permission_id: str,
@@ -662,6 +679,15 @@ async def approve_agent_permission(
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
+    audit_logger.log(
+        action="agent_permission_approve",
+        params={"permission_id": permission_id},
+        result={"success": True},
+        user_id=_permission_audit_user_id(current_user),
+        session_id=_permission_audit_session_id(session),
+        resource_type="agent_permission",
+        resource_id=permission_id,
+    )
     return AgentApprovalResponse(part=part, session=session)
 
 
@@ -685,6 +711,15 @@ async def reject_agent_permission(
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
+    audit_logger.log(
+        action="agent_permission_reject",
+        params={"permission_id": permission_id},
+        result={"success": True},
+        user_id=_permission_audit_user_id(current_user),
+        session_id=_permission_audit_session_id(session),
+        resource_type="agent_permission",
+        resource_id=permission_id,
+    )
     return AgentApprovalResponse(part=part, session=session)
 
 

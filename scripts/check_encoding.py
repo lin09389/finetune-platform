@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Guard critical source files against encoding regressions."""
+"""Guard critical source files against encoding regressions.
+
+关键点（参考 docs/ux-audit-2026-07-14.md §4.1 与 §6.1 P0-5）：
+- 白名单 TEXT_SUFFIXES 只覆盖真正的源码/文本扩展，排除
+  ``.mdl / .msc / .safetensors / .bin / .pt`` 等 ModelScope / 权重二进制。
+- SUSPICIOUS_TOKENS 显式覆盖过往事故（TrainingChart 的
+  ``宸茶繛鎺``＝“已连接”）与常见 CJK mojibake 前缀。
+- 追加 :func:`find_dense_mojibake` 启发式：单行内命中 CJK
+  兼容字节区的字符密度超过阈值时视为可疑，用于捕获未列入
+  SUSPICIOUS_TOKENS 但同样属于 UTF-8/CP936 双重解码残留。
+"""
 
 from __future__ import annotations
 
 import codecs
+import re
 import sys
 from pathlib import Path
 
@@ -55,6 +66,34 @@ TEXT_SUFFIXES = {
     ".html",
 }
 
+# 二进制/权重扩展显式排除清单（防止其被误加入 TEXT_SUFFIXES）。
+BINARY_SUFFIXES = {
+    ".mdl",
+    ".msc",
+    ".safetensors",
+    ".bin",
+    ".pt",
+    ".pth",
+    ".onnx",
+    ".gguf",
+    ".ckpt",
+    ".traineddata",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+}
+
 SKIP_DIR_NAMES = {
     ".git",
     ".pytest_cache",
@@ -97,7 +136,30 @@ SUSPICIOUS_TOKENS = [
     "绫诲瀷",
     "鐘舵€",
     "璺緞",
+    # 历史事故：TrainingChart.tsx 中的 “已连接” 被 GBK 二次解码为下列 mojibake。
+    "宸茶繛鎺",
+    "宸茶繛",
+    "鎺?",
+    # 高频遺留 mojibake：训练/推理页常见的“成功/失败/加载”翻译错乱。
+    "鄴愧姛",
+    "澵辣触",
+    "锕犹浇",
+    "宸插畑鄴",
+    "进涜涓",
+    "涓嘶弪锦",
 ]
+
+# GBK/CP936→UTF-8 二次解码专属的窄区，选取原则：
+# * U+9300-U+93FF：CJK 扩展 A 中的稀有汉字（鏀/鏌/鏈/鏁/鎺 等），
+#   简体中文源码几乎不会出现，是 mojibake 的高保真指纹。
+# * U+95A0-U+95E7：门部繁体字上半区（閠/閡/閫/閱/閲/閿/闄 等），
+#   显式排除 U+95E8 起的常用简体字（门/闪/闭/间/闲/闷/闹/问 等）。
+# * U+9400-U+9488：钅部繁体上半区（鍒/鍔/鍙/鎺-区衔接段），
+#   同样排除 U+9489 起的常用简体字（钉/钎/钥/铁 等）。
+# 触发条件：单行同时命中 _MOJIBAKE_DENSITY_THRESHOLD 个及以上稀有字符，
+# 才判为疑似 mojibake，避免正常中文（"限审阅"/"密密钥"）误报。
+_MOJIBAKE_HOT_CHARS = re.compile(r"[\u9300-\u93ff\u9400-\u9488\u95a0-\u95e7]")
+_MOJIBAKE_DENSITY_THRESHOLD = 2
 
 
 def iter_target_files() -> list[Path]:
@@ -116,7 +178,12 @@ def iter_target_files() -> list[Path]:
                 continue
             if any(part in SKIP_DIR_NAMES for part in path.parts):
                 continue
-            if path.suffix.lower() in TEXT_SUFFIXES:
+            suffix = path.suffix.lower()
+            # 显式跳过已知二进制/权重扩展，避免 ModelScope 元数据
+            # (.mdl/.msc)、权重 (.safetensors/.bin/.pt) 被误报为“无法检测编码”。
+            if suffix in BINARY_SUFFIXES:
+                continue
+            if suffix in TEXT_SUFFIXES:
                 files.append(path)
 
     return files
@@ -134,6 +201,14 @@ def find_content_issue(text: str, *, check_tokens: bool = True) -> tuple[int, st
             for token in SUSPICIOUS_TOKENS:
                 if token in line:
                     return line_no, f"suspicious mojibake token '{token}' found"
+
+            hot_hits = _MOJIBAKE_HOT_CHARS.findall(line)
+            if len(hot_hits) >= _MOJIBAKE_DENSITY_THRESHOLD:
+                sample = "".join(hot_hits[:6])
+                return (
+                    line_no,
+                    f"dense mojibake-like characters ({len(hot_hits)} hits, sample: {sample!r})",
+                )
 
     return None
 

@@ -115,7 +115,7 @@ start.bat
 verify.bat
 ```
 
-如果你使用 NVIDIA 显卡并希望安装 GPU 版 PyTorch：
+如果你使用 NVIDIA 显卡并希望安装 GPU 版 PyTorch（根目录 `install-pytorch-gpu.bat` 会转发到 `server\install-gpu.bat`）：
 
 ```bat
 install-pytorch-gpu.bat
