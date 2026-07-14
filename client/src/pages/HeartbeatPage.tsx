@@ -288,7 +288,7 @@ export default function HeartbeatPage() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <ScheduleOutlined style={{ color: 'var(--primary)' }} />
+              <ScheduleOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>任务总数</div>
@@ -302,7 +302,7 @@ export default function HeartbeatPage() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <SyncOutlined style={{ color: 'var(--primary)' }} />
+              <SyncOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>执行次数</div>

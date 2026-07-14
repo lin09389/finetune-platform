@@ -14,24 +14,24 @@
   background:
     linear-gradient(
       135deg,
-      color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent),
+      color-mix(in srgb, var(--accent-primary) 8%, transparent),
       transparent 55%
     ),
     var(--bg-secondary, var(--bg-primary));
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .previewOk {
-  border-color: color-mix(in srgb, var(--success, #16a34a) 45%, var(--border-color));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success, #16a34a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border-color));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 12%, transparent);
 }
 
 .previewWarn {
-  border-color: color-mix(in srgb, var(--warning, #d97706) 50%, var(--border-color));
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border-color));
 }
 
 .previewError {
-  border-color: color-mix(in srgb, var(--error, #dc2626) 45%, var(--border-color));
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border-color));
 }
 
 .previewIcon {
@@ -39,25 +39,25 @@
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent-primary, #3b82f6) 12%, transparent);
-  color: var(--accent-primary, #3b82f6);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  color: var(--accent-primary);
   font-size: 18px;
 }
 
 .previewIconOk {
-  background: color-mix(in srgb, var(--success, #16a34a) 14%, transparent);
-  color: var(--success, #16a34a);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
 }
 
 .previewIconWarn {
-  background: color-mix(in srgb, var(--warning, #d97706) 14%, transparent);
-  color: var(--warning, #d97706);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
 }
 
 .previewIconError {
-  background: color-mix(in srgb, var(--error, #dc2626) 12%, transparent);
-  color: var(--error, #dc2626);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error);
 }
 
 .previewBody {
@@ -73,7 +73,7 @@
   min-width: 0;
   color: var(--text-primary);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .previewTitle strong {
@@ -85,7 +85,7 @@
 .previewPath {
   overflow: hidden;
   color: var(--text-tertiary);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -95,7 +95,7 @@
 .badge {
   flex-shrink: 0;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
   color: var(--text-secondary);
   font-size: 10px;
@@ -104,18 +104,18 @@
 }
 
 .badgeOk {
-  background: color-mix(in srgb, var(--success, #16a34a) 16%, transparent);
-  color: var(--success, #16a34a);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
 }
 
 .badgeWarn {
-  background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent);
-  color: var(--warning, #d97706);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
 }
 
 .badgeError {
-  background: color-mix(in srgb, var(--error, #dc2626) 14%, transparent);
-  color: var(--error, #dc2626);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
 }
 
 .previewActions {
@@ -146,24 +146,24 @@
   height: 26px;
   padding: 0 10px;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 24px;
   cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .chip:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, var(--border-color));
-  background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   color: var(--text-primary);
 }
 
 .chipActive {
-  border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 55%, var(--border-color));
-  background: color-mix(in srgb, var(--accent-primary, #3b82f6) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -206,7 +206,7 @@
   gap: 8px;
   align-items: start;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary, var(--bg-primary));
   font-size: 12px;
@@ -215,21 +215,21 @@
 }
 
 .statusOk {
-  border-color: color-mix(in srgb, var(--success, #16a34a) 30%, var(--border-color));
-  background: color-mix(in srgb, var(--success, #16a34a) 8%, transparent);
-  color: color-mix(in srgb, var(--success, #16a34a) 70%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border-color));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  color: color-mix(in srgb, var(--success) 70%, var(--text-primary));
 }
 
 .statusWarn {
-  border-color: color-mix(in srgb, var(--warning, #d97706) 35%, var(--border-color));
-  background: color-mix(in srgb, var(--warning, #d97706) 10%, transparent);
-  color: color-mix(in srgb, var(--warning, #d97706) 65%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: color-mix(in srgb, var(--warning) 65%, var(--text-primary));
 }
 
 .statusError {
-  border-color: color-mix(in srgb, var(--error, #dc2626) 30%, var(--border-color));
-  background: color-mix(in srgb, var(--error, #dc2626) 8%, transparent);
-  color: color-mix(in srgb, var(--error, #dc2626) 65%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--error) 30%, var(--border-color));
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  color: color-mix(in srgb, var(--error) 65%, var(--text-primary));
 }
 
 .statusIcon {
@@ -260,7 +260,7 @@
 }
 
 .errorText {
-  color: var(--error, #dc2626);
+  color: var(--error);
   font-size: 12px;
 }
 
@@ -269,7 +269,7 @@
   gap: 8px;
   align-items: flex-start;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px dashed color-mix(in srgb, var(--text-tertiary) 35%, var(--border-color));
   background: color-mix(in srgb, var(--text-tertiary) 6%, transparent);
   color: var(--text-secondary);
@@ -280,8 +280,9 @@
 .sectionTitle {
   margin: 0;
   color: var(--text-tertiary);
+  font-family: var(--font-sans);
   font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.03em;
+  font-weight: var(--font-medium);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }

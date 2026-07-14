@@ -15,14 +15,15 @@
 .model-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-4);
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .model-card:hover {
   border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .model-card-header {
@@ -45,6 +46,7 @@
 }
 
 .model-card-name {
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -88,14 +90,15 @@
 .dataset-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-4);
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .dataset-card:hover {
   border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .dataset-card-header {
@@ -118,6 +121,7 @@
 }
 
 .dataset-card-name {
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -136,6 +140,7 @@
 }
 
 .dataset-card-stat-value {
+  font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -163,11 +168,12 @@
 .device-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-5);
 }
 
 .device-card-title {
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -195,6 +201,7 @@
 }
 
 .device-metric-value {
+  font-family: var(--font-mono);
   font-weight: var(--font-medium);
   color: var(--text-primary);
   font-size: var(--text-sm);
@@ -223,14 +230,14 @@
 .inference-config {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-5);
 }
 
 .inference-output {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-5);
   min-height: 400px;
 }
@@ -243,6 +250,7 @@
 }
 
 .inference-output-content {
+  font-family: var(--font-serif);
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
   color: var(--text-primary);
@@ -266,14 +274,15 @@
 .knowledge-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   padding: var(--space-4);
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .knowledge-card:hover {
   border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .knowledge-card-header {
@@ -284,6 +293,7 @@
 }
 
 .knowledge-card-name {
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -305,7 +315,7 @@
 .history-table-container {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 

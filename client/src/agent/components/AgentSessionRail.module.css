@@ -24,7 +24,7 @@
 
 .sessionTitle {
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .sessionStatus {
@@ -39,12 +39,12 @@
 .sessionAction {
   min-width: 32px;
   min-height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .sessionAction:focus-visible,
 .sessionSelect:focus-visible {
-  outline: 2px solid var(--primary-color);
+  outline: 2px solid var(--accent-primary);
   outline-offset: -2px;
 }
 

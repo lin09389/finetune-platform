@@ -1,145 +1,83 @@
-/* ============================================
-   按钮组件样式
-   ============================================ */
-
+/* === Button (AntD override) — Claude premium interaction === */
 .ant-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
+  /* Claude base: 40px touch target, 12px radius, premium shadow */
   border-radius: var(--radius-md);
+  min-height: 40px;
   font-weight: var(--font-medium);
-  transition: all var(--transition-fast);
-  min-height: var(--touch-target-sm);
+  font-family: var(--font-sans);
+  letter-spacing: var(--tracking-tight);
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
-.ant-btn-lg {
-  min-height: var(--touch-target-min);
-  padding: var(--space-2-5) var(--space-6);
-  font-size: var(--text-base);
-  border-radius: var(--radius-md);
-}
-
-.ant-btn-sm {
-  min-height: 28px;
-  padding: 0 var(--space-3);
-  font-size: var(--text-sm);
-  border-radius: var(--radius-sm);
-}
-
+/* Primary: brand fill with premium colored glow */
 .ant-btn-primary {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: var(--text-inverse) !important;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-button-primary);
+  background-image: var(--gradient-button);
 }
-
 .ant-btn-primary:hover {
-  background: var(--accent-secondary);
-  border-color: var(--accent-secondary);
-  color: var(--text-inverse) !important;
+  box-shadow: var(--shadow-button-primary-hover);
+  transform: translateY(-1px);
+}
+.ant-btn-primary:active {
+  transform: scale(0.97);
   box-shadow: var(--shadow-sm);
 }
 
-.ant-btn-primary:active {
+/* Default: subtle surface with warm border */
+.ant-btn-default {
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: var(--bg-100);
+}
+.ant-btn-default:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-200);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.ant-btn-default:active {
+  transform: scale(0.97);
   box-shadow: var(--shadow-xs);
 }
 
-.ant-btn-default {
-  background: transparent;
-  border-color: var(--border-color);
-  color: var(--text-primary);
-}
-
-.ant-btn-default:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
-  color: var(--text-primary);
-}
-
-.ant-btn-text {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-secondary);
-}
-
+/* Link / text buttons — no shadow, no transform */
+.ant-btn-link,
+.ant-btn-text,
+.ant-btn-link:hover,
 .ant-btn-text:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  box-shadow: none;
+  transform: none;
 }
 
-.ant-btn-link {
-  background: transparent;
-  border-color: transparent;
-  color: var(--accent-primary);
-  padding: 0;
+/* Large buttons */
+.ant-btn-lg {
+  min-height: 46px;
+  border-radius: var(--radius);
+  font-size: var(--text-lg);
+  padding-inline: 22px;
 }
 
-.ant-btn-link:hover {
-  color: var(--accent-secondary);
+/* Small buttons */
+.ant-btn-sm {
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
-.ant-btn-icon-only {
-  width: var(--touch-target-sm);
-  padding: 0;
+/* Disabled — premium fade */
+.ant-btn[disabled] {
+  opacity: 0.45;
+  box-shadow: none;
+  transform: none;
 }
 
-.ant-btn-icon-only.ant-btn-lg {
-  width: var(--touch-target-min);
-}
-
-.ant-btn-icon-only.ant-btn-sm {
-  width: 28px;
-}
-
-.ant-btn:disabled,
-.ant-btn-disabled {
-  opacity: var(--state-disabled-opacity);
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-.ant-btn-loading {
-  opacity: 0.7;
-  cursor: wait;
-}
-
-.ant-btn-group .ant-btn {
-  border-radius: 0;
-}
-
-.ant-btn-group .ant-btn:first-child {
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-}
-
-.ant-btn-group .ant-btn:last-child {
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-}
-
-.ant-btn-block {
-  width: 100%;
-}
-
-/* 危险按钮 */
-.ant-btn-dangerous.ant-btn-primary {
-  background: var(--error);
-  border-color: var(--error);
-  color: var(--text-inverse) !important;
-}
-
-.ant-btn-dangerous.ant-btn-primary:hover {
-  background: var(--error-dark);
-  border-color: var(--error-dark);
-  color: var(--text-inverse) !important;
-}
-
-.ant-btn-dangerous.ant-btn-default {
-  border-color: var(--error);
-  color: var(--error);
-}
-
-.ant-btn-dangerous.ant-btn-default:hover {
-  background: var(--error-light);
-  border-color: var(--error);
-  color: var(--error);
+/* Focus — Claude warm focus glow */
+.ant-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-glow);
 }

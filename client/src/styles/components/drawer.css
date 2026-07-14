@@ -13,6 +13,7 @@
 }
 
 .ant-drawer-title {
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -20,7 +21,7 @@
 
 .ant-drawer-close {
   color: var(--text-tertiary);
-  transition: color var(--transition-fast);
+  transition: color 0.16s ease;
 }
 
 .ant-drawer-close:hover {
@@ -29,6 +30,7 @@
 
 .ant-drawer-body {
   padding: var(--space-6);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--text-primary);
 }

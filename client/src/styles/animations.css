@@ -323,8 +323,8 @@
   color: var(--text-secondary);
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease;
-  animation: agentPhaseSlideIn 0.25s ease forwards;
+  transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  animation: agentPhaseSlideIn 0.16s ease forwards;
 }
 
 .agent-phase-indicator-visible {
@@ -403,52 +403,52 @@
 
 /* 基础动画 */
 .animate-fadeIn {
-  animation: fadeIn 0.3s var(--ease-smooth);
+  animation: fadeIn 0.16s ease;
 }
 
 .animate-fadeOut {
-  animation: fadeOut 0.3s var(--ease-smooth);
+  animation: fadeOut 0.16s ease;
 }
 
 .animate-fadeInUp {
-  animation: fadeInUp 0.3s var(--ease-smooth);
+  animation: fadeInUp 0.16s ease;
 }
 
 .animate-fadeInDown {
-  animation: fadeInDown 0.3s var(--ease-smooth);
+  animation: fadeInDown 0.16s ease;
 }
 
 .animate-fadeInLeft {
-  animation: fadeInLeft 0.3s var(--ease-smooth);
+  animation: fadeInLeft 0.16s ease;
 }
 
 .animate-fadeInRight {
-  animation: fadeInRight 0.3s var(--ease-smooth);
+  animation: fadeInRight 0.16s ease;
 }
 
 .animate-scaleIn {
-  animation: scaleIn 0.3s var(--ease-smooth);
+  animation: scaleIn 0.16s ease;
 }
 
 .animate-scaleOut {
-  animation: scaleOut 0.3s var(--ease-smooth);
+  animation: scaleOut 0.16s ease;
 }
 
 /* 滑入动画 */
 .animate-slideInUp {
-  animation: slideInUp 0.4s var(--ease-smooth);
+  animation: slideInUp 0.24s ease;
 }
 
 .animate-slideInDown {
-  animation: slideInDown 0.4s var(--ease-smooth);
+  animation: slideInDown 0.24s ease;
 }
 
 .animate-slideInLeft {
-  animation: slideInLeft 0.4s var(--ease-smooth);
+  animation: slideInLeft 0.24s ease;
 }
 
 .animate-slideInRight {
-  animation: slideInRight 0.4s var(--ease-smooth);
+  animation: slideInRight 0.24s ease;
 }
 
 /* 循环动画 */
@@ -522,19 +522,19 @@
   animation-duration: 75ms;
 }
 .duration-100 {
-  animation-duration: 100ms;
+  animation-duration: 0.1s;
 }
 .duration-150 {
-  animation-duration: 150ms;
+  animation-duration: 0.16s;
 }
 .duration-200 {
-  animation-duration: 200ms;
+  animation-duration: 0.16s;
 }
 .duration-300 {
-  animation-duration: 300ms;
+  animation-duration: 0.24s;
 }
 .duration-500 {
-  animation-duration: 500ms;
+  animation-duration: 0.4s;
 }
 .duration-700 {
   animation-duration: 700ms;
@@ -692,8 +692,8 @@
   opacity: 1;
   transform: translateY(0);
   transition:
-    opacity 0.3s var(--ease-smooth),
-    transform 0.3s var(--ease-smooth);
+    opacity 0.16s ease,
+    transform 0.24s ease;
 }
 
 .page-exit {
@@ -705,8 +705,8 @@
   opacity: 0;
   transform: translateY(-10px);
   transition:
-    opacity 0.3s var(--ease-smooth),
-    transform 0.3s var(--ease-smooth);
+    opacity 0.16s ease,
+    transform 0.24s ease;
 }
 
 /* ============================================
@@ -721,8 +721,8 @@
   opacity: 1;
   transform: scale(1);
   transition:
-    opacity 0.2s var(--ease-smooth),
-    transform 0.2s var(--ease-smooth);
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 
 .modal-exit {
@@ -734,8 +734,8 @@
   opacity: 0;
   transform: scale(0.95);
   transition:
-    opacity 0.2s var(--ease-smooth),
-    transform 0.2s var(--ease-smooth);
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 
 /* ============================================
@@ -747,7 +747,7 @@
 
 .drawer-enter-active {
   transform: translateX(0);
-  transition: transform 0.3s var(--ease-smooth);
+  transition: transform 0.24s ease;
 }
 
 .drawer-exit {
@@ -756,7 +756,7 @@
 
 .drawer-exit-active {
   transform: translateX(100%);
-  transition: transform 0.3s var(--ease-smooth);
+  transition: transform 0.24s ease;
 }
 
 /* ============================================
@@ -772,8 +772,8 @@
   opacity: 1;
   transform: scaleY(1) translateY(0);
   transition:
-    opacity 0.15s var(--ease-smooth),
-    transform 0.15s var(--ease-smooth);
+    opacity 0.1s ease,
+    transform 0.1s ease;
 }
 
 .dropdown-exit {
@@ -785,8 +785,8 @@
   opacity: 0;
   transform: scaleY(0.9) translateY(-4px);
   transition:
-    opacity 0.15s var(--ease-smooth),
-    transform 0.15s var(--ease-smooth);
+    opacity 0.1s ease,
+    transform 0.1s ease;
 }
 
 /* ============================================
@@ -801,8 +801,8 @@
   opacity: 1;
   transform: translateY(0);
   transition:
-    opacity 0.3s var(--ease-smooth),
-    transform 0.3s var(--ease-smooth);
+    opacity 0.24s ease,
+    transform 0.24s ease;
 }
 
 .toast-exit {
@@ -814,8 +814,8 @@
   opacity: 0;
   transform: translateY(-16px);
   transition:
-    opacity 0.3s var(--ease-smooth),
-    transform 0.3s var(--ease-smooth);
+    opacity 0.24s ease,
+    transform 0.24s ease;
 }
 
 /* ============================================
@@ -824,7 +824,7 @@
 @keyframes messageAppear {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.98);
+    transform: translateY(4px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -846,7 +846,7 @@
 }
 
 .chat-message {
-  animation: messageAppear 0.4s var(--ease-smooth);
+  animation: messageAppear 0.16s ease;
 }
 
 .typing-dot {
@@ -854,7 +854,7 @@
   height: 8px;
   background: var(--text-tertiary);
   border-radius: var(--radius-full);
-  animation: typing 1.4s ease-in-out infinite;
+  animation: typing 1.4s ease infinite;
 }
 
 .typing-dot:nth-child(1) {

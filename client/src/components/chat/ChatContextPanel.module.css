@@ -46,7 +46,7 @@
 
 .embeddedPanel::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--border-color) 92%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .embeddedPanel::-webkit-scrollbar-thumb:hover {
@@ -75,8 +75,9 @@
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
+  font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--font-semibold);
 }
 
 .sectionHint {
@@ -128,7 +129,7 @@
   border-radius: 999px;
   color: var(--text-primary);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: var(--font-semibold);
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
 }
@@ -150,7 +151,7 @@
 .segmented {
   width: 100%;
   padding: 2px !important;
-  border-radius: 10px !important;
+  border-radius: var(--radius-md) !important;
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent) !important;
 }
 
@@ -160,7 +161,7 @@
 
 .segmented :global(.ant-segmented-item) {
   flex: 1;
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm) !important;
 }
 
 .segmented :global(.ant-segmented-item-label) {
@@ -194,12 +195,12 @@
 
 .panel::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 3px;
+  border-radius: var(--radius-full);
 }
 
 @media (max-width: 992px) {
   .section {
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--bg-elevated);
   }
 }

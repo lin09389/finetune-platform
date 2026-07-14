@@ -2,7 +2,7 @@
   margin-top: 2px;
   overflow: hidden;
   border: 1px solid var(--border-color);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
 }
 
@@ -25,7 +25,7 @@
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 .header:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--accent-primary);
   outline-offset: -2px;
 }
 

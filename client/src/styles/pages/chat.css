@@ -48,7 +48,7 @@
 
 .chat-message {
   margin-bottom: var(--space-4);
-  animation: fadeIn 0.3s var(--ease-smooth);
+  animation: messageAppear 0.16s ease;
 }
 
 .chat-message-user {
@@ -59,6 +59,7 @@
 .chat-message-user .chat-message-content {
   background: var(--accent-primary);
   color: var(--text-inverse);
+  font-family: var(--font-sans);
   border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
   max-width: 70%;
 }
@@ -71,6 +72,7 @@
 .chat-message-assistant .chat-message-content {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  font-family: var(--font-serif);
   border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
   max-width: 80%;
 }
@@ -107,12 +109,12 @@
   font-size: var(--text-sm);
   background: var(--bg-primary);
   color: var(--text-primary);
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .chat-input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.12);
 }
 
 .chat-send-button {
@@ -122,6 +124,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.16s ease;
 }
 
 /* Agent 状态 */

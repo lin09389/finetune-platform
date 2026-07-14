@@ -14,7 +14,7 @@
 .mobileClose {
   width: var(--auxiliary-control-size);
   height: var(--auxiliary-control-size);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .taskCenterTabs {

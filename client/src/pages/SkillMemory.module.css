@@ -4,7 +4,8 @@
 
 .pageTitle {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: var(--font-semibold);
+  font-family: var(--font-display);
   color: var(--text-primary);
   display: flex;
   align-items: center;
@@ -13,7 +14,7 @@
 }
 
 .pageTitle svg {
-  color: var(--primary);
+  color: var(--accent-primary);
 }
 
 /* Stats */
@@ -33,19 +34,20 @@
   align-items: center;
   gap: 14px;
   transition:
-    transform 0.2s,
-    box-shadow 0.2s;
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .statCard:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
 }
 
 .statIcon {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.12);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -66,7 +68,8 @@
 
 .statValue {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: var(--font-semibold);
+  font-family: var(--font-display);
   color: var(--text-primary);
   line-height: 1;
 }
@@ -100,7 +103,7 @@
   color: var(--text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: all 0.16s ease;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -112,8 +115,8 @@
 }
 
 .tabItemActive {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
 }
 
 .tabContent {
@@ -137,18 +140,18 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.16s ease;
   border: none;
 }
 
 .btnDefault {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
 }
 
 .btnDefault:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
 
@@ -181,17 +184,17 @@ table.dataTable thead th {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: rgba(255, 255, 255, 0.03);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   border-bottom: 1px solid var(--border-color);
 }
 
 table.dataTable tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  transition: background 0.15s;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 4%, transparent);
+  transition: background 0.16s ease;
 }
 
 table.dataTable tbody tr:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 
 table.dataTable tbody td {
@@ -211,18 +214,18 @@ table.dataTable tbody td {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
 }
 
 .tagBlue {
-  background: rgba(99, 102, 241, 0.15);
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
   color: var(--accent-primary);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }
 .tagGray {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   color: var(--text-muted);
   border: 1px solid var(--border-color);
 }
@@ -266,10 +269,10 @@ table.dataTable tbody td {
 }
 
 .switchPillOn {
-  background: var(--primary);
+  background: var(--accent-primary);
 }
 .switchPillOff {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
 }
 
 .switchPill::after {
@@ -280,7 +283,7 @@ table.dataTable tbody td {
   border-radius: 50%;
   background: var(--bg-elevated);
   top: 3px;
-  transition: left 0.2s;
+  transition: left 0.16s ease;
 }
 
 .switchPillOn::after {
@@ -294,7 +297,7 @@ table.dataTable tbody td {
 .progressBar {
   height: 6px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
   overflow: hidden;
   width: 100px;
 }
@@ -302,8 +305,8 @@ table.dataTable tbody td {
 .progressFill {
   height: 100%;
   border-radius: 3px;
-  background: var(--primary);
-  transition: width 0.3s;
+  background: var(--accent-primary);
+  transition: width 0.24s ease;
 }
 
 .progressFillGood {
@@ -328,12 +331,12 @@ table.dataTable tbody td {
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  transition: all 0.15s;
+  transition: all 0.16s ease;
   font-size: 13px;
 }
 
 .iconBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 .iconBtnDanger:hover {
@@ -371,7 +374,8 @@ table.dataTable tbody td {
 
 .modalTitle {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
+  font-family: var(--font-display);
   color: var(--text-primary);
 }
 
@@ -418,8 +422,8 @@ table.dataTable tbody td {
   position: absolute;
   inset: 0;
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.12);
-  transition: background 0.2s;
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  transition: background 0.16s ease;
 }
 
 .toggleSlider::before {
@@ -431,18 +435,18 @@ table.dataTable tbody td {
   background: var(--bg-elevated);
   top: 3px;
   left: 3px;
-  transition: transform 0.2s;
+  transition: transform 0.16s ease;
 }
 
 .toggle input:checked + .toggleSlider {
-  background: var(--primary);
+  background: var(--accent-primary);
 }
 .toggle input:checked + .toggleSlider::before {
   transform: translateX(18px);
 }
 
 .formInputNum {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px 10px;
@@ -454,7 +458,7 @@ table.dataTable tbody td {
 }
 
 .btnPrimary {
-  background: var(--primary);
+  background: var(--accent-primary);
   color: var(--text-primary);
   display: inline-flex;
   align-items: center;
@@ -465,11 +469,11 @@ table.dataTable tbody td {
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: all 0.2s;
+  transition: all 0.16s ease;
 }
 
 .btnPrimary:hover {
-  background: var(--primary-hover);
+  background: var(--accent-primary);
 }
 
 .closeBtn {
@@ -484,10 +488,10 @@ table.dataTable tbody td {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all 0.16s ease;
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }

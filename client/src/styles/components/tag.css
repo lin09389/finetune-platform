@@ -3,6 +3,7 @@
    ============================================ */
 
 .ant-tag {
+  font-family: var(--font-sans);
   border-radius: var(--radius-sm);
   font-weight: var(--font-medium);
   padding: 2px 8px;
@@ -12,12 +13,13 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  transition: all 0.16s ease;
 }
 
 .ant-tag-close-icon {
   margin-left: 4px;
   color: var(--text-tertiary);
-  transition: color var(--transition-fast);
+  transition: color 0.16s ease;
 }
 
 .ant-tag-close-icon:hover {
@@ -55,7 +57,7 @@
   background: var(--bg-elevated);
   border-color: var(--border-color);
   color: var(--text-secondary);
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .ant-tag-checkable:hover {

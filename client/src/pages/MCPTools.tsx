@@ -245,7 +245,7 @@ export default function MCPTools() {
         <div className={styles.statsRow}>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <LinkOutlined style={{ color: 'var(--primary)' }} />
+              <LinkOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>已连接服务器</div>
@@ -257,7 +257,7 @@ export default function MCPTools() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <ApiOutlined style={{ color: 'var(--primary)' }} />
+              <ApiOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>可用工具</div>

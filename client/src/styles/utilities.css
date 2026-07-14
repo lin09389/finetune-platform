@@ -765,26 +765,26 @@
   transition: var(--transition-none) !important;
 }
 .transition {
-  transition: var(--transition-all) !important;
+  transition: 0.16s ease !important;
 }
 .transition-fast {
-  transition: var(--transition-fast) !important;
+  transition: 0.1s ease !important;
 }
 .transition-slow {
-  transition: var(--transition-slow) !important;
+  transition: 0.24s ease !important;
 }
 
 .duration-100 {
-  transition-duration: 100ms !important;
+  transition-duration: 0.1s !important;
 }
 .duration-200 {
-  transition-duration: 200ms !important;
+  transition-duration: 0.16s !important;
 }
 .duration-300 {
-  transition-duration: 300ms !important;
+  transition-duration: 0.24s !important;
 }
 .duration-500 {
-  transition-duration: 500ms !important;
+  transition-duration: 0.4s !important;
 }
 
 /* ============================================
@@ -871,8 +871,8 @@
    ============================================ */
 .hover-lift {
   transition:
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .hover-lift:hover {
@@ -881,7 +881,7 @@
 }
 
 .hover-scale {
-  transition: transform var(--transition-fast);
+  transition: transform 0.16s ease;
 }
 
 .hover-scale:hover {

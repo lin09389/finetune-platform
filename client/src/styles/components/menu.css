@@ -1,141 +1,69 @@
-/* ============================================
-   菜单组件样式
-   ============================================ */
-
+/* === Menu (AntD override) — Claude quiet navigation === */
 .ant-menu {
+  border: none;
   background: transparent;
-  border-right: none;
-  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  letter-spacing: var(--tracking-tight);
 }
 
 .ant-menu-item {
-  margin: 4px 12px;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-  height: 40px;
-  line-height: 40px;
-}
-
-.ant-menu-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  margin: 2px 0;
+  width: 100%;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
 .ant-menu-item-selected {
-  background: var(--primary-100) !important;
-  color: var(--text-primary) !important;
+  background: var(--sidebar-item-active);
+  color: var(--text-primary);
   font-weight: var(--font-medium);
 }
 
-.ant-menu-item-selected::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 16px;
-  background: var(--accent-primary);
-  border-radius: 0 2px 2px 0;
+.ant-menu-item:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--text-primary);
 }
 
-.ant-menu-item-icon {
-  font-size: 16px;
-  color: var(--text-tertiary);
-  transition: color var(--transition-fast);
+/* Inline menu */
+.ant-menu-inline {
+  border: none;
 }
 
-.ant-menu-item:hover .ant-menu-item-icon,
-.ant-menu-item-selected .ant-menu-item-icon {
-  color: var(--accent-primary);
+.ant-menu-submenu {
+  border-radius: var(--radius-sm);
 }
 
-/* 子菜单 */
+/* Submenu title */
 .ant-menu-submenu-title {
-  margin: 4px 12px;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-  height: 40px;
-  line-height: 40px;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.16s ease;
 }
 
 .ant-menu-submenu-title:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--sidebar-item-hover);
 }
 
-.ant-menu-submenu-arrow {
-  color: var(--text-tertiary);
-}
-
-.ant-menu-submenu-title:hover .ant-menu-submenu-arrow {
-  color: var(--text-secondary);
-}
-
-.ant-menu-submenu-open > .ant-menu-submenu-title .ant-menu-submenu-arrow {
-  transform: rotate(180deg);
-}
-
-.ant-menu-sub {
-  background: transparent;
-}
-
+/* Submenu items get slight indent and lighter weight */
 .ant-menu-sub .ant-menu-item {
-  padding-left: 48px !important;
+  font-size: var(--text-sm);
 }
 
-/* 菜单组 */
-.ant-menu-item-group-title {
-  padding: 8px 16px;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* 水平菜单 */
+/* Vertical divider in horizontal menus */
 .ant-menu-horizontal {
-  border-bottom: 1px solid var(--border-color);
-  line-height: 60px;
+  border-bottom-color: var(--border-color);
 }
 
-.ant-menu-horizontal > .ant-menu-item,
-.ant-menu-horizontal > .ant-menu-submenu {
-  margin: 0;
-  border-radius: 0;
+/* Menu item icons */
+.ant-menu-item .ant-menu-item-icon,
+.ant-menu-submenu-title .ant-menu-item-icon {
+  font-size: 16px;
+  opacity: 0.8;
+  transition: opacity 0.16s ease;
 }
 
-.ant-menu-horizontal > .ant-menu-item-selected::before {
-  display: none;
-}
-
-.ant-menu-horizontal > .ant-menu-item-selected::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--accent-primary);
-}
-
-/* 暗色菜单 */
-.ant-menu-dark {
-  background: var(--bg-primary);
-}
-
-.ant-menu-dark .ant-menu-item {
-  color: var(--text-secondary);
-}
-
-.ant-menu-dark .ant-menu-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.ant-menu-dark .ant-menu-item-selected {
-  background: var(--accent-primary);
-  color: var(--text-inverse);
+.ant-menu-item-selected .ant-menu-item-icon,
+.ant-menu-item:hover .ant-menu-item-icon {
+  opacity: 1;
 }

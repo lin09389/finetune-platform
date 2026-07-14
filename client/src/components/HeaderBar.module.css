@@ -4,7 +4,7 @@
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border-color) !important;
   border-radius: var(--radius-lg) !important;
-  box-shadow: var(--shadow-xs) !important;
+  box-shadow: var(--shadow-sm) !important;
   display: flex !important;
   align-items: center;
   justify-content: space-between;
@@ -43,13 +43,15 @@
   display: flex !important;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast) !important;
+  transition: all 0.16s ease !important;
 }
 
 .actionBtn:hover {
   border-color: var(--border-hover) !important;
   background: var(--bg-hover) !important;
   color: var(--text-primary) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transform: translateY(-1px);
 }
 
 .themePopup {

@@ -40,6 +40,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'ss01' 1;
+    font-variant-ligatures: common-ligatures contextual;
     scroll-behavior: smooth;
   }
 
@@ -50,12 +52,59 @@
       color var(--transition-base);
   }
 
+  /* Claude editorial display headings — Newsreader serif with optical sizing */
+  .app-content h1,
+  .app-content h2,
+  .app-content h3,
+  .app-content .ant-typography h1,
+  .app-content .ant-typography h2,
+  .app-content .ant-typography h3,
+  .app-content .claude-heading {
+    font-family: var(--font-display);
+    font-weight: var(--font-semibold);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'ss01' 1, 'ss02' 1;
+    font-optical-sizing: auto;
+  }
+
+  .app-content h4,
+  .app-content h5,
+  .app-content h6 {
+    font-family: var(--font-sans);
+    font-weight: var(--font-semibold);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  /* Claude reading surfaces — Lora serif with old-style figures */
+  .reading-text,
+  .chat-message-content,
+  .agent-response-content,
+  .ant-typography p.reading-text {
+    font-family: var(--font-serif);
+    line-height: var(--leading-relaxed);
+    font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 1;
+    font-optical-sizing: auto;
+  }
+
+  /* Code surfaces — Geist Mono with programming ligatures */
+  pre,
+  code,
+  kbd,
+  samp,
+  .ant-typography code,
+  .ant-typography pre {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-feature-settings: 'calt' 0, 'liga' 0;
+  }
+
   /* 焦点环优化 */
   :focus-visible {
     @apply outline-none ring-2 ring-accent-primary ring-offset-2 ring-offset-bg-secondary;
   }
 
-  /* 滚动条优化 */
+  /* 滚动条优化 — Claude premium warm scrollbar */
   ::-webkit-scrollbar {
     @apply w-1.5 h-1.5;
   }
@@ -65,47 +114,141 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--neutral-300, #D4C9B6);
+    background: color-mix(in srgb, var(--border-color) 80%, transparent);
     border-radius: var(--radius-full);
-    transition: background-color var(--transition-fast);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: background-color 0.16s ease;
   }
 
   .dark-theme ::-webkit-scrollbar-thumb {
-    background: var(--neutral-600, #7A7367);
+    background: color-mix(in srgb, var(--border-hover) 70%, transparent);
+    background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--neutral-400, #B8AC95);
+    background: color-mix(in srgb, var(--border-hover) 90%, transparent);
+    background-clip: content-box;
   }
 
   .dark-theme ::-webkit-scrollbar-thumb:hover {
-    background: var(--neutral-500, #9B9384);
+    background: color-mix(in srgb, var(--border-active) 80%, transparent);
+    background-clip: content-box;
   }
 
-  /* 选中文本 */
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+  }
+
+  /* 选中文本 — Claude premium warm selection with text emphasis */
   ::selection {
-    @apply bg-accent-primary text-text-inverse;
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--text-primary);
+    text-shadow: 0 0 0.5px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  }
+
+  ::-moz-selection {
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--text-primary);
+  }
+
+  /* Links — Claude quiet link styling */
+  a {
+    color: var(--text-link);
+    text-decoration: none;
+    transition: color 0.16s ease;
+  }
+
+  a:hover {
+    color: var(--text-link-hover);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+  }
+
+  /* Code blocks — Claude warm dark code surface */
+  pre {
+    background: color-mix(in srgb, var(--text-primary) 6%, var(--bg-secondary));
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+    overflow-x: auto;
+  }
+
+  code {
+    font-size: 0.875em;
+  }
+
+  /* Inline code — subtle warm highlight */
+  :not(pre) > code {
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.85em;
   }
 }
 
 @layer components {
-  /* 全局卡片基础样式 (AntD 覆盖) — Claude quiet paper card */
+  /* 全局卡片基础样式 (AntD 覆盖) — Claude premium paper card */
   .ant-card {
-    @apply rounded-xl shadow-sm border-border-color bg-bg-secondary transition-all duration-base;
+    @apply rounded-xl shadow-sm border-border-color bg-bg-secondary transition-all;
     border-color: color-mix(in srgb, var(--border-color) 82%, transparent);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    background-image: var(--gradient-surface);
+    transition:
+      transform 0.16s ease,
+      box-shadow 0.16s ease,
+      border-color 0.16s ease;
   }
 
   .ant-card:hover {
-    @apply shadow-md border-border-hover;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card-hover);
+    border-color: var(--border-hover);
   }
 
-  /* 按钮基础动效 (AntD 覆盖) — Claude quiet interaction */
+  /* 按钮基础动效 (AntD 覆盖) — Claude premium interaction */
   .ant-btn {
-    @apply rounded-md font-medium transition-all duration-fast;
+    @apply font-medium;
+    border-radius: var(--radius-md);
+    min-height: 40px;
+    transition:
+      background-color 0.16s ease,
+      color 0.16s ease,
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
+  }
+
+  .ant-btn:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
   }
 
   .ant-btn:active {
-    @apply scale-95;
+    transform: scale(0.97);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .ant-btn-primary {
+    box-shadow: var(--shadow-button-primary);
+    background-image: var(--gradient-button);
+  }
+
+  .ant-btn-primary:hover {
+    box-shadow: var(--shadow-button-primary-hover);
+    transform: translateY(-1px);
+  }
+
+  .ant-btn-primary:active {
+    transform: scale(0.97);
+    box-shadow: var(--shadow-sm);
   }
 
   /* 骨架屏动画 */
@@ -116,8 +259,20 @@
 
 @layer utilities {
   .glass-effect {
-    background: var(--surface-card, var(--bg-secondary));
-    border: 1px solid var(--surface-border, var(--border-color));
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-effect::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--glass-reflection);
+    pointer-events: none;
   }
 
   /* 阅读正文工具类 - Lora 衬线，宽松行距 */
@@ -161,7 +316,7 @@
 }
 
 .app-content {
-  animation: surface-rise 350ms var(--ease-smooth);
+  animation: surface-rise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* 减少动画偏好支持 */
@@ -242,7 +397,7 @@
 }
 
 :where(.ant-btn, .ant-input, .ant-input-affix-wrapper, .ant-select-selector, .ant-picker, .ant-segmented) {
-  min-height: 36px;
+  min-height: 40px;
 }
 
 .ant-btn-icon-only {
@@ -280,9 +435,12 @@
 .ant-dropdown-menu,
 .ant-picker-dropdown,
 .ant-cascader-dropdown {
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-xl) !important;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  background: var(--glass-bg) !important;
   overflow: hidden;
 }
 
@@ -363,11 +521,13 @@
 .ant-modal-content,
 .ant-drawer-content,
 .ant-popover-inner {
-  border: 1px solid var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--border-color) 65%, transparent);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .ant-popover-inner {
-  background: var(--bg-secondary);
+  background: var(--glass-bg);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
 }

@@ -1,204 +1,87 @@
-/* ============================================
-   输入框组件样式
-   ============================================ */
-
+/* === Input (AntD override) — Claude premium field styling === */
 .ant-input,
 .ant-input-affix-wrapper,
 .ant-input-number,
-.ant-select-selector {
-  min-height: 40px !important;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+.ant-select .ant-select-selector {
   border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
+  border-color: color-mix(in srgb, var(--border-color) 75%, transparent);
+  background: var(--bg-100);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background-color 0.16s ease;
 }
 
 .ant-input:hover,
 .ant-input-affix-wrapper:hover,
-.ant-input-number:hover,
-.ant-select-selector:hover {
+.ant-select .ant-select-selector:hover,
+.ant-input-number:hover {
   border-color: var(--border-hover);
 }
 
 .ant-input:focus,
-.ant-input-affix-wrapper:focus,
 .ant-input-focused,
 .ant-input-affix-wrapper-focused,
-.ant-input-number-focused,
-.ant-select-focused .ant-select-selector {
-  border-color: var(--accent-primary) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent) !important;
-  outline: none;
+.ant-select-focused .ant-select-selector,
+.ant-input-number-focused {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-focus-glow);
 }
 
-.ant-input::placeholder,
-.ant-select-selection-placeholder {
+.ant-input::placeholder {
   color: var(--text-tertiary);
 }
 
-.ant-input:disabled,
-.ant-input-affix-wrapper-disabled,
-.ant-input-number-disabled,
-.ant-select-disabled .ant-select-selector {
-  background: var(--bg-disabled) !important;
-  border-color: var(--border-color) !important;
-  color: var(--text-disabled) !important;
-  cursor: not-allowed !important;
-  opacity: 0.7;
+/* Large inputs */
+.ant-input-lg,
+.ant-input-affix-wrapper-lg,
+.ant-select-lg .ant-select-selector {
+  border-radius: var(--radius);
+  min-height: 46px;
 }
 
-.ant-input-status-error,
-.ant-input-affix-wrapper-status-error,
-.ant-input-number-status-error,
-.ant-select-status-error .ant-select-selector {
-  border-color: var(--error) !important;
-}
-
-.ant-input-status-error:focus,
-.ant-input-affix-wrapper-status-error:focus,
-.ant-input-status-error-focused,
-.ant-input-affix-wrapper-status-error-focused,
-.ant-input-number-status-error-focused,
-.ant-select-status-error.ant-select-focused .ant-select-selector {
-  border-color: var(--error) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 15%, transparent) !important;
-}
-
-.ant-input-lg {
-  padding: var(--space-2-5) var(--space-4);
-  font-size: var(--text-base);
-  border-radius: var(--radius-md);
-}
-
-.ant-input-sm {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-sm);
+/* Small inputs */
+.ant-input-sm,
+.ant-input-affix-wrapper-sm,
+.ant-select-sm .ant-select-selector {
   border-radius: var(--radius-sm);
+  min-height: 32px;
 }
 
-/* 输入框组 */
-.ant-input-group-addon {
-  background: var(--bg-elevated);
-  border-color: var(--border-color);
-  color: var(--text-secondary);
+/* Search input */
+.ant-input-search .ant-btn {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
-.ant-input-group > .ant-input:first-child {
+.ant-input-search > .ant-input-group > .ant-input {
   border-radius: var(--radius-md) 0 0 var(--radius-md);
 }
 
-.ant-input-group > .ant-input:last-child {
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-}
-
-/* 密码输入框 */
-.ant-input-password {
-  position: relative;
-}
-
-.ant-input-password .ant-input {
-  padding-right: var(--space-10);
-}
-
-.ant-input-password-icon {
-  color: var(--text-tertiary);
-  transition: color var(--transition-fast);
-}
-
-.ant-input-password-icon:hover {
-  color: var(--text-primary);
-}
-
-/* 搜索框 */
-.ant-input-search .ant-input-group-addon {
-  background: transparent;
-  border: none;
-  padding: 0;
-}
-
-.ant-input-search .ant-input-search-button {
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-}
-
-/* 文本域 */
-.ant-input-textarea textarea {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+/* Textarea */
+.ant-input {
   border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-  resize: vertical;
 }
 
-.ant-input-textarea textarea:hover {
-  border-color: var(--border-hover);
+textarea.ant-input {
+  border-radius: var(--radius-md);
+  line-height: var(--leading-relaxed);
 }
 
-.ant-input-textarea textarea:focus {
+/* Checkbox & Radio — Claude accent */
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--accent-primary);
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-radius: 4px;
 }
 
-.ant-input-textarea-show-count::after {
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
+.ant-radio-checked .ant-radio-inner {
+  border-color: var(--accent-primary);
+}
+.ant-radio-inner::after {
+  background-color: var(--accent-primary);
 }
 
-/* 数字输入框 */
-.ant-input-number {
-  /* 已统一由全局控制 */
-}
-
-.ant-input-number-handler {
-  border-color: var(--border-color);
-  color: var(--text-secondary);
-}
-
-.ant-input-number-handler:hover {
-  color: var(--accent-primary);
-}
-
-.ant-input-number-handler-up-inner,
-.ant-input-number-handler-down-inner {
-  color: var(--text-secondary);
-}
-
-/* 前缀和后缀 */
-.ant-input-prefix,
-.ant-input-suffix {
-  color: var(--text-tertiary);
-}
-
-.ant-input-affix-wrapper-focused .ant-input-prefix,
-.ant-input-affix-wrapper-focused .ant-input-suffix {
-  color: var(--text-secondary);
-}
-
-/* 允许清除 */
-.ant-input-clear-icon {
-  color: var(--text-tertiary);
-  transition: color var(--transition-fast);
-}
-
-.ant-input-clear-icon:hover {
-  color: var(--text-secondary);
-}
-
-/* 状态样式 */
-.ant-input-status-error {
-  border-color: var(--error) !important;
-}
-
-.ant-input-status-error:focus {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 12%, transparent) !important;
-}
-
-.ant-input-status-warning {
-  border-color: var(--warning) !important;
-}
-
-.ant-input-status-warning:focus {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 12%, transparent) !important;
+/* Switch — Claude accent */
+.ant-switch-checked {
+  background-color: var(--accent-primary);
 }

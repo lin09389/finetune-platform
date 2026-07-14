@@ -5,9 +5,9 @@ import { Transition, Variants } from 'framer-motion';
  */
 export const duration = {
   instant: 0.1,
-  fast: 0.12,
-  base: 0.18,
-  smooth: 0.25,
+  fast: 0.1,
+  base: 0.16,
+  smooth: 0.24,
   slow: 0.4,
 };
 
@@ -16,11 +16,11 @@ export const duration = {
  */
 export const easings = {
   // 顶级丝滑指数衰减，极速响应+柔和收尾
-  smoothOut: [0.23, 1, 0.32, 1] as [number, number, number, number],
+  smoothOut: [0.16, 1, 0.3, 1] as [number, number, number, number],
   // 快速干脆的退出，不拖泥带水
   smoothIn: [0.75, 0, 0.25, 1] as [number, number, number, number],
   // Apple风格标准缓动
-  easeInOut: [0.65, 0, 0.35, 1] as [number, number, number, number],
+  easeInOut: [0.16, 1, 0.3, 1] as [number, number, number, number],
 };
 
 /**
@@ -64,9 +64,9 @@ export const transitions = {
  * 通用变体预设 (Variants)
  */
 export const pageVariants: Variants = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0, transition: transitions.smooth },
-  exit: { opacity: 0, y: -6, transition: transitions.fast },
+  initial: { opacity: 0, y: 4 },
+  animate: { opacity: 1, y: 0, transition: transitions.base },
+  exit: { opacity: 0, y: -4, transition: transitions.fast },
 };
 
 export const buttonVariants: Variants = {
@@ -95,7 +95,7 @@ export const staggerContainer: Variants = {
 };
 
 export const staggerItem: Variants = {
-  initial: { opacity: 0, y: 6 },
+  initial: { opacity: 0, y: 4 },
   animate: { opacity: 1, y: 0, transition: transitions.base },
 };
 

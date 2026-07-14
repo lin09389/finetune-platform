@@ -17,6 +17,7 @@
 }
 
 .ant-modal-title {
+  font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
@@ -26,7 +27,7 @@
   top: var(--space-4);
   right: var(--space-4);
   color: var(--text-tertiary);
-  transition: color var(--transition-fast);
+  transition: color 0.16s ease;
 }
 
 .ant-modal-close:hover {
@@ -35,6 +36,7 @@
 
 .ant-modal-body {
   padding: var(--space-6);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--text-primary);
 }
@@ -56,12 +58,14 @@
 }
 
 .ant-modal-confirm-title {
-  font-size: var(--text-base);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
 }
 
 .ant-modal-confirm-content {
+  font-family: var(--font-sans);
   color: var(--text-secondary);
   margin-top: var(--space-2);
 }

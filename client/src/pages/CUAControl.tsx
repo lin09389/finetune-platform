@@ -220,7 +220,7 @@ export const CUAControl: React.FC = () => {
         <div className={styles.statsRow}>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <MonitorOutlined style={{ color: 'var(--primary)' }} />
+              <MonitorOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>屏幕分辨率</div>
@@ -231,7 +231,7 @@ export const CUAControl: React.FC = () => {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <DesktopOutlined style={{ color: 'var(--primary)' }} />
+              <DesktopOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>显示器数量</div>

@@ -4,13 +4,14 @@
 
 .ant-table {
   background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
 .ant-table-thead > tr > th {
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-color);
+  font-family: var(--font-sans);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   padding: var(--space-3) var(--space-4);
@@ -24,7 +25,7 @@
 .ant-table-tbody > tr > td {
   border-bottom: 1px solid var(--border-color);
   padding: var(--space-3) var(--space-4);
-  transition: background var(--transition-fast);
+  transition: background 0.16s ease;
   font-size: var(--text-sm);
   color: var(--text-primary);
 }
@@ -49,6 +50,7 @@
 /* 表格排序 */
 .ant-table-column-sorter {
   color: var(--text-tertiary);
+  transition: color 0.16s ease;
 }
 
 .ant-table-column-sorter-up.active,
@@ -59,6 +61,7 @@
 /* 表格筛选 */
 .ant-table-filter-trigger {
   color: var(--text-tertiary);
+  transition: color 0.16s ease;
 }
 
 .ant-table-filter-trigger:hover,
@@ -90,6 +93,7 @@
   color: var(--text-secondary);
   border-color: var(--border-color);
   background: transparent;
+  transition: color 0.16s ease, border-color 0.16s ease;
 }
 
 .ant-table-row-expand-icon:hover {
@@ -131,12 +135,14 @@
 }
 
 .ant-pagination-item {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border-color: var(--border-color);
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
 .ant-pagination-item a {
   color: var(--text-primary);
+  transition: color 0.16s ease;
 }
 
 .ant-pagination-item:hover {
@@ -158,12 +164,13 @@
 
 .ant-pagination-prev,
 .ant-pagination-next {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .ant-pagination-prev button,
 .ant-pagination-next button {
   color: var(--text-secondary);
+  transition: color 0.16s ease;
 }
 
 .ant-pagination-prev:hover button,

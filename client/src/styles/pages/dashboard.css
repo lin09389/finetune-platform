@@ -28,10 +28,11 @@
 .dashboard-stat-card {
   position: relative;
   overflow: hidden;
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .dashboard-stat-card:hover {
+  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
   border-color: var(--border-hover);
 }
@@ -59,10 +60,11 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition: all var(--transition-fast);
+  transition: all 0.16s ease;
 }
 
 .quick-action-card:hover {
+  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
   border-color: var(--border-hover);
 }

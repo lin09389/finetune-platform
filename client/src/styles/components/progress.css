@@ -20,7 +20,7 @@
 .ant-progress-bg {
   background: var(--accent-primary);
   border-radius: var(--radius-full);
-  transition: width var(--transition-slow);
+  transition: width 0.16s ease;
 }
 
 /* 进度条状态 */
@@ -35,6 +35,7 @@
 .ant-progress-status-active .ant-progress-bg::before {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
   animation: progress-active 2.4s infinite;
+  transition: background 0.16s ease;
 }
 
 @keyframes progress-active {
@@ -55,9 +56,11 @@
 /* 进度文字 */
 .ant-progress-text {
   color: var(--text-primary);
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   margin-left: var(--space-2);
+  transition: color 0.16s ease;
 }
 
 /* 圆形进度条 */
@@ -72,6 +75,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   margin: 0;
+  font-family: var(--font-mono);
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
 }
@@ -82,7 +86,7 @@
 
 .ant-progress-circle .ant-progress-circle-path {
   stroke: var(--accent-primary);
-  transition: stroke-dashoffset var(--transition-slow);
+  transition: stroke-dashoffset 0.16s ease;
 }
 
 .ant-progress-status-success .ant-progress-circle-path {
@@ -113,7 +117,7 @@
   height: 8px;
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
+  transition: background 0.16s ease;
 }
 
 .ant-progress-steps-item-active {
