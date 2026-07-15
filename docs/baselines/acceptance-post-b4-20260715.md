@@ -126,7 +126,7 @@ Direct pack call on fixture (scratch `b1-direct-inventory-check.log`): inventory
 
 **Phase B close-out: PASS**
 
-1. Offline Phase B contract suite green (44).  
+1. Offline Phase B contract suite green on **clean HEAD: 43 passed** (authoritative: `phase-b-offline-clean-head-final.log` / `phase-b-offline-post-commit.log`). Dirty-WIP “44 passed” is superseded and not used as the pass bar.  
 2. Live C1/C3/C5 all terminal `completed` with `completed_ok=1` and verify 1/1.  
 3. B1 proven live after API restart on C1; B3 recovery_state observed; B4 multi-file fields present when gate runs (single-file path).  
 4. B5 remains suspended. Unrelated training/gpu/permission WIP left unstaged.
@@ -138,8 +138,9 @@ Direct pack call on fixture (scratch `b1-direct-inventory-check.log`): inventory
 | `docs/baselines/acceptance-post-b4-20260715.md` | this record |
 | `tmp/baseline/results/baseline-20260715-230657-deepseek-v4-flash.*` | live C1/C3/C5 |
 | `tmp/baseline/results/baseline-20260715-231038-deepseek-v4-flash.*` | post-restart C1 |
-| goal scratch `phase-b-offline-pytest.log` | first offline run (1 fail) |
-| goal scratch `phase-b-offline-pytest-rerun.log` | green offline |
+| goal scratch `phase-b-offline-clean-head-final.log` | **authoritative** clean-HEAD offline (43 passed) |
+| goal scratch `phase-b-offline-post-commit.log` | post `knowledge_binding` commit re-run (43 passed) |
+| goal scratch `phase-b-offline-clean-head-after-kb-fix.log` | after shipping module (39 then +kb tests) |
 | goal scratch `baseline-c1-c3-c5.log` | live triple |
 | goal scratch `baseline-c1-post-restart.log` | B1 live |
 | goal scratch `b1-b3-b4-crosscheck.json` | first-batch metadata |
