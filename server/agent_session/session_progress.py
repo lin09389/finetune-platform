@@ -256,7 +256,12 @@ def _command_from_event(event: dict[str, Any]) -> str:
 
 
 def apply_recovery_event(metadata: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-    """Update recovery_state: failed execute requires observation before same command retry."""
+    """Update recovery_state after tool events.
+
+    B3 (lean): any failed execute requires an observation tool
+    (read_file/grep/ls/glob) before the next execute — not only the same command.
+    Successful execute alone does not clear the latch (prevents command-thrash).
+    """
     next_metadata = dict(metadata)
     recovery = dict(next_metadata.get(RECOVERY_STATE_KEY) or empty_recovery_state())
     event_type = str(event.get("event_type") or "")
@@ -281,25 +286,17 @@ def apply_recovery_event(metadata: dict[str, Any], event: dict[str, Any]) -> dic
             recovery["updated_at"] = _now_iso()
             next_metadata[RECOVERY_STATE_KEY] = recovery
         return next_metadata
-    if event_type == "tool_call_completed" and tool in {"execute", "bash", "shell"}:
-        # Successful different command also clears the latch.
-        command = _command_from_event(event)
-        last = recovery.get("last_failed_execute") if isinstance(recovery.get("last_failed_execute"), dict) else {}
-        if last and normalize_command(str(last.get("command") or "")) != command:
-            recovery["require_observation_before_retry"] = False
-            recovery["cleared_by"] = "different_execute"
-            recovery["updated_at"] = _now_iso()
-            next_metadata[RECOVERY_STATE_KEY] = recovery
-        elif not last:
-            recovery["require_observation_before_retry"] = False
-            recovery["updated_at"] = _now_iso()
-            next_metadata[RECOVERY_STATE_KEY] = recovery
-        return next_metadata
+    # B3: do not clear the latch on successful execute (same or different command).
+    # Only observation tools clear require_observation_before_retry.
     return next_metadata
 
 
 def evaluate_execute_blind_retry(metadata: dict[str, Any] | None, command: str) -> dict[str, Any] | None:
-    """Return a block payload if the same failed execute is retried without observation."""
+    """Return a block payload if execute is attempted before observing after a failure.
+
+    Step 2 covered same-command blind retry. B3 extends this: while the recovery
+    latch is set, *any* execute is blocked until read_file/grep/ls/glob completes.
+    """
     meta = dict(metadata or {})
     recovery = meta.get(RECOVERY_STATE_KEY) if isinstance(meta.get(RECOVERY_STATE_KEY), dict) else {}
     if not recovery.get("require_observation_before_retry"):
@@ -307,17 +304,22 @@ def evaluate_execute_blind_retry(metadata: dict[str, Any] | None, command: str) 
     last = recovery.get("last_failed_execute") if isinstance(recovery.get("last_failed_execute"), dict) else {}
     last_cmd = normalize_command(str(last.get("command") or ""))
     this_cmd = normalize_command(command)
-    if not last_cmd or last_cmd != this_cmd:
-        return None
+    same_cmd = bool(last_cmd) and last_cmd == this_cmd
+    reason_code = "blind_execute_retry" if same_cmd else "execute_without_observation"
+    error_excerpt = str(last.get("error_excerpt") or "")[:200]
+    last_hint = f"上次失败命令：`{last_cmd[:200]}`。" if last_cmd else ""
+    same_hint = "（与上次完全相同）" if same_cmd else "（即使命令不同也不允许在未观察前连试）"
     return {
-        "reason_code": "blind_execute_retry",
+        "reason_code": reason_code,
         "message": (
-            "已阻止盲目重试相同的失败命令。"
-            f"上次 execute 失败：`{last_cmd[:200]}`。"
-            "请先用 read_file/grep 查看真实错误与源码，修改后再用不同或修复后的验证命令重试。"
-            f"错误摘要：{str(last.get('error_excerpt') or '')[:200]}"
+            "已阻止失败后未观察的 execute。"
+            f"{last_hint}"
+            f"当前命令{same_hint}：`{this_cmd[:200] or '（空）'}`。"
+            "请先用 read_file / grep / ls / glob 查看错误输出与相关源码，理清原因后再执行。"
+            f"错误摘要：{error_excerpt}"
         ),
         "command": this_cmd,
+        "same_command": same_cmd,
     }
 
 
@@ -611,8 +613,8 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
     if snap.get("require_observation_before_retry"):
         cmd = str(snap.get("last_failed_command") or "")[:160]
         lines.append(
-            f"- **失败恢复门闩**：上次 execute 失败（`{cmd}`）。"
-            "禁止原样重试同一命令；先 read_file/grep 查清错误再改。"
+            f"- **失败恢复门闩（B3）**：上次 execute 失败（`{cmd}`）。"
+            "在 read_file/grep/ls/glob 观察之前，禁止再次 execute（不限是否同一命令）。"
         )
     reread = list(snap.get("reread_required") or [])
     if reread:
@@ -625,8 +627,10 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
             todos.append("对已写源码运行并通过测试/类型检查/lint 或语法检查")
     if reread:
         todos.append("先 read 再 edit，不要重复提交相同失败写入")
-    if snap.get("require_observation_before_retry") or int(snap.get("tools_failed") or 0) > 0:
-        todos.append("失败后先检查真实错误输出，禁止盲目重试同一命令")
+    if snap.get("require_observation_before_retry"):
+        todos.append("先观察错误与源码，再决定修复或重新验证；禁止连试不同 execute")
+    elif int(snap.get("tools_failed") or 0) > 0:
+        todos.append("失败后先检查真实错误输出，禁止盲目重试")
     if int(snap.get("tools_total") or 0) >= SOFT_TOOL_BUDGET:
         todos.append("停止大范围探索，聚焦修改与验证后收尾")
     if todos:

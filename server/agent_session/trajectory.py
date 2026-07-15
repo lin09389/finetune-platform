@@ -976,7 +976,7 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         )
 
     def _check_step2_preconditions(self, tool: str, args: dict[str, Any]) -> ToolMessage | None:
-        """Block blind execute retries and enforce exploration budget (Step 2)."""
+        """Block post-failure execute without observation (Step2+B3) and exploration budget."""
         from agent_session.session_progress import (
             evaluate_execute_blind_retry,
             evaluate_exploration_budget,
@@ -994,8 +994,8 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
                 return self.store.block(
                     tool,
                     "",
-                    str(blind.get("reason_code") or "blind_execute_retry"),
-                    str(blind.get("message") or "已阻止盲目重试失败命令。"),
+                    str(blind.get("reason_code") or "execute_without_observation"),
+                    str(blind.get("message") or "已阻止失败后未观察的 execute。"),
                 )
 
         budget = evaluate_exploration_budget(metadata, tool=tool)

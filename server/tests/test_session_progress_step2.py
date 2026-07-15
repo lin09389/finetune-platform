@@ -1,4 +1,4 @@
-"""Step 2: blind execute retry, exploration budget, summary enrichment."""
+"""Step 2 + B3: post-failure observation latch, exploration budget, summary enrichment."""
 from __future__ import annotations
 
 from agent_session.session_progress import (
@@ -6,6 +6,7 @@ from agent_session.session_progress import (
     SOFT_TOOL_BUDGET,
     apply_recovery_event,
     apply_tool_event,
+    build_working_state_card,
     empty_tool_metrics,
     enrich_final_summary,
     evaluate_execute_blind_retry,
@@ -20,7 +21,8 @@ def test_normalize_command_collapses_whitespace():
     assert normalize_command("  python  -m   pytest  ") == "python -m pytest"
 
 
-def test_recovery_blocks_same_failed_execute_until_observation():
+def test_recovery_blocks_same_and_different_execute_until_observation():
+    """B3: latch blocks any execute after failure until observe tools run."""
     metadata = reset_tool_metrics({})
     metadata = apply_recovery_event(
         metadata,
@@ -34,12 +36,31 @@ def test_recovery_blocks_same_failed_execute_until_observation():
         },
     )
     assert metadata["recovery_state"]["require_observation_before_retry"] is True
-    block = evaluate_execute_blind_retry(metadata, "python cli.py -1")
-    assert block is not None
-    assert block["reason_code"] == "blind_execute_retry"
 
-    # Different command is allowed.
-    assert evaluate_execute_blind_retry(metadata, "python cli.py 1") is None
+    same = evaluate_execute_blind_retry(metadata, "python cli.py -1")
+    assert same is not None
+    assert same["reason_code"] == "blind_execute_retry"
+    assert same["same_command"] is True
+
+    # B3: different command is also blocked until observation.
+    other = evaluate_execute_blind_retry(metadata, "python cli.py 1")
+    assert other is not None
+    assert other["reason_code"] == "execute_without_observation"
+    assert other["same_command"] is False
+
+    # Successful different execute must NOT clear the latch (anti thrash).
+    metadata = apply_recovery_event(
+        metadata,
+        {
+            "event_type": "tool_call_completed",
+            "payload": {
+                "tool": "execute",
+                "part": {"payload": {"input": {"command": "python cli.py 1"}}},
+            },
+        },
+    )
+    assert metadata["recovery_state"]["require_observation_before_retry"] is True
+    assert evaluate_execute_blind_retry(metadata, "python -m py_compile cli.py") is not None
 
     # Observation clears latch.
     metadata = apply_recovery_event(
@@ -47,7 +68,28 @@ def test_recovery_blocks_same_failed_execute_until_observation():
         {"event_type": "tool_call_completed", "payload": {"tool": "read_file"}},
     )
     assert metadata["recovery_state"]["require_observation_before_retry"] is False
+    assert metadata["recovery_state"]["cleared_by"] == "read_file"
     assert evaluate_execute_blind_retry(metadata, "python cli.py -1") is None
+    assert evaluate_execute_blind_retry(metadata, "python cli.py 1") is None
+
+
+def test_working_state_card_mentions_b3_latch():
+    metadata = reset_tool_metrics({})
+    metadata = apply_recovery_event(
+        metadata,
+        {
+            "event_type": "tool_call_failed",
+            "payload": {
+                "tool": "execute",
+                "error": "TypeError",
+                "part": {"payload": {"input": {"command": "npx tsc --noEmit"}}},
+            },
+        },
+    )
+    card = build_working_state_card(metadata)
+    assert "失败恢复门闩" in card
+    assert "不限" in card or "B3" in card
+    assert "npx tsc" in card
 
 
 def test_exploration_budget_soft_then_hard():
