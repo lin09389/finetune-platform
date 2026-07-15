@@ -585,6 +585,21 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
             + ("、".join(f"`{p}`" for p in scope_paths[:8]) if scope_paths else "（仅备注）")
             + ("；写入范围外会被拦截" if scope_paths else "")
         )
+    # Phase B1: surface kickoff inventory / project retrieval observability when present.
+    deep = meta.get("deep_context") if isinstance(meta.get("deep_context"), dict) else {}
+    eng = deep.get("context_engineering") if isinstance(deep.get("context_engineering"), dict) else {}
+    inv = eng.get("workspace_inventory") if isinstance(eng.get("workspace_inventory"), dict) else {}
+    pr = eng.get("project_retrieval") if isinstance(eng.get("project_retrieval"), dict) else {}
+    if inv or pr:
+        pr_status = pr.get("status") or "unknown"
+        inv_status = inv.get("status") or "unknown"
+        reads = [str(p) for p in (inv.get("recommended_reads") or []) if str(p).strip()][:4]
+        line = f"- **上下文（B1）**：project_retrieval=`{pr_status}`；inventory=`{inv_status}`"
+        if reads:
+            line += "；建议先读 " + "、".join(f"`/workspace/{p}`" for p in reads)
+        elif inv_status == "ok":
+            line += "；见 `/context/retrieval/workspace-inventory.md`"
+        lines.append(line)
     recipe = meta.get("verify_recipe") if isinstance(meta.get("verify_recipe"), dict) else None
     # Phase B2: path-aware verify recommendations (prefer over raw recipe list).
     verify_rec = None

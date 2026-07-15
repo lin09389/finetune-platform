@@ -54,6 +54,8 @@ async def build_deepagents_context_pack(
     user_id: str = "default",
     task_scope: dict[str, Any] | None = None,
     verify_recipe: dict[str, Any] | None = None,
+    knowledge_collection_id: str | None = None,
+    session_metadata: dict[str, Any] | None = None,
 ) -> DeepAgentsContextPack:
     """Build a bounded prompt plus /context files for a DeepAgents run."""
 
@@ -104,10 +106,54 @@ async def build_deepagents_context_pack(
     if related:
         files[f"{CONTEXT_ROOT}/retrieval/related.md"] = _limit(_related_context_text(related), MAX_CONTEXT_FILE_CHARS)
 
-    retrieved_pack = await _build_retrieval_pack(goal, project_path, session_id=session_id, user_id=user_id)
+    # Phase B1: shallow workspace inventory (works without embeddings/index).
+    inventory = _build_workspace_inventory(goal, project_path, task_scope=task_scope)
+    metadata["workspace_inventory"] = _inventory_public_meta(inventory)
+    if inventory.get("status") == "ok" and inventory.get("markdown"):
+        files[f"{CONTEXT_ROOT}/retrieval/workspace-inventory.md"] = _limit(
+            str(inventory.get("markdown") or ""),
+            MAX_CONTEXT_FILE_CHARS,
+        )
+
+    from context.knowledge_binding import resolve_agent_knowledge_collection
+
+    collection_id = knowledge_collection_id
+    knowledge_obs: dict[str, Any]
+    if collection_id is not None and str(collection_id).strip():
+        knowledge_obs = {
+            "status": "configured",
+            "source": "explicit",
+            "collection_id": str(collection_id).strip(),
+            "use_knowledge": True,
+        }
+        collection_id = str(collection_id).strip()
+    else:
+        collection_id, knowledge_obs = resolve_agent_knowledge_collection(session_metadata)
+
+    retrieved_pack, project_retrieval = await _build_retrieval_pack(
+        goal,
+        project_path,
+        session_id=session_id,
+        user_id=user_id,
+        knowledge_collection_id=collection_id,
+    )
+    metadata["project_retrieval"] = project_retrieval
+    metadata["knowledge_binding"] = knowledge_obs
     if retrieved_pack and retrieved_pack.context_text:
         files.update(_context_pack_files(retrieved_pack))
         metadata["retrieval"] = retrieved_pack.to_dict()
+        if retrieved_pack.warnings:
+            metadata.setdefault("warnings", [])
+            if isinstance(metadata["warnings"], list):
+                metadata["warnings"].extend(list(retrieved_pack.warnings)[:8])
+    elif knowledge_obs.get("status") == "not_configured":
+        metadata.setdefault("warnings", [])
+        if isinstance(metadata["warnings"], list):
+            metadata["warnings"].append("knowledge_not_configured")
+    elif knowledge_obs.get("status") == "disabled":
+        metadata.setdefault("warnings", [])
+        if isinstance(metadata["warnings"], list):
+            metadata["warnings"].append("knowledge_disabled")
 
     kickoff_brief = _kickoff_brief(
         goal=goal,
@@ -115,6 +161,8 @@ async def build_deepagents_context_pack(
         explicit_context=explicit_context,
         related=related,
         retrieved_pack=retrieved_pack,
+        inventory=inventory,
+        project_retrieval=project_retrieval,
     )
     file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
     virtual_file_list = "\n".join(file_lines) if file_lines else "- 无"
@@ -169,18 +217,26 @@ async def _build_retrieval_pack(
     *,
     session_id: str | None,
     user_id: str,
-) -> ContextPack | None:
-    if not project_path:
-        return None
+    knowledge_collection_id: str | None = None,
+) -> tuple[ContextPack | None, dict[str, Any]]:
+    """Return (pack, project_retrieval observability).
+
+    Knowledge is enabled only when ``knowledge_collection_id`` is non-empty
+    (session/workspace binding). Failures stay non-blocking via pack warnings.
+    """
+    if not project_path and not knowledge_collection_id:
+        return None, {"status": "skipped", "reason": "no_project_path", "project_source_count": 0}
+    use_knowledge = bool(knowledge_collection_id and str(knowledge_collection_id).strip())
     try:
-        return await get_context_builder().build(
+        pack = await get_context_builder().build(
             query=goal,
             user_id=user_id,
             session_id=session_id,
             options=ContextBuildOptions(
                 use_memory=True,
-                use_knowledge=False,
-                use_project_context=True,
+                use_knowledge=use_knowledge,
+                use_project_context=bool(project_path),
+                knowledge_collection_id=str(knowledge_collection_id).strip() if use_knowledge else None,
                 project_path=project_path,
                 max_context_tokens=3200,
                 reserved_output_tokens=1024,
@@ -188,9 +244,27 @@ async def _build_retrieval_pack(
                 project_max_tokens=2200,
             ),
         )
+        project_count = sum(1 for source in pack.sources if source.kind == "project")
+        knowledge_count = sum(1 for source in pack.sources if source.kind == "knowledge")
+        status = "ok" if project_count > 0 or knowledge_count > 0 or pack.memory_count else "empty"
+        return pack, {
+            "status": status,
+            "reason": None if (project_count or knowledge_count or pack.memory_count) else "no_project_sources",
+            "project_source_count": project_count,
+            "knowledge_source_count": knowledge_count,
+            "use_knowledge": use_knowledge,
+            "knowledge_collection_id": str(knowledge_collection_id).strip() if use_knowledge else None,
+            "total_sources": len(pack.sources),
+            "warnings": list(pack.warnings or [])[:6],
+        }
     except Exception as exc:
         logger.debug("DeepAgents retrieval context build failed: %s", exc, exc_info=True)
-        return None
+        return None, {
+            "status": "error",
+            "reason": str(exc)[:200],
+            "project_source_count": 0,
+            "use_knowledge": use_knowledge,
+        }
 
 
 def _context_pack_files(pack: ContextPack) -> dict[str, str]:
@@ -255,6 +329,8 @@ def _kickoff_brief(
     explicit_context: list[dict[str, Any]] | None,
     related: list[dict[str, Any]],
     retrieved_pack: ContextPack | None,
+    inventory: dict[str, Any] | None = None,
+    project_retrieval: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         "## Task",
@@ -268,7 +344,16 @@ def _kickoff_brief(
         lines.extend(_related_context_brief(related))
     if retrieved_pack and retrieved_pack.sources:
         lines.extend(_retrieval_sources_brief(retrieved_pack))
-    lines.extend(_recommended_first_actions(active_context, explicit_context, related, retrieved_pack))
+    lines.extend(_inventory_brief(inventory, project_retrieval))
+    lines.extend(
+        _recommended_first_actions(
+            active_context,
+            explicit_context,
+            related,
+            retrieved_pack,
+            inventory=inventory,
+        )
+    )
     return _limit("\n".join(lines).strip(), MAX_KICKOFF_BRIEF_CHARS)
 
 
@@ -345,6 +430,8 @@ def _recommended_first_actions(
     explicit_context: list[dict[str, Any]] | None,
     related: list[dict[str, Any]],
     retrieved_pack: ContextPack | None,
+    *,
+    inventory: dict[str, Any] | None = None,
 ) -> list[str]:
     candidate_paths: list[str] = []
     if active_context and active_context.get("file_path"):
@@ -357,18 +444,108 @@ def _recommended_first_actions(
             candidate_paths.append(str(item.get("path")))
     if retrieved_pack:
         for source in retrieved_pack.sources:
-            if source.kind == "project" and source.path and _looks_like_file_path(str(source.path)):
-                candidate_paths.append(str(source.path))
-    unique_paths = list(dict.fromkeys(candidate_paths))[:5]
+            path = source.path or (source.metadata or {}).get("path")
+            if source.kind == "project" and path and _looks_like_file_path(str(path)):
+                candidate_paths.append(str(path))
+    for path in (inventory or {}).get("recommended_reads") or []:
+        if path:
+            candidate_paths.append(str(path))
+    unique_paths = list(dict.fromkeys(_normalize_workspace_rel(p) for p in candidate_paths if p))[:5]
+    unique_paths = [p for p in unique_paths if p]
     lines = ["", "## Recommended first actions"]
     if unique_paths:
-        workspace_paths = ", ".join(f"`/workspace/{path.lstrip('/')}`" for path in unique_paths)
+        workspace_paths = ", ".join(f"`/workspace/{path}`" for path in unique_paths)
         lines.append(f"- Start from the real project file(s): {workspace_paths}.")
     else:
         lines.append("- Start from the user goal and search real project files under `/workspace/` as needed.")
+    if inventory and inventory.get("status") == "ok":
+        lines.append(
+            "- Workspace inventory is at `/context/retrieval/workspace-inventory.md` "
+            "(prefer it over broad ls/glob when project retrieval is empty)."
+        )
     lines.append("- Use virtual `/context/...` files only when the brief is insufficient or full offloaded text is required.")
     lines.append("- After reading the necessary real files, edit and verify according to the task.")
     return lines
+
+
+def _inventory_brief(
+    inventory: dict[str, Any] | None,
+    project_retrieval: dict[str, Any] | None,
+) -> list[str]:
+    if not inventory and not project_retrieval:
+        return []
+    lines = ["", "## Workspace context (B1)"]
+    pr = project_retrieval or {}
+    if pr:
+        status = pr.get("status") or "unknown"
+        lines.append(
+            f"- project_retrieval: `{status}`"
+            + (f" ({pr.get('reason')})" if pr.get("reason") else "")
+            + f"; project_sources={int(pr.get('project_source_count') or 0)}"
+        )
+    inv = inventory or {}
+    if inv:
+        lines.append(
+            f"- workspace_inventory: `{inv.get('status') or 'unknown'}`"
+            + (f" ({inv.get('reason')})" if inv.get("reason") else "")
+            + f"; recommended={len(inv.get('recommended_reads') or [])}"
+            + ("; scope_filtered" if inv.get("scoped") else "")
+        )
+        reads = [str(p) for p in (inv.get("recommended_reads") or []) if str(p).strip()][:5]
+        if reads:
+            lines.append("- inventory recommended reads: " + ", ".join(f"`/workspace/{p}`" for p in reads))
+            lines.append("- full inventory: `/context/retrieval/workspace-inventory.md`")
+    return lines
+
+
+def _build_workspace_inventory(
+    goal: str,
+    project_path: str | None,
+    *,
+    task_scope: dict[str, Any] | None,
+) -> dict[str, Any]:
+    try:
+        from context.workspace_inventory import build_workspace_inventory
+
+        return build_workspace_inventory(project_path, goal, task_scope=task_scope)
+    except Exception as exc:
+        logger.debug("Workspace inventory build failed: %s", exc, exc_info=True)
+        return {
+            "schema_version": 1,
+            "status": "error",
+            "reason": str(exc)[:200],
+            "recommended_reads": [],
+            "matched_files": [],
+            "tree": [],
+            "markdown": "",
+        }
+
+
+def _inventory_public_meta(inventory: dict[str, Any] | None) -> dict[str, Any]:
+    inv = inventory or {}
+    return {
+        "status": inv.get("status"),
+        "reason": inv.get("reason"),
+        "scoped": bool(inv.get("scoped")),
+        "recommended_reads": list(inv.get("recommended_reads") or [])[:12],
+        "matched_files": list(inv.get("matched_files") or [])[:12],
+        "tree_count": len(inv.get("tree") or []),
+        "scanned_files": int(inv.get("scanned_files") or 0),
+        "tokens": list(inv.get("tokens") or [])[:16],
+    }
+
+
+def _normalize_workspace_rel(path: str) -> str:
+    text = str(path or "").replace("\\", "/").strip()
+    if text.startswith("/workspace/"):
+        text = text[len("/workspace/") :]
+    text = text.lstrip("/")
+    # Drop absolute Windows/Unix roots from retrieval metadata.
+    if len(text) >= 2 and text[1] == ":":
+        return ""
+    if text.startswith(("C:/", "c:/", "D:/", "d:/")):
+        return ""
+    return text
 
 
 def _memory_sources_index_text(sources: list[Any]) -> str:
