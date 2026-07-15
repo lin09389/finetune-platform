@@ -509,6 +509,7 @@ class DeepAgentsSessionRunner:
         )
         card = ""
         rec_section = ""
+        multi_blurb = ""
         if session_id:
             try:
                 from agent_session.session_progress import build_working_state_card
@@ -539,16 +540,30 @@ class DeepAgentsSessionRunner:
                     scope=get_task_scope(metadata),
                 )
                 rec_section = format_verify_recommendations_section(rec)
+                try:
+                    from agent_session.multi_file import build_multi_file_state, multi_file_correction_blurb
+
+                    multi_blurb = multi_file_correction_blurb(
+                        build_multi_file_state(
+                            metadata,
+                            project_path=workspace.get("path") or session.get("project_path"),
+                        )
+                    )
+                except Exception:
+                    multi_blurb = ""
             except Exception:
                 card = ""
                 rec_section = ""
+                multi_blurb = ""
         card_block = f"\n{card}\n" if card else "\n"
         rec_block = f"\n{rec_section}\n" if rec_section else "\n"
+        multi_block = f"\n{multi_blurb}\n" if multi_blurb else "\n"
         return (
             f"这是第 {attempt} 次轨迹自动纠正。你刚才准备结束任务，但尚未满足平台验证要求：\n"
             f"{issue_text}\n"
             f"{card_block}"
             f"{rec_block}"
+            f"{multi_block}"
             "请立即完成缺失的验证。优先执行上方「相关验证推荐」中的命令（可再缩小到改动路径）；"
             "不要无目标全仓扫描。文档可重新读取最终内容确认。若验证失败，先重新读取受影响文件，再修复并重新验证。"
             "不要只解释计划，必须实际执行验证。"

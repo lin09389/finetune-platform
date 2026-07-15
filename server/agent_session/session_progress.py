@@ -648,6 +648,27 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
         todos.append("失败后先检查真实错误输出，禁止盲目重试")
     if int(snap.get("tools_total") or 0) >= SOFT_TOOL_BUDGET:
         todos.append("停止大范围探索，聚焦修改与验证后收尾")
+    # Phase B4 multi-file card lines + todos.
+    try:
+        from agent_session.multi_file import build_multi_file_state, format_multi_file_card_lines
+
+        workspace = meta.get("workspace") if isinstance(meta.get("workspace"), dict) else {}
+        multi = build_multi_file_state(
+            meta,
+            project_path=workspace.get("path") or meta.get("project_path"),
+        )
+        for line in format_multi_file_card_lines(multi):
+            lines.append(line)
+        if multi.get("is_multi_file"):
+            if multi.get("unverified_paths"):
+                todos.append("多文件：运行一次覆盖全部已写源码路径的验证")
+            if multi.get("companions_unread"):
+                todos.append(
+                    "阅读关联测试/规格："
+                    + "、".join(f"`{p}`" for p in (multi.get("companions_unread") or [])[:3])
+                )
+    except Exception:
+        pass
     if todos:
         lines.append("- 尚未完成：")
         for item in todos:
@@ -715,7 +736,7 @@ def build_completion_gate(metadata: dict[str, Any] | None, *, status: str | None
     if gaps:
         summary_bits.append("缺口: " + ",".join(gaps))
 
-    return {
+    gate = {
         "schema_version": 1,
         "status": status,
         "completed_ok": bool(completed_ok),
@@ -733,6 +754,19 @@ def build_completion_gate(metadata: dict[str, Any] | None, *, status: str | None
         "summary": "；".join(summary_bits),
         "updated_at": _now_iso(),
     }
+    # Phase B4: multi-file path-level verify + companion hints.
+    try:
+        from agent_session.multi_file import apply_multi_file_completion_rules, build_multi_file_state
+
+        workspace = meta.get("workspace") if isinstance(meta.get("workspace"), dict) else {}
+        multi = build_multi_file_state(
+            meta,
+            project_path=workspace.get("path") or meta.get("project_path"),
+        )
+        gate = apply_multi_file_completion_rules(gate, multi)
+    except Exception:
+        pass
+    return gate
 
 
 def attach_completion_gate(metadata: dict[str, Any], *, status: str | None = None) -> dict[str, Any]:
