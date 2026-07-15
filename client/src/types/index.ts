@@ -499,11 +499,44 @@ export interface ChatSession {
   messages?: ChatMessage[];
 }
 
-interface ElectronAPI {
+export type DesktopServiceState =
+  | 'stopped'
+  | 'starting'
+  | 'ready'
+  | 'degraded'
+  | 'failed'
+  | 'stopping';
+
+export interface DesktopRuntimeDescriptor {
+  protocolVersion: 1;
+  appVersion: string;
+  platform: string;
+  arch: string;
+  packaged: boolean;
+  apiBaseUrl: string;
+}
+
+export interface DesktopServiceStatus {
+  id: string;
+  label: string;
+  state: DesktopServiceState;
+  pid: number | null;
+  restarts: number;
+  lastError: string | null;
+  updatedAt: string;
+}
+
+export interface ElectronAPI {
+  readonly protocolVersion: 1;
+  getRuntime: () => Promise<DesktopRuntimeDescriptor>;
+  getServiceStatuses: () => Promise<DesktopServiceStatus[]>;
+  onServiceStatus: (callback: (statuses: DesktopServiceStatus[]) => void) => () => void;
+  restartService: (serviceId: string) => Promise<DesktopServiceStatus[]>;
   selectFolder: (defaultPath?: string) => Promise<string | null>;
   selectFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>;
   readFile: (filePath: string) => Promise<{ data: string; name: string } | null>;
   getBackendUrl: () => Promise<string>;
+  getBackendUrlSync?: () => string;
   restartBackend: () => Promise<boolean>;
   openFolder: (folderPath: string) => Promise<void>;
   getAppPath: () => Promise<string>;

@@ -6,6 +6,8 @@ import {
 } from '@ant-design/icons';
 import WorkspacePathPicker from '../../components/workspace/WorkspacePathPicker';
 import type { AgentWorkbenchSettings } from '../config/workbenchSettings';
+import AgentCapabilityScorecard from './AgentCapabilityScorecard';
+import DesktopRuntimeSection from './DesktopRuntimeSection';
 import styles from './WorkbenchSettingsDrawer.module.css';
 
 interface WorkbenchSettingsDrawerProps {
@@ -60,6 +62,10 @@ export default function WorkbenchSettingsDrawer({
       className={styles.drawer}
     >
       <div className={styles.body}>
+        <DesktopRuntimeSection />
+
+        <AgentCapabilityScorecard />
+
         <section className={styles.section}>
           <header className={styles.sectionHeader}>
             <FolderOpenOutlined />
