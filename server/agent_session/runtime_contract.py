@@ -168,7 +168,7 @@ class AgentRuntimeContract:
             session_id=session_id,
             project_path=project_path,
             model=model,
-            system_prompt=build_system_prompt(agent_registry, agent),
+            system_prompt=build_system_prompt(agent_registry, agent, metadata=metadata),
             memory=runtime_policy.memory_files,
             checkpointer=checkpointer,
             user_id=user_id,
@@ -270,7 +270,12 @@ def platform_prompt_sections() -> list[str]:
     ]
 
 
-def system_prompt_sections(agent_registry: AgentRegistry, agent: AgentDefinition | None) -> list[str]:
+def system_prompt_sections(
+    agent_registry: AgentRegistry,
+    agent: AgentDefinition | None,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> list[str]:
     sections: list[str] = []
     if agent:
         prompt = agent_system_prompt(agent)
@@ -280,11 +285,22 @@ def system_prompt_sections(agent_registry: AgentRegistry, agent: AgentDefinition
     async_section = async_subagent_prompt(agent_registry, agent)
     if async_section:
         sections.append(async_section)
+    if metadata:
+        from agent_session.session_progress import build_working_state_card
+
+        card = build_working_state_card(metadata)
+        if card:
+            sections.append(card)
     return sections
 
 
-def build_system_prompt(agent_registry: AgentRegistry, agent: AgentDefinition | None) -> str:
-    return "\n\n".join(system_prompt_sections(agent_registry, agent))
+def build_system_prompt(
+    agent_registry: AgentRegistry,
+    agent: AgentDefinition | None,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    return "\n\n".join(system_prompt_sections(agent_registry, agent, metadata=metadata))
 
 
 def async_subagent_prompt(agent_registry: AgentRegistry, agent: AgentDefinition | None) -> str:

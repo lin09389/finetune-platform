@@ -107,6 +107,9 @@ class BackgroundTaskManagerService:
             metadata["background_run"] = True
             metadata["last_prompt_started_at"] = now
             metadata["current_goal"] = request.content
+            from agent_session.session_progress import reset_tool_metrics
+
+            metadata = reset_tool_metrics(metadata)
             user_part = repository.add_part(
                 session_id,
                 "text",

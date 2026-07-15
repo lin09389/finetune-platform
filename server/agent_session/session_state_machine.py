@@ -48,12 +48,15 @@ class AgentSessionStateMachine:
         return self.repository.update_session(session_id, status="waiting_approval", metadata=next_metadata)
 
     def mark_completed(self, session_id: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        from agent_session.session_progress import attach_completion_gate
+
         session = self._require_session(session_id)
         next_metadata = ensure_session_state(dict(metadata if metadata is not None else session.get("metadata") or {}))
         next_metadata = set_phase(next_metadata, "completed")
         next_metadata = clear_runtime_latches(next_metadata)
         next_metadata["last_prompt_completed_at"] = datetime.now().isoformat()
         next_metadata = sync_execution_plan_status(next_metadata, "completed")
+        next_metadata = attach_completion_gate(next_metadata, status="completed")
         return self.repository.update_session(session_id, status="completed", metadata=next_metadata)
 
     def mark_failed(
@@ -65,6 +68,8 @@ class AgentSessionStateMachine:
         error: str | None = None,
         clear_latches: bool = False,
     ) -> dict[str, Any]:
+        from agent_session.session_progress import attach_completion_gate
+
         if status not in {"failed", "needs_manual_review"}:
             raise ValueError(f"Unsupported failure status: {status}")
         session = self._require_session(session_id)
@@ -78,6 +83,7 @@ class AgentSessionStateMachine:
             next_metadata["latest_error"] = error
             next_metadata["state"] = state
         next_metadata = sync_execution_plan_status(next_metadata, status, error=error)
+        next_metadata = attach_completion_gate(next_metadata, status=status)
         return self.repository.update_session(session_id, status=status, metadata=next_metadata)
 
     def mark_interrupted(

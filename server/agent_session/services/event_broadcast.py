@@ -31,6 +31,13 @@ class EventBroadcastService:
         self._clear_recovery_latches_for_event(session_id, event)
         self.service._event_bus.notify(session_id, event)
         self.service.failure_guard.observe_event(session_id, event)
+        try:
+            from agent_session.session_progress import observe_and_persist_tool_metrics
+
+            observe_and_persist_tool_metrics(self.service.repository, session_id, event)
+        except Exception:
+            # Metrics must never break the live event path.
+            pass
 
     def _clear_recovery_latches_for_event(self, session_id: str, event: dict[str, Any]) -> None:
         event_type = str(event.get("event_type") or "")

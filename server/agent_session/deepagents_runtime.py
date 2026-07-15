@@ -421,7 +421,7 @@ class DeepAgentsSessionRunner:
                 self._mark_trajectory_manual_review(session_id, issues, store)
                 return False, last_summary
             attempt = store.increment_correction(issues)
-            prompt = self._trajectory_correction_prompt(issues, attempt)
+            prompt = self._trajectory_correction_prompt(issues, attempt, session_id=session_id)
             async for event in graph.astream_events({"messages": prompt}, config=config, version="v2"):
                 mapper.handle(event)
                 summary = self._extract_summary(event)
@@ -477,15 +477,31 @@ class DeepAgentsSessionRunner:
             error=message,
         )
 
-    @staticmethod
-    def _trajectory_correction_prompt(issues: list[dict[str, Any]], attempt: int) -> str:
+    def _trajectory_correction_prompt(
+        self,
+        issues: list[dict[str, Any]],
+        attempt: int,
+        *,
+        session_id: str | None = None,
+    ) -> str:
         issue_text = "\n".join(
             f"- {issue.get('message')} 涉及：{', '.join(issue.get('paths') or [])}"
             for issue in issues
         )
+        card = ""
+        if session_id:
+            try:
+                from agent_session.session_progress import build_working_state_card
+
+                session = self.repository.get_session(session_id) or {}
+                card = build_working_state_card(dict(session.get("metadata") or {}))
+            except Exception:
+                card = ""
+        card_block = f"\n{card}\n" if card else "\n"
         return (
             f"这是第 {attempt} 次轨迹自动纠正。你刚才准备结束任务，但尚未满足平台验证要求：\n"
             f"{issue_text}\n"
+            f"{card_block}"
             "请立即完成缺失的验证。源码、测试或配置应运行相关测试、构建、类型检查、lint 或语法检查；"
             "文档可重新读取最终内容确认。若验证失败，先重新读取受影响文件，再修复并重新验证。"
             "不要只解释计划，必须实际执行验证。"

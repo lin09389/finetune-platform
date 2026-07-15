@@ -582,6 +582,46 @@ describe('Agent Phase 7 feature contract gates', () => {
     expect(items[0]?.actions.map((action) => action.id)).toEqual(['approve', 'reject']);
   });
 
+  it('surfaces completion_gap attention when completion_gate is not completed_ok', () => {
+    const { workspace } = createFlowScenario('permission');
+    const gapWorkspace = {
+      ...workspace,
+      pending_permission: undefined,
+      session: {
+        ...workspace.session,
+        status: 'completed' as const,
+        metadata: {
+          ...workspace.session.metadata,
+          completion_gate: {
+            schema_version: 1,
+            status: 'completed',
+            completed_ok: false,
+            has_writes: true,
+            diff_visible: true,
+            verify_attempted: 1,
+            verify_ok: 0,
+            gaps: ['verification_required'],
+            written_paths: ['app.py'],
+            summary: '已写 1 个路径；验证未通过',
+          },
+        },
+      },
+    };
+    const state = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'workspace_loaded',
+      workspace: gapWorkspace,
+    });
+    const items = selectAttentionItems(state);
+    const gap = items.find((item) => item.kind === 'completion_gap');
+    expect(gap).toMatchObject({
+      kind: 'completion_gap',
+      severity: 'high',
+      status: 'open',
+    });
+    expect(gap?.whatHappened).toMatch(/验证/);
+    expect(gap?.actions.map((action) => action.id)).toEqual(['refresh']);
+  });
+
   it('removes resolved tool and loop failures from the Attention Center', () => {
     const { workspace: loopWorkspace } = createFlowScenario('loop_guard');
     const recoveredWorkspace = {

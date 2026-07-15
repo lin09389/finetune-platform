@@ -8,7 +8,8 @@ export type AgentAttentionKind =
   | 'expired_permission'
   | 'protocol_unknown'
   | 'protocol_malformed'
-  | 'operation_error';
+  | 'operation_error'
+  | 'completion_gap';
 
 export type AgentAttentionSeverity = 'critical' | 'high' | 'medium' | 'low';
 export type AgentAttentionStatus = 'open' | 'in_progress' | 'resolved' | 'expired';

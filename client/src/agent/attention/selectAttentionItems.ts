@@ -65,6 +65,77 @@ function loopGuard(state: AgentRuntimeState): AgentAttentionItem | null {
   };
 }
 
+type CompletionGate = {
+  completed_ok?: boolean;
+  has_writes?: boolean;
+  diff_visible?: boolean;
+  verify_attempted?: number | boolean;
+  verify_ok?: number | boolean;
+  gaps?: string[];
+  summary?: string;
+  written_paths?: string[];
+};
+
+function completionGap(state: AgentRuntimeState): AgentAttentionItem | null {
+  const status = String(state.session?.status || '');
+  if (!['completed', 'needs_manual_review', 'failed'].includes(status)) {
+    return null;
+  }
+  const gate = (state.session?.metadata?.completion_gate || null) as CompletionGate | null;
+  if (!gate) return null;
+  if (gate.completed_ok) return null;
+  const gaps = Array.isArray(gate.gaps) ? gate.gaps.filter(Boolean) : [];
+  // Only surface when there is a real completion protocol gap (writes without verify/diff).
+  const relevantGaps = gaps.filter((g) =>
+    ['verification_required', 'verification_missing', 'diff_coverage_required', 'manual_review'].includes(g),
+  );
+  if (!relevantGaps.length && status === 'completed' && !gate.has_writes) {
+    return null;
+  }
+  if (!relevantGaps.length && !gate.has_writes) {
+    return null;
+  }
+  const missingVerify =
+    relevantGaps.includes('verification_required') || relevantGaps.includes('verification_missing');
+  const missingDiff = relevantGaps.includes('diff_coverage_required');
+  const title =
+    status === 'needs_manual_review'
+      ? '任务未满足完成定义（需人工检查）'
+      : status === 'failed'
+        ? '任务失败且完成定义未满足'
+        : '会话已结束，但完成定义未满足';
+  const parts: string[] = [];
+  if (missingDiff) parts.push('有写入但缺少可审 diff');
+  if (missingVerify) {
+    parts.push(gate.verify_attempted ? '已尝试验证但未通过' : '有源码写入但未执行验证');
+  }
+  if (relevantGaps.includes('manual_review') && !parts.length) {
+    parts.push(gate.summary || '进入人工检查，请核对变更与验证结果');
+  }
+  const whatHappened =
+    parts.join('；') || gate.summary || '当前终态不满足「有写必有 diff + 验证通过」的完成定义。';
+  return {
+    id: `completion-gap:${state.activeSessionId || 'session'}:${status}:${relevantGaps.join(',')}`,
+    kind: 'completion_gap',
+    severity: status === 'completed' ? 'high' : 'critical',
+    status: 'open',
+    title,
+    occurredAt: state.session?.updated_at || new Date().toISOString(),
+    whatHappened,
+    impactScope: gate.has_writes
+      ? `已写路径：${(gate.written_paths || []).slice(0, 6).join(', ') || '（见工作区）'}`
+      : '当前会话终态与用户可见完成状态可能不一致。',
+    recommendedAction: missingVerify
+      ? '重新发送目标：要求运行并通过相关测试/类型检查，再确认 diff。'
+      : missingDiff
+        ? '刷新工作区核对变更；必要时让 Agent 重新提交可审 diff。'
+        : '检查 Attention 与轨迹摘要后决定恢复节点或重发任务。',
+    actions: [{ id: 'refresh', label: '刷新状态', primary: true }],
+    sessionId: state.activeSessionId || undefined,
+    dedupeKey: `completion-gap:${status}:${relevantGaps.join('|') || 'generic'}`,
+  };
+}
+
 function recoveryFailure(state: AgentRuntimeState, node: AgentExecutionPlanNode): AgentAttentionItem {
   return {
     id: `recovery:${node.id}`,
@@ -205,6 +276,8 @@ export function selectAttentionItems(state: AgentRuntimeState, now = Date.now())
   if (failure) items.push(failure);
   const guard = loopGuard(state);
   if (guard) items.push(guard);
+  const completion = completionGap(state);
+  if (completion) items.push(completion);
 
   for (const node of state.workspace?.execution_plan?.nodes || []) {
     if (node.recoverable || node.recovery_error) items.push(recoveryFailure(state, node));

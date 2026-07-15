@@ -1,0 +1,513 @@
+{
+  "meta": {
+    "date": "2026-07-15",
+    "commit": "d0e9715",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "autonomy": "confirm_all"
+  },
+  "rows": [
+    {
+      "status": "completed",
+      "completed_ok": 1,
+      "tools_total": 57,
+      "tools_failed": 1,
+      "trajectory_blocks": 0,
+      "verify_attempted": 1,
+      "verify_ok": 1,
+      "diff_visible": 1,
+      "hitl_count": 6,
+      "human_reprompt": 0,
+      "failure_kind": "none",
+      "notes": "metrics:server; gate:已写 1 个路径；diff 可见；验证通过; completion_gate:yes",
+      "tool_names_sample": [
+        "write_todos",
+        "write_todos",
+        "execute",
+        "execute",
+        "ls",
+        "ls",
+        "read_file",
+        "read_file",
+        "grep",
+        "grep",
+        "read_file",
+        "read_file",
+        "write_todos",
+        "write_todos",
+        "edit_file",
+        "edit_file",
+        "write_todos",
+        "write_todos",
+        "execute",
+        "execute"
+      ],
+      "tool_metrics": {
+        "schema_version": 1,
+        "tools_total": 19,
+        "tools_failed": 1,
+        "trajectory_blocks": 0,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 3,
+        "by_tool": {
+          "write_todos": {
+            "calls": 4,
+            "failed": 0
+          },
+          "execute": {
+            "calls": 6,
+            "failed": 1
+          },
+          "ls": {
+            "calls": 1,
+            "failed": 0
+          },
+          "read_file": {
+            "calls": 2,
+            "failed": 0
+          },
+          "grep": {
+            "calls": 1,
+            "failed": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failed": 0
+          },
+          "glob": {
+            "calls": 4,
+            "failed": 0
+          }
+        },
+        "last_tool": "execute",
+        "last_failure_tool": "execute",
+        "updated_at": "2026-07-15T10:15:08.444862+00:00"
+      },
+      "completion_gate": {
+        "schema_version": 1,
+        "status": "completed",
+        "completed_ok": true,
+        "has_writes": true,
+        "diff_visible": true,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "written_paths": [
+          "/workspace/app.py"
+        ],
+        "verified_paths": [
+          "/workspace/app.py"
+        ],
+        "gaps": [],
+        "tools_total": 19,
+        "tools_failed": 1,
+        "trajectory_blocks": 0,
+        "summary": "已写 1 个路径；diff 可见；验证通过",
+        "updated_at": "2026-07-15T10:15:10.615284+00:00"
+      },
+      "working_state": {
+        "schema_version": 1,
+        "read_paths": [
+          "/workspace/app.py",
+          "/workspace/context/task.md"
+        ],
+        "written_paths": [
+          "/workspace/app.py"
+        ],
+        "verified_paths": [
+          "/workspace/app.py"
+        ],
+        "reread_required": [],
+        "trajectory_blocks": 0,
+        "last_block_reason": null,
+        "tools_total": 19,
+        "tools_failed": 1,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 3,
+        "updated_at": "2026-07-15T10:15:08.444862+00:00"
+      },
+      "baseline_id": "C1",
+      "session_id": "ags_c61da533a31842929b90f96beff2e4c5",
+      "duration_min": 1.31
+    },
+    {
+      "status": "completed",
+      "completed_ok": 1,
+      "tools_total": 36,
+      "tools_failed": 0,
+      "trajectory_blocks": 0,
+      "verify_attempted": 1,
+      "verify_ok": 1,
+      "diff_visible": 1,
+      "hitl_count": 4,
+      "human_reprompt": 0,
+      "failure_kind": "none",
+      "notes": "metrics:server; gate:已写 1 个路径；diff 可见；验证通过; completion_gate:yes",
+      "tool_names_sample": [
+        "write_todos",
+        "write_todos",
+        "read_file",
+        "ls",
+        "read_file",
+        "ls",
+        "read_file",
+        "glob",
+        "read_file",
+        "glob",
+        "write_todos",
+        "write_todos",
+        "write_todos",
+        "write_todos",
+        "edit_file",
+        "edit_file",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "tool_metrics": {
+        "schema_version": 1,
+        "tools_total": 12,
+        "tools_failed": 0,
+        "trajectory_blocks": 0,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 2,
+        "by_tool": {
+          "write_todos": {
+            "calls": 4,
+            "failed": 0
+          },
+          "read_file": {
+            "calls": 2,
+            "failed": 0
+          },
+          "ls": {
+            "calls": 1,
+            "failed": 0
+          },
+          "glob": {
+            "calls": 1,
+            "failed": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failed": 0
+          },
+          "execute": {
+            "calls": 3,
+            "failed": 0
+          }
+        },
+        "last_tool": "write_todos",
+        "last_failure_tool": null,
+        "updated_at": "2026-07-15T10:15:52.194620+00:00"
+      },
+      "completion_gate": {
+        "schema_version": 1,
+        "status": "completed",
+        "completed_ok": true,
+        "has_writes": true,
+        "diff_visible": true,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "written_paths": [
+          "/workspace/app.py"
+        ],
+        "verified_paths": [
+          "/workspace/app.py"
+        ],
+        "gaps": [],
+        "tools_total": 12,
+        "tools_failed": 0,
+        "trajectory_blocks": 0,
+        "summary": "已写 1 个路径；diff 可见；验证通过",
+        "updated_at": "2026-07-15T10:15:56.503760+00:00"
+      },
+      "working_state": {
+        "schema_version": 1,
+        "read_paths": [
+          "/workspace/context/task.md",
+          "/workspace/app.py"
+        ],
+        "written_paths": [
+          "/workspace/app.py"
+        ],
+        "verified_paths": [
+          "/workspace/app.py"
+        ],
+        "reread_required": [],
+        "trajectory_blocks": 0,
+        "last_block_reason": null,
+        "tools_total": 12,
+        "tools_failed": 0,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 2,
+        "updated_at": "2026-07-15T10:15:52.194620+00:00"
+      },
+      "baseline_id": "C2",
+      "session_id": "ags_1345210b31bd4a18af1a97dfbff4bf67",
+      "duration_min": 0.73
+    },
+    {
+      "status": "completed",
+      "completed_ok": 1,
+      "tools_total": 57,
+      "tools_failed": 4,
+      "trajectory_blocks": 0,
+      "verify_attempted": 1,
+      "verify_ok": 1,
+      "diff_visible": 1,
+      "hitl_count": 6,
+      "human_reprompt": 0,
+      "failure_kind": "none",
+      "notes": "metrics:server; gate:已写 2 个路径；diff 可见；验证通过; completion_gate:yes",
+      "tool_names_sample": [
+        "read_file",
+        "read_file",
+        "ls",
+        "read_file",
+        "read_file",
+        "ls",
+        "read_file",
+        "read_file",
+        "write_todos",
+        "write_todos",
+        "edit_file",
+        "edit_file",
+        "write_todos",
+        "write_todos",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "tool_metrics": {
+        "schema_version": 1,
+        "tools_total": 19,
+        "tools_failed": 4,
+        "trajectory_blocks": 0,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 3,
+        "by_tool": {
+          "read_file": {
+            "calls": 4,
+            "failed": 1
+          },
+          "ls": {
+            "calls": 1,
+            "failed": 0
+          },
+          "write_todos": {
+            "calls": 3,
+            "failed": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failed": 0
+          },
+          "execute": {
+            "calls": 9,
+            "failed": 3
+          },
+          "write_file": {
+            "calls": 1,
+            "failed": 0
+          }
+        },
+        "last_tool": "write_todos",
+        "last_failure_tool": "execute",
+        "updated_at": "2026-07-15T10:17:09.535256+00:00"
+      },
+      "completion_gate": {
+        "schema_version": 1,
+        "status": "completed",
+        "completed_ok": true,
+        "has_writes": true,
+        "diff_visible": true,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "written_paths": [
+          "/workspace/cli.py",
+          "/workspace/test_cli.py"
+        ],
+        "verified_paths": [
+          "/workspace/cli.py",
+          "/workspace/test_cli.py"
+        ],
+        "gaps": [],
+        "tools_total": 19,
+        "tools_failed": 4,
+        "trajectory_blocks": 0,
+        "summary": "已写 2 个路径；diff 可见；验证通过",
+        "updated_at": "2026-07-15T10:17:16.018398+00:00"
+      },
+      "working_state": {
+        "schema_version": 1,
+        "read_paths": [
+          "/workspace/context/task.md",
+          "/workspace/cli.py"
+        ],
+        "written_paths": [
+          "/workspace/cli.py",
+          "/workspace/test_cli.py"
+        ],
+        "verified_paths": [
+          "/workspace/cli.py",
+          "/workspace/test_cli.py"
+        ],
+        "reread_required": [],
+        "trajectory_blocks": 0,
+        "last_block_reason": null,
+        "tools_total": 19,
+        "tools_failed": 4,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 3,
+        "updated_at": "2026-07-15T10:17:09.535256+00:00"
+      },
+      "baseline_id": "C3",
+      "session_id": "ags_ab255c67144043859bd8c1a70f3a8b2d",
+      "duration_min": 1.33
+    },
+    {
+      "status": "completed",
+      "completed_ok": 1,
+      "tools_total": 57,
+      "tools_failed": 3,
+      "trajectory_blocks": 0,
+      "verify_attempted": 1,
+      "verify_ok": 1,
+      "diff_visible": 1,
+      "hitl_count": 4,
+      "human_reprompt": 0,
+      "failure_kind": "none",
+      "notes": "metrics:server; gate:已写 1 个路径；diff 可见；验证通过; completion_gate:yes",
+      "tool_names_sample": [
+        "read_file",
+        "read_file",
+        "ls",
+        "read_file",
+        "read_file",
+        "ls",
+        "ls",
+        "glob",
+        "glob",
+        "ls",
+        "read_file",
+        "read_file",
+        "glob",
+        "glob",
+        "glob",
+        "glob",
+        "ls",
+        "ls",
+        "edit_file",
+        "edit_file"
+      ],
+      "tool_metrics": {
+        "schema_version": 1,
+        "tools_total": 19,
+        "tools_failed": 3,
+        "trajectory_blocks": 0,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 2,
+        "by_tool": {
+          "read_file": {
+            "calls": 4,
+            "failed": 1
+          },
+          "ls": {
+            "calls": 3,
+            "failed": 0
+          },
+          "glob": {
+            "calls": 3,
+            "failed": 0
+          },
+          "edit_file": {
+            "calls": 1,
+            "failed": 0
+          },
+          "grep": {
+            "calls": 1,
+            "failed": 0
+          },
+          "execute": {
+            "calls": 7,
+            "failed": 2
+          }
+        },
+        "last_tool": "execute",
+        "last_failure_tool": "execute",
+        "updated_at": "2026-07-15T10:18:24.429905+00:00"
+      },
+      "completion_gate": {
+        "schema_version": 1,
+        "status": "completed",
+        "completed_ok": true,
+        "has_writes": true,
+        "diff_visible": true,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "written_paths": [
+          "/workspace/src/Counter.tsx"
+        ],
+        "verified_paths": [
+          "/workspace/src/Counter.tsx"
+        ],
+        "gaps": [],
+        "tools_total": 19,
+        "tools_failed": 3,
+        "trajectory_blocks": 0,
+        "summary": "已写 1 个路径；diff 可见；验证通过",
+        "updated_at": "2026-07-15T10:18:27.655313+00:00"
+      },
+      "working_state": {
+        "schema_version": 1,
+        "read_paths": [
+          "/workspace/context/task.md",
+          "/workspace/src/Counter.tsx"
+        ],
+        "written_paths": [
+          "/workspace/src/Counter.tsx"
+        ],
+        "verified_paths": [
+          "/workspace/src/Counter.tsx"
+        ],
+        "reread_required": [],
+        "trajectory_blocks": 0,
+        "last_block_reason": null,
+        "tools_total": 19,
+        "tools_failed": 3,
+        "verify_attempted": 1,
+        "verify_ok": 1,
+        "hitl_count": 2,
+        "updated_at": "2026-07-15T10:18:24.429905+00:00"
+      },
+      "baseline_id": "C5",
+      "session_id": "ags_201d6d31f29145cbb816f53e35360832",
+      "duration_min": 1.2
+    }
+  ],
+  "summary": {
+    "N": 4,
+    "completion_rate": 1.0,
+    "verify_attempt_rate_coding": 1.0,
+    "verify_success_rate": 1.0,
+    "diff_visible_rate": 1.0,
+    "mean_tools_total": 51.75,
+    "trajectory_block_scene_rate": 0.0,
+    "mean_hitl": 5.0,
+    "human_reprompt_rate": 0.0,
+    "failure_kinds": {
+      "none": 4
+    }
+  }
+}
