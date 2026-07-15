@@ -44,8 +44,22 @@ class UnicodeJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
-LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+def resolve_log_dir() -> Path:
+    """Resolve a writable log directory for server and desktop deployments.
+
+    Source checkouts keep the historical repository-level ``logs`` default.
+    A packaged desktop supervisor must set ``FINETUNE_LOG_DIR`` to its user-data
+    tree so application resources remain immutable and upgrade-safe.
+    """
+
+    configured = os.getenv("FINETUNE_LOG_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[2] / "logs"
+
+
+LOG_DIR = resolve_log_dir()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 logger = setup_logging(
     log_dir=LOG_DIR,
     log_level=settings.log_level,
@@ -667,6 +681,7 @@ __all__ = [
     "create_application",
     "health_check",
     "logger",
+    "resolve_log_dir",
     "root",
     "settings",
 ]

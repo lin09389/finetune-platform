@@ -1,222 +1,247 @@
-﻿const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-const path = require('path');
-const { spawn, exec } = require('child_process');
-const fs = require('fs');
-const http = require('http');
+'use strict';
 
-let mainWindow;
-let pythonProcess;
-const isDev = !app.isPackaged;
+const { EventEmitter } = require('node:events');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
+const { PROTOCOL_VERSION, createServiceDescriptors, publicServiceStatus } = require('./runtime-contract');
+const {
+  resolveRuntimePaths,
+  ensureRuntimeDirectories,
+  getOrCreateRuntimeSecrets,
+  buildServiceEnvironment,
+} = require('./runtime-paths');
+const { resolvePython } = require('./python-resolver');
+const { ProcessSupervisor, probeHttp, createTrainingWorkerProbe } = require('./process-supervisor');
+const { IpcPathAuthorizer } = require('./ipc-path-authorizer');
+const { registerDesktopIpc } = require('./desktop-ipc');
+const { resolveRendererAsset } = require('./renderer-protocol');
+
 const DEV_FRONTEND_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5173';
+const isDev = !app.isPackaged;
+let mainWindow = null;
+let supervisor = null;
+let removeIpcHandlers = null;
+let quitting = false;
+let rendererRoot = null;
 
-function getServerPath() {
-  if (isDev) {
-    return path.join(__dirname, '..', 'server');
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'app',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+  },
+}]);
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+
+class UnavailableSupervisor extends EventEmitter {
+  constructor(descriptors, error) {
+    super();
+    const now = new Date().toISOString();
+    this.statuses = descriptors.map((descriptor) => publicServiceStatus({
+      id: descriptor.id,
+      label: descriptor.label,
+      state: 'failed',
+      pid: null,
+      restarts: 0,
+      lastError: error.message,
+      updatedAt: now,
+    }));
   }
-  return path.join(process.resourcesPath, 'server');
-}
 
-function getPythonCommand() {
-  return process.platform === 'win32' ? 'python' : 'python3';
-}
-
-async function checkPythonAndDeps() {
-  const pythonCmd = getPythonCommand();
-
-  return new Promise((resolve, reject) => {
-    exec(`${pythonCmd} --version`, (error) => {
-      if (error) {
-        reject(new Error('Python not found. Please install Python 3.8+'));
-        return;
-      }
-
-      exec(`${pythonCmd} -c "import fastapi; import torch; import transformers; import peft"`, (depError) => {
-        if (depError) {
-          console.warn('Python dependencies may be missing:', depError.message);
-          console.warn('Please run: pip install -r requirements.txt');
-          resolve({ installed: false, message: 'Dependencies missing. Run: pip install -r requirements.txt' });
-          return;
-        }
-        resolve({ installed: true });
-      });
+  listStatuses() { return this.statuses; }
+  async startAll() { return this.statuses; }
+  async stopAll() { return this.statuses; }
+  async restartService() {
+    throw Object.assign(new Error('No compatible Python 3.11 runtime is available.'), {
+      code: 'PYTHON_311_NOT_FOUND',
     });
-  });
-}
-
-function startBackend() {
-  const serverPath = getServerPath();
-  const pythonCmd = getPythonCommand();
-
-  pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
-    cwd: serverPath,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      PYTHONPATH: serverPath,
-      PYTHONIOENCODING: 'utf-8',
-      PYTHONUTF8: '1',
-    },
-  });
-
-  pythonProcess.stdout.setEncoding('utf8');
-  pythonProcess.stderr.setEncoding('utf8');
-
-  pythonProcess.stdout.on('data', (data) => {
-    console.log('[Python]', data);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.error('[Python Error]', data);
-  });
-
-  pythonProcess.on('close', (code) => {
-    console.log(`Backend process exited with code ${code}`);
-  });
-}
-
-function probeHttp(url, timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    const req = http.get(url, { timeout: timeoutMs }, (res) => {
-      res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 500);
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-async function loadDevRendererWithRetry(window, url, maxRetries = 120, intervalMs = 1000) {
-  for (let i = 0; i < maxRetries; i++) {
-    if (!window || window.isDestroyed()) return false;
-
-    const ready = await probeHttp(url, 1500);
-    if (ready) {
-      try {
-        await window.loadURL(url);
-        return true;
-      } catch (e) {
-        // Keep retrying while dev server stabilizes.
-      }
-    }
-
-    await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return false;
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 1200,
-    minHeight: 700,
+    minWidth: 1100,
+    minHeight: 680,
+    show: false,
+    title: 'Finetune Platform',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    title: 'Finetune Platform - 大模型微调平台',
   });
+
+  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    if (!isAllowedRendererUrl(targetUrl)) event.preventDefault();
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 
   if (isDev) {
-    // Keep a safe origin to avoid landing on chrome-error:// pages.
-    mainWindow.loadURL('about:blank');
-    mainWindow.webContents.openDevTools();
+    void loadDevRendererWithRetry(mainWindow, DEV_FRONTEND_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../client/dist/index.html'));
+    void mainWindow.loadURL('app://renderer/index.html');
   }
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
 }
 
-app.whenReady().then(async () => {
-  try {
-    console.log('Checking Python environment...');
-    const pythonStatus = await checkPythonAndDeps();
-
-    if (!pythonStatus.installed) {
-      dialog.showErrorBox(
-        'Python 依赖缺失',
-        pythonStatus.message || '请先安装 Python 依赖：pip install -r requirements.txt'
-      );
-    }
-
-    startBackend();
-
-    createWindow();
-    if (isDev && mainWindow) {
-      const loaded = await loadDevRendererWithRetry(mainWindow, DEV_FRONTEND_URL, 120, 1000);
-      if (!loaded) {
-        console.warn(`Failed to load frontend at ${DEV_FRONTEND_URL} after retries`);
+async function loadDevRendererWithRetry(window, url, maxRetries = 120, intervalMs = 1_000) {
+  await window.loadURL('about:blank');
+  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+    if (!window || window.isDestroyed()) return false;
+    if (await probeHttp(url, 1_500)) {
+      try {
+        await window.loadURL(url);
+        return true;
+      } catch (_error) {
+        // The dev renderer may still be replacing its initial listener.
       }
     }
-  } catch (error) {
-    console.error('Failed to start application:', error);
-    dialog.showErrorBox('启动失败', error.message);
-    app.quit();
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+  return false;
+}
+
+function isTrustedRendererEvent(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+  const sourceUrl = event.senderFrame?.url || event.sender.getURL();
+  return isAllowedRendererUrl(sourceUrl);
+}
+
+function isAllowedRendererUrl(candidate) {
+  try {
+    const url = new URL(candidate);
+    if (isDev) return url.origin === new URL(DEV_FRONTEND_URL).origin;
+    return url.protocol === 'app:' && url.hostname === 'renderer';
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function initializeDesktopRuntime() {
+  const paths = resolveRuntimePaths({
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    userDataPath: app.getPath('userData'),
+    isPackaged: app.isPackaged,
+  });
+  ensureRuntimeDirectories(paths);
+  rendererRoot = path.join(app.getAppPath(), 'client', 'dist');
+  if (app.isPackaged) {
+    await protocol.handle('app', (request) => {
+      const assetPath = resolveRendererAsset(rendererRoot, request.url);
+      if (!assetPath) return new Response('Not found', { status: 404 });
+      return net.fetch(pathToFileURL(assetPath).toString());
+    });
+  }
+  const descriptors = createServiceDescriptors(paths);
+  const authorizer = new IpcPathAuthorizer({
+    storePath: path.join(paths.dataRoot, 'data', 'desktop-directory-grants.json'),
+  });
+  await authorizer.loadPersistedDirectories();
+  // App-owned workspace storage is registered internally; renderer input can never grant itself access.
+  await authorizer.registerWorkspace(paths.workspacesRoot);
+
+  let python = null;
+  let pythonError = null;
+  try {
+    python = await resolvePython({
+      explicitPython: process.env.FINETUNE_PYTHON,
+      projectRoot: paths.projectRoot,
+      managedRuntimeRoot: app.isPackaged
+        ? path.join(process.resourcesPath, 'python')
+        : path.join(paths.runtimeRoot, 'python'),
+      platform: process.platform,
+    });
+  } catch (error) {
+    pythonError = error;
+    console.error('[desktop] Python runtime resolution failed', error.diagnostics || error);
+  }
+
+  if (python) {
+    const secrets = getOrCreateRuntimeSecrets(paths);
+    supervisor = new ProcessSupervisor({
+      descriptors,
+      python,
+      environment: buildServiceEnvironment(paths, secrets),
+      probeProcess: createTrainingWorkerProbe(python, paths.databasePath),
+      log: console,
+    });
+  } else {
+    supervisor = new UnavailableSupervisor(descriptors, pythonError);
+  }
+
+  const runtimeDescriptor = Object.freeze({
+    protocolVersion: PROTOCOL_VERSION,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+    apiBaseUrl: 'http://127.0.0.1:8010',
+  });
+  removeIpcHandlers = registerDesktopIpc({
+    ipcMain,
+    dialog,
+    shell,
+    getWindow: () => mainWindow,
+    isTrustedEvent: isTrustedRendererEvent,
+    authorizer,
+    supervisor,
+    runtimeDescriptor,
+  });
+
+  createWindow();
+  if (pythonError) {
+    dialog.showErrorBox(
+      '需要 Python 3.11',
+      '未找到兼容的 Python 3.11 运行时。服务保持失败状态；请设置 FINETUNE_PYTHON 或安装 Python 3.11。',
+    );
+  } else {
+    await supervisor.startAll();
+  }
+}
+
+if (hasSingleInstanceLock) app.whenReady().then(initializeDesktopRuntime).catch((error) => {
+  console.error('[desktop] initialization failed', error);
+  dialog.showErrorBox('启动失败', error.message);
+  app.quit();
 });
 
-app.on('window-all-closed', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  if (!quitting && BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-ipcMain.handle('select-folder', async (_event, defaultPath) => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory'],
-    defaultPath: defaultPath || app.getPath('documents'),
-  });
-  return result.filePaths[0] || null;
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.handle('select-file', async (_event, filters) => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: filters || [{ name: 'All Files', extensions: ['*'] }],
-  });
-  return result.filePaths[0] || null;
+app.on('before-quit', (event) => {
+  event.preventDefault();
+  // A second quit request while shutdown is in flight must not bypass the ordered
+  // supervisor teardown below.
+  if (quitting) return;
+  quitting = true;
+  supervisor?.beginShutdown?.();
+  Promise.resolve(supervisor?.stopAll())
+    .catch((error) => console.error('[desktop] shutdown failed', error))
+    .finally(() => {
+      removeIpcHandlers?.();
+      removeIpcHandlers = null;
+      app.exit(0);
+    });
 });
-
-ipcMain.handle('read-file', async (_event, filePath) => {
-  try {
-    const buffer = await fs.promises.readFile(filePath);
-    const base64 = buffer.toString('base64');
-    const fileName = path.basename(filePath);
-    return { data: base64, name: fileName };
-  } catch (error) {
-    console.error('Error reading file:', error);
-    return null;
-  }
-});
-
-ipcMain.handle('get-backend-url', () => 'http://127.0.0.1:8000');
-
-ipcMain.handle('restart-backend', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
-  startBackend();
-  return true;
-});
-
-ipcMain.handle('open-folder', async (_event, folderPath) => {
-  await shell.openPath(folderPath);
-});
-
-ipcMain.handle('get-app-path', () => app.getAppPath());

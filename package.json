@@ -10,6 +10,7 @@
     "dev:react": "cd client && npm run dev -- --host 127.0.0.1 --port 5173",
     "dev:electron": "wait-on http://127.0.0.1:5173 && electron .",
     "check:encoding": "python scripts/check_encoding.py",
+    "test:desktop": "node --test electron/test/*.test.js",
     "build": "cd client && npm run build",
     "build:electron": "electron-builder",
     "start": "electron ."
@@ -29,16 +30,45 @@
       "output": "release"
     },
     "files": [
+      "electron/**/*",
+      "!electron/test/**",
       "client/dist/**/*",
-      "server/**/*",
-      "models/**/*",
-      "datasets/**/*",
-      "outputs/**/*"
+      "package.json"
     ],
     "extraResources": [
       {
         "from": "server",
-        "to": "server"
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!data/**",
+          "!**/.env",
+          "!**/.env.*",
+          "!**/logs/**",
+          "!**/models/**",
+          "!**/datasets/**",
+          "!**/outputs/**",
+          "!**/workspaces/**",
+          "!**/modelscope_cache/**",
+          "!**/agent_kernel/**",
+          "!**/chroma/**",
+          "!**/chromadb/**",
+          "!**/uploads/**",
+          "!**/backups/**",
+          "!tests/**",
+          "!scripts/**",
+          "!scratch/**",
+          "!tmp/**",
+          "!.pytest_cache/**",
+          "!pytest.ini",
+          "!**/*.md",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "server/datasets/__init__.py",
+        "to": "server/datasets/__init__.py"
       }
     ],
     "win": {
