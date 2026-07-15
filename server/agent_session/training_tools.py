@@ -94,15 +94,15 @@ def _session_grant_lock(session_id: str) -> threading.Lock:
         return lock
 
 
-def grant_approved_training_submissions(
+def grant_approved_training_actions(
     repository: Any,
     permission_part: dict[str, Any],
     decisions: list[dict[str, Any]],
 ) -> None:
     """Persist one-time grants only after an official approval response.
 
-    This is deliberately called by the existing approval service, not by the
-    LLM-facing tool.  Tools can only consume a matching grant.
+    Covers submit / resume / cancel. Called by the approval service, not by
+    LLM-facing tools; tools only consume matching grants.
     """
 
     payload = permission_part.get("payload") if isinstance(permission_part.get("payload"), dict) else {}
@@ -169,6 +169,10 @@ def grant_approved_training_submissions(
             metadata["approved_training_cancellations"] = grants
 
         repository.update_session(session_id, metadata=metadata)
+
+
+# Backward-compatible alias (historical name referred only to submit grants).
+grant_approved_training_submissions = grant_approved_training_actions
 
 
 def consume_training_submission_grant(repository: Any, session_id: str, proposal_id: str) -> bool:
@@ -505,6 +509,9 @@ def build_training_tools(
             return _json_tool_result(_error_projection(exc))
         result = _tool_result_from_activity(resumed)
         try:
+            # Synthetic proposal key documents resume lineage without colliding
+            # with real proposal UUIDs; create_training_link only requires a
+            # non-empty stable identifier.
             repository.create_training_link(
                 session_id=session_id,
                 owner_id=owner_id,
@@ -628,6 +635,7 @@ __all__ = [
     "consume_training_cancel_grant",
     "consume_training_resume_grant",
     "consume_training_submission_grant",
+    "grant_approved_training_actions",
     "grant_approved_training_submissions",
     "restore_training_cancel_grant",
     "restore_training_resume_grant",

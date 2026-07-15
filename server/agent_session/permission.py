@@ -321,6 +321,12 @@ class AgentRuntimePermissionPolicy:
         return resolve_deepagents_interrupt_on(self.metadata)
 
     def allowed_tools(self) -> set[str] | None:
+        from .training_tools import (
+            TRAINING_MUTATING_TOOL_NAMES,
+            TRAINING_TOOL_NAMES,
+            training_tools_enabled_for_session,
+        )
+
         base: set[str] | None
         if not self.agent or not self.agent.tools:
             base = None
@@ -328,22 +334,21 @@ class AgentRuntimePermissionPolicy:
             base = {str(tool).strip() for tool in self.agent.tools if str(tool).strip()}
         # Train/Hybrid sessions inject training tools at runtime; allow them even
         # when the static Build manifest no longer lists them (coding-only default).
-        if base is not None:
-            from .training_tools import TRAINING_TOOL_NAMES, training_tools_enabled_for_session
+        session_like = {
+            "agent_id": self.agent_id,
+            "metadata": self.metadata,
+            "task_mode": self.metadata.get("task_mode"),
+        }
+        if base is not None and training_tools_enabled_for_session(session_like):
+            base = set(base) | set(TRAINING_TOOL_NAMES)
 
-            session_like = {
-                "agent_id": self.agent_id,
-                "metadata": self.metadata,
-                "task_mode": self.metadata.get("task_mode"),
-            }
-            if training_tools_enabled_for_session(session_like):
-                base = set(base) | set(TRAINING_TOOL_NAMES)
         if self.autonomy_mode() != "read_only":
             return base
-        # Fail-closed: strip write/execute tools under read_only.
+        # Fail-closed: strip workspace mutation, shell, and mutating training tools.
+        blocked = WRITE_EXECUTE_TOOLS | set(TRAINING_MUTATING_TOOL_NAMES)
         if base is None:
             return set(READ_ONLY_FALLBACK_TOOLS)
-        return {tool for tool in base if tool not in WRITE_EXECUTE_TOOLS}
+        return {tool for tool in base if tool not in blocked}
 
     def filter_named_tools(self, tools: list[Any]) -> list[Any]:
         allowed = self.allowed_tools()

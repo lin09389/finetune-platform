@@ -300,7 +300,23 @@ class AgentTrainingService:
                 )
 
         config_dict = dict(record.config or {})
+        try:
+            from services.training.resume_identity import ResumeIdentityError, validate_resume_identity
+
+            identity_warnings = validate_resume_identity(
+                original_record=record,
+                config_dict=config_dict,
+                checkpoint_path=checkpoint_path,
+            )
+        except ResumeIdentityError as exc:
+            raise AgentTrainingError(
+                getattr(exc, "code", None) or "checkpoint_identity_mismatch",
+                str(exc),
+                details={"task_id": source_task_id, "checkpoint_name": checkpoint},
+            ) from exc
         config_dict["resume_from_checkpoint"] = str(checkpoint_path)
+        if identity_warnings:
+            config_dict["resume_identity_warnings"] = identity_warnings
         try:
             config = TrainingConfigInput.model_validate(config_dict)
         except Exception as exc:
@@ -386,7 +402,7 @@ class AgentTrainingService:
                 message=f"Cancellation requested for training task {target_id}.",
             )
 
-        # in_process: only the active run can be stopped via the shared state.
+        # in_process: only the active run can be stopped; never stop a different job.
         state = self._submission_state()
         if state is None or not state.is_training():
             raise AgentTrainingError(
@@ -394,15 +410,39 @@ class AgentTrainingService:
                 "No in-process training is currently running.",
                 details={"task_id": target_id},
             )
-        active_id = str(getattr(state, "current_task_id", None) or getattr(state, "task_id", None) or "")
-        # If the runtime tracks an id and it differs, refuse to stop the wrong job.
-        if active_id and active_id != target_id:
+        current_record = state.get_current_record()
+        active_id = str(getattr(current_record, "id", "") or "") if current_record is not None else ""
+        if not active_id:
+            raise AgentTrainingError(
+                "training_not_running",
+                "No active training record is bound to the in-process trainer.",
+                details={"task_id": target_id},
+            )
+        if active_id != target_id:
             raise AgentTrainingError(
                 "training_run_mismatch",
                 "The requested task is not the currently running training job.",
                 details={"task_id": target_id, "active_task_id": active_id},
             )
+        # Mirror InProcessTrainingGateway.stop: request stop + progress signal.
+        if state.should_stop():
+            return TrainingCancelResult(
+                task_id=target_id,
+                status="stopping",
+                message="Stop already requested for the active training task.",
+            )
         state.request_stop()
+        try:
+            from training_engine.callbacks import queue_training_progress
+
+            queue_training_progress(
+                state,
+                status="stopping",
+                message="Stop requested, waiting for current step to finish",
+            )
+        except Exception:
+            # Progress fan-out is best-effort; the stop latch is already set.
+            pass
         return TrainingCancelResult(
             task_id=target_id,
             status="stopping",

@@ -10,7 +10,7 @@ from agent_session.approval import permission_decisions
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentSessionResponse
 from agent_session.permission import apply_hitl_approve_session_trust, validate_hitl_decisions
-from agent_session.training_tools import grant_approved_training_submissions
+from agent_session.training_tools import grant_approved_training_actions
 from core.db_manager import run_sync
 
 if TYPE_CHECKING:
@@ -180,7 +180,7 @@ class ApprovalService:
         # Reject paths pass only reject decisions → no tools granted.
         metadata = apply_hitl_approve_session_trust(metadata, part, decisions)
         self.service.state_machine.mark_running(session_id, metadata=metadata)
-        grant_approved_training_submissions(self.service.repository, part, decisions)
+        grant_approved_training_actions(self.service.repository, part, decisions)
         event = self.service.repository.add_event(
             session_id,
             "permission_decided",
