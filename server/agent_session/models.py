@@ -25,6 +25,9 @@ class AgentSessionCreate(BaseModel):
     model: str | None = None
     autonomy_mode: str | None = None
     enabled_skill_sources: list[str] | None = None
+    # Phase B0: constrain exploration/edits to project-relative paths.
+    scope_paths: list[str] | None = None
+    scope_notes: str | None = Field(default=None, max_length=500)
 
 
 class AgentPromptRequest(BaseModel):
@@ -33,6 +36,10 @@ class AgentPromptRequest(BaseModel):
     model: str | None = None
     active_context: dict[str, Any] | None = None
     explicit_context: list[dict[str, Any]] = Field(default_factory=list)
+    # Optional per-prompt scope override (merged into session metadata for the run).
+    scope_paths: list[str] | None = None
+    scope_notes: str | None = Field(default=None, max_length=500)
+    clear_scope: bool = False
 
 
 class AgentAsyncTaskStartRequest(BaseModel):
@@ -64,6 +71,10 @@ class AgentSessionPreferencesUpdate(BaseModel):
     display_title: str | None = Field(default=None, max_length=80)
     pinned: bool | None = None
     archived: bool | None = None
+    # Scope is stored on session metadata.task_scope (not ui_preferences).
+    scope_paths: list[str] | None = None
+    scope_notes: str | None = Field(default=None, max_length=500)
+    clear_scope: bool = False
 
 
 class AgentAsyncTaskResponse(BaseModel):

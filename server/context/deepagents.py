@@ -52,6 +52,8 @@ async def build_deepagents_context_pack(
     project_path: str | None,
     session_id: str | None = None,
     user_id: str = "default",
+    task_scope: dict[str, Any] | None = None,
+    verify_recipe: dict[str, Any] | None = None,
 ) -> DeepAgentsContextPack:
     """Build a bounded prompt plus /context files for a DeepAgents run."""
 
@@ -61,6 +63,29 @@ async def build_deepagents_context_pack(
     task_index = _task_index(goal, active_context, explicit_context)
     files[f"{CONTEXT_ROOT}/task.md"] = task_index
     files["/task.md"] = task_index
+
+    # Phase B0: verify recipe + scope as virtual context (optional).
+    if verify_recipe and isinstance(verify_recipe, dict):
+        recipe_md = str(verify_recipe.get("markdown") or "").strip()
+        if recipe_md:
+            files[f"{CONTEXT_ROOT}/verify-recipe.md"] = _limit(recipe_md, MAX_CONTEXT_FILE_CHARS)
+            metadata["verify_recipe_sources"] = list(verify_recipe.get("sources") or [])[:12]
+    if task_scope and isinstance(task_scope, dict):
+        scope_paths = [str(p) for p in (task_scope.get("paths") or []) if str(p).strip()]
+        if scope_paths or task_scope.get("notes"):
+            scope_lines = [
+                "# Task Scope",
+                "",
+                "Platform-enforced work scope for this session.",
+                "Prefer exploration and edits under these project-relative paths.",
+                "",
+            ]
+            for path in scope_paths:
+                scope_lines.append(f"- `{path}`")
+            if task_scope.get("notes"):
+                scope_lines.extend(["", f"Notes: {task_scope.get('notes')}"])
+            files[f"{CONTEXT_ROOT}/task-scope.md"] = _limit("\n".join(scope_lines) + "\n", 4000)
+            metadata["task_scope_paths"] = scope_paths
 
     if active_context:
         active_text = _active_context_text(active_context)
@@ -94,20 +119,31 @@ async def build_deepagents_context_pack(
     file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
     virtual_file_list = "\n".join(file_lines) if file_lines else "- 无"
 
-    prompt = "\n\n".join(
-        [
-            "【用户目标】\n" + _limit(goal.strip() or "继续执行当前任务。", MAX_INLINE_PROMPT_CHARS),
-            "【启动速览】\n" + kickoff_brief,
-            (
-                "【虚拟文件系统补充材料】\n"
-                "速览已包含启动所需信息；只有需要完整原文、长上下文或更细代码片段时，再按需读取 `/context/...` 下的虚拟文件。\n"
-                "长文本上下文仍保留在虚拟文件系统中，可用 read_file/grep/glob 深挖，但这些文件不是启动必读步骤。\n"
-                "读取或修改真实项目文件时优先使用 `/workspace/...` 路径。\n"
-                "可用虚拟上下文文件：\n"
-                f"{virtual_file_list}"
-            ),
-        ]
+    from agent_session.task_scope import format_scope_prompt_section, format_verify_recipe_prompt_section
+
+    prompt_sections = [
+        "【用户目标】\n" + _limit(goal.strip() or "继续执行当前任务。", MAX_INLINE_PROMPT_CHARS),
+        "【启动速览】\n" + kickoff_brief,
+    ]
+    scope_section = format_scope_prompt_section(task_scope if isinstance(task_scope, dict) else None)
+    if scope_section:
+        prompt_sections.append(scope_section)
+    recipe_section = format_verify_recipe_prompt_section(
+        verify_recipe if isinstance(verify_recipe, dict) else None
     )
+    if recipe_section:
+        prompt_sections.append(recipe_section)
+    prompt_sections.append(
+        (
+            "【虚拟文件系统补充材料】\n"
+            "速览已包含启动所需信息；只有需要完整原文、长上下文或更细代码片段时，再按需读取 `/context/...` 下的虚拟文件。\n"
+            "长文本上下文仍保留在虚拟文件系统中，可用 read_file/grep/glob 深挖，但这些文件不是启动必读步骤。\n"
+            "读取或修改真实项目文件时优先使用 `/workspace/...` 路径。\n"
+            "可用虚拟上下文文件：\n"
+            f"{virtual_file_list}"
+        )
+    )
+    prompt = "\n\n".join(prompt_sections)
     virtual_file_tokens = sum(estimate_tokens(content) for content in files.values())
     metadata.update(
         {

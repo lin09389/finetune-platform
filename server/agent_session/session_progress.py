@@ -574,6 +574,20 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
         + ("；已触发 soft 警告" if snap.get("budget_soft_warned") else "")
         + ("；已 hard 阻断" if snap.get("budget_hard_blocked") else ""),
     ]
+    # Phase B0: surface task scope + verify recipe hints when present.
+    scope = meta.get("task_scope") if isinstance(meta.get("task_scope"), dict) else None
+    if scope and (scope.get("paths") or scope.get("notes")):
+        scope_paths = [str(p) for p in (scope.get("paths") or []) if str(p).strip()]
+        lines.append(
+            "- 任务范围 Scope："
+            + ("、".join(f"`{p}`" for p in scope_paths[:8]) if scope_paths else "（仅备注）")
+            + ("；写入范围外会被拦截" if scope_paths else "")
+        )
+    recipe = meta.get("verify_recipe") if isinstance(meta.get("verify_recipe"), dict) else None
+    if recipe and recipe.get("commands"):
+        cmds = [str(c) for c in (recipe.get("commands") or []) if str(c).strip()][:4]
+        if cmds:
+            lines.append("- 验证菜谱命令：" + "；".join(f"`{c}`" for c in cmds))
     if snap.get("require_observation_before_retry"):
         cmd = str(snap.get("last_failed_command") or "")[:160]
         lines.append(

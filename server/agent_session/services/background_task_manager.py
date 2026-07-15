@@ -255,12 +255,56 @@ class BackgroundTaskManagerService:
                 "part": preparing_part,
             },
         )
+        # Phase B0: optional per-prompt scope override + discover verify recipe.
+        from agent_session.task_scope import (
+            VERIFY_RECIPE_KEY,
+            apply_task_scope_to_metadata,
+            discover_verify_recipe,
+            get_task_scope,
+        )
+
+        if request.clear_scope or request.scope_paths is not None or request.scope_notes is not None:
+            if request.clear_scope:
+                metadata = apply_task_scope_to_metadata(
+                    metadata,
+                    session.get("project_path"),
+                    clear=True,
+                )
+            else:
+                existing_scope = get_task_scope(metadata) or {}
+                paths = (
+                    request.scope_paths
+                    if request.scope_paths is not None
+                    else list(existing_scope.get("paths") or [])
+                )
+                notes = (
+                    request.scope_notes
+                    if request.scope_notes is not None
+                    else existing_scope.get("notes")
+                )
+                metadata = apply_task_scope_to_metadata(
+                    metadata,
+                    session.get("project_path"),
+                    paths=paths,
+                    notes=notes if isinstance(notes, str) or notes is None else str(notes),
+                )
+        verify_recipe = discover_verify_recipe(session.get("project_path"))
+        if verify_recipe:
+            metadata[VERIFY_RECIPE_KEY] = {
+                "sources": verify_recipe.get("sources"),
+                "commands": verify_recipe.get("commands"),
+                # markdown kept for context pack; avoid bloating if huge
+                "markdown": verify_recipe.get("markdown"),
+            }
+        task_scope = get_task_scope(metadata)
         context_pack = await build_deepagents_context_pack(
             goal=request.content,
             active_context=request.active_context,
             explicit_context=request.explicit_context,
             project_path=session.get("project_path"),
             session_id=session_id,
+            task_scope=task_scope,
+            verify_recipe=verify_recipe,
         )
         repository.update_part(
             preparing_part["id"],

@@ -61,6 +61,15 @@ class SessionLifecycleService:
             "workspace": {"id": workspace_id, "path": project_path},
             "task_mode": request.task_mode,
         }
+        if request.scope_paths or request.scope_notes:
+            from agent_session.task_scope import apply_task_scope_to_metadata
+
+            metadata = apply_task_scope_to_metadata(
+                metadata,
+                project_path,
+                paths=request.scope_paths,
+                notes=request.scope_notes,
+            )
         if user_id:
             metadata["user_id"] = user_id
         session = self.service.repository.create_session(
@@ -278,6 +287,33 @@ class SessionLifecycleService:
             preferences["archived"] = bool(request.archived)
         preferences["updated_at"] = datetime.now().isoformat()
         metadata["ui_preferences"] = preferences
+        if request.clear_scope or request.scope_paths is not None or request.scope_notes is not None:
+            from agent_session.task_scope import apply_task_scope_to_metadata, get_task_scope
+
+            if request.clear_scope:
+                metadata = apply_task_scope_to_metadata(
+                    metadata,
+                    session.get("project_path"),
+                    clear=True,
+                )
+            else:
+                existing = get_task_scope(metadata) or {}
+                paths = (
+                    request.scope_paths
+                    if request.scope_paths is not None
+                    else list(existing.get("paths") or [])
+                )
+                notes = (
+                    request.scope_notes
+                    if request.scope_notes is not None
+                    else existing.get("notes")
+                )
+                metadata = apply_task_scope_to_metadata(
+                    metadata,
+                    session.get("project_path"),
+                    paths=paths,
+                    notes=notes if isinstance(notes, str) or notes is None else str(notes),
+                )
         updated = self.service.repository.update_session(session_id, metadata=metadata)
         updated["parts"] = self.service.repository.list_parts(session_id)
         return self._session_response(updated)

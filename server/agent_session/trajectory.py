@@ -853,6 +853,10 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             return blocked
         existed_before = bool(local_path and local_path.exists()) if tool in WRITE_TOOLS else False
         if tool in WRITE_TOOLS:
+            scope_block = self._check_scope_write(path)
+            if scope_block is not None:
+                scope_block.tool_call_id = str(request.tool_call.get("id") or "trajectory_guard")
+                return scope_block
             blocked = self._check_write_preconditions(tool, path)
             if blocked is not None:
                 blocked.tool_call_id = str(request.tool_call.get("id") or "trajectory_guard")
@@ -947,6 +951,29 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
 
     def _persist_metadata(self, metadata: dict[str, Any]) -> None:
         self.store.repository.update_session(self.store.session_id, metadata=metadata)
+
+    def _check_scope_write(self, path: str) -> ToolMessage | None:
+        """Phase B0: block writes outside session task_scope paths."""
+        from agent_session.task_scope import get_task_scope, path_in_scope, workspace_path_to_rel
+
+        metadata = self._session_metadata()
+        scope = get_task_scope(metadata)
+        if not scope or not (scope.get("paths") or []):
+            return None
+        rel = workspace_path_to_rel(path)
+        if path_in_scope(rel, scope):
+            return None
+        allowed = ", ".join(f"`{p}`" for p in (scope.get("paths") or [])[:8])
+        return self.store.block(
+            "write_file",
+            path,
+            "scope_violation",
+            (
+                f"写入 `{rel or path}` 超出本会话任务范围 Scope，已阻止。"
+                f"允许路径：{allowed or '（未配置）'}。"
+                "请在范围内修改，或请用户通过 scope_paths 扩大范围。"
+            ),
+        )
 
     def _check_step2_preconditions(self, tool: str, args: dict[str, Any]) -> ToolMessage | None:
         """Block blind execute retries and enforce exploration budget (Step 2)."""
