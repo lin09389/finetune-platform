@@ -835,6 +835,11 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
         tool = str(request.tool_call.get("name") or "")
         args = request.tool_call.get("args") if isinstance(request.tool_call.get("args"), dict) else {}
         path = self._tool_path(tool, args)
+        # Step 2: exploration budget + blind execute retry (before write checks).
+        step2_block = self._check_step2_preconditions(tool, args)
+        if step2_block is not None:
+            step2_block.tool_call_id = str(request.tool_call.get("id") or "trajectory_guard")
+            return step2_block
         try:
             local_path = self._local_path(path) if path else None
         except ValueError:
@@ -935,6 +940,64 @@ class TrajectoryGuardMiddleware(AgentMiddleware[Any, Any, Any]):
             else:
                 self.store.record_step("command", tool=tool, command=command, success=success)
         return result
+
+    def _session_metadata(self) -> dict[str, Any]:
+        session = self.store.repository.get_session(self.store.session_id) or {}
+        return dict(session.get("metadata") or {})
+
+    def _persist_metadata(self, metadata: dict[str, Any]) -> None:
+        self.store.repository.update_session(self.store.session_id, metadata=metadata)
+
+    def _check_step2_preconditions(self, tool: str, args: dict[str, Any]) -> ToolMessage | None:
+        """Block blind execute retries and enforce exploration budget (Step 2)."""
+        from agent_session.session_progress import (
+            evaluate_execute_blind_retry,
+            evaluate_exploration_budget,
+            mark_blind_retry_blocked,
+            mark_budget_hard_blocked,
+            mark_budget_soft_warned,
+        )
+
+        metadata = self._session_metadata()
+        if tool == "execute":
+            command = str(args.get("command") or "")
+            blind = evaluate_execute_blind_retry(metadata, command)
+            if blind is not None:
+                self._persist_metadata(mark_blind_retry_blocked(metadata))
+                return self.store.block(
+                    tool,
+                    "",
+                    str(blind.get("reason_code") or "blind_execute_retry"),
+                    str(blind.get("message") or "已阻止盲目重试失败命令。"),
+                )
+
+        budget = evaluate_exploration_budget(metadata, tool=tool)
+        if budget is None:
+            return None
+        if budget.get("level") == "soft":
+            # Warn once via trajectory event; do not block the tool.
+            warned = mark_budget_soft_warned(metadata)
+            self._persist_metadata(warned)
+            self.store._publish(
+                "exploration_budget_warning",
+                str(budget.get("message") or "探索预算接近上限"),
+                {
+                    "guard": "exploration_budget",
+                    "level": "soft",
+                    "reason_code": budget.get("reason_code"),
+                    "tools_total": budget.get("tools_total"),
+                    "observe_total": budget.get("observe_total"),
+                },
+            )
+            return None
+        # hard block
+        self._persist_metadata(mark_budget_hard_blocked(metadata))
+        return self.store.block(
+            tool,
+            "",
+            str(budget.get("reason_code") or "exploration_budget_exhausted"),
+            str(budget.get("message") or "探索预算已耗尽。"),
+        )
 
     def _check_write_preconditions(self, tool: str, path: str) -> ToolMessage | None:
         if not path:

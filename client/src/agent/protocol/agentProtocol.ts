@@ -359,6 +359,7 @@ const KNOWN_EVENT_TYPES = new Set([
   'trajectory_validation_required',
   'trajectory_static_validation_failed',
   'trajectory_step_recorded',
+  'exploration_budget_warning',
   'coding_diff_ready',
   'context_preparing',
   'context_ready',

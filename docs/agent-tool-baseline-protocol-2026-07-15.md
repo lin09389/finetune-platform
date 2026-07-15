@@ -250,7 +250,8 @@ docs/baselines/agent-tool-baseline-<YYYYMMDD>-<model-slug>.md
 
 ## 8. 与后续步骤的衔接
 
-> **第 1 步已实现（2026-07-15）**：`session_progress.py`（working-state 卡 + `tool_metrics` + `completion_gate`）、prompt 注入、`selectAttentionItems` 的 `completion_gap`。复测时对比同一模型的 `metadata.tool_metrics` / `completion_gate.completed_ok`。
+> **第 1 步已实现（2026-07-15）**：`session_progress.py`（working-state 卡 + `tool_metrics` + `completion_gate`）、prompt 注入、`selectAttentionItems` 的 `completion_gap`。复测时对比同一模型的 `metadata.tool_metrics` / `completion_gate.completed_ok`。  
+> **第 2 步已实现（2026-07-15）**：失败 execute 盲重试门闩（须先观察）；探索预算 soft/hard；终态摘要强制补全「已完成项/变更文件/验证结果」+ 平台完成核对。
 
 | 步骤 | 依赖本基线 |
 |------|------------|

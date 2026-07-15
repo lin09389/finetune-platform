@@ -285,6 +285,7 @@ class DeepAgentsSessionRunner:
             if correction_summary:
                 last_summary = correction_summary
             summary = last_summary or "DeepAgents 执行完成。"
+            summary = self._enrich_summary(session_id, summary, status="completed")
             mapper.complete_summary(summary)
             self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
@@ -326,9 +327,27 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             if correction_summary:
                 last_summary = correction_summary
-            mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
+            summary = self._enrich_summary(
+                session_id,
+                last_summary or "DeepAgents 已继续执行并完成。",
+                status="completed",
+            )
+            mapper.complete_summary(summary)
             self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
+
+    def _enrich_summary(self, session_id: str, content: str, *, status: str) -> str:
+        try:
+            from agent_session.session_progress import enrich_final_summary
+
+            session = self.repository.get_session(session_id) or {}
+            return enrich_final_summary(
+                content,
+                dict(session.get("metadata") or {}),
+                status=status,
+            )
+        except Exception:
+            return content
 
     async def _build_graph(self, session: dict[str, Any], prompt: str, *, checkpointer: Any | None = None) -> Any:
         _load_create_deep_agent()
