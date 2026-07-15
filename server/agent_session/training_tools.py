@@ -15,7 +15,17 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from training_engine.schemas import TrainingConfigInput
 
-TRAINING_TOOL_NAMES = frozenset({"propose_training", "submit_training", "get_training_summary"})
+TRAINING_TOOL_NAMES = frozenset(
+    {
+        "propose_training",
+        "submit_training",
+        "resume_training",
+        "cancel_training",
+        "get_training_summary",
+    }
+)
+# Side-effecting tools that always require official HITL + one-time grants.
+TRAINING_MUTATING_TOOL_NAMES = frozenset({"submit_training", "resume_training", "cancel_training"})
 _ABSOLUTE_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)[^\s,;\]\)}]+")
 _GRANT_LOCKS: dict[str, threading.Lock] = {}
 _GRANT_LOCKS_GUARD = threading.Lock()
@@ -31,8 +41,19 @@ class SubmitTrainingInput(BaseModel):
     proposal_id: str = Field(description="The exact proposal_id returned by propose_training.")
 
 
+class ResumeTrainingInput(BaseModel):
+    task_id: str = Field(description="The existing training task_id to resume from.")
+    checkpoint_name: str = Field(
+        description="Single checkpoint directory name under the run's checkpoints/ folder (e.g. checkpoint-500)."
+    )
+
+
+class CancelTrainingInput(BaseModel):
+    task_id: str = Field(description="The training task_id to cancel or stop.")
+
+
 class GetTrainingSummaryInput(BaseModel):
-    task_id: str = Field(description="The exact task_id returned after an approved submission.")
+    task_id: str = Field(description="The exact task_id returned after an approved submission or resume.")
 
 
 def training_tools_enabled_for_session(session: dict[str, Any]) -> bool:
@@ -44,7 +65,7 @@ def training_tools_enabled_for_session(session: dict[str, Any]) -> bool:
 
 
 def training_submission_interrupt_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
-    """Force submission through DeepAgents HITL while preserving existing tool policy."""
+    """Force mutating training tools through DeepAgents HITL while preserving tool policy."""
 
     updated = dict(metadata or {})
     current = updated.get("deepagents_interrupt_on")
@@ -58,7 +79,8 @@ def training_submission_interrupt_metadata(metadata: dict[str, Any] | None) -> d
         interrupt_on = dict(current)
     else:
         interrupt_on = {}
-    interrupt_on["submit_training"] = True
+    for tool_name in TRAINING_MUTATING_TOOL_NAMES:
+        interrupt_on[tool_name] = True
     updated["deepagents_interrupt_on"] = interrupt_on
     return updated
 
@@ -80,7 +102,7 @@ def grant_approved_training_submissions(
     """Persist one-time grants only after an official approval response.
 
     This is deliberately called by the existing approval service, not by the
-    LLM-facing tool.  The tool can only consume a matching grant.
+    LLM-facing tool.  Tools can only consume a matching grant.
     """
 
     payload = permission_part.get("payload") if isinstance(permission_part.get("payload"), dict) else {}
@@ -90,57 +112,74 @@ def grant_approved_training_submissions(
     session_id = str(permission_part.get("session_id") or "")
     if not session_id:
         return
-    proposal_ids = [
-        str(action.get("args", {}).get("proposal_id") or "").strip()
-        for action, decision in zip(action_requests, decisions, strict=False)
-        if isinstance(action, dict)
-        and str(action.get("name") or "") == "submit_training"
-        and isinstance(decision, dict)
-        and decision.get("type") == "approve"
-    ]
-    proposal_ids = [proposal_id for proposal_id in proposal_ids if proposal_id]
-    if not proposal_ids:
+
+    submit_ids: list[str] = []
+    resume_grants: list[dict[str, str]] = []
+    cancel_ids: list[str] = []
+    for action, decision in zip(action_requests, decisions, strict=False):
+        if not isinstance(action, dict) or not isinstance(decision, dict):
+            continue
+        if decision.get("type") != "approve":
+            continue
+        name = str(action.get("name") or "")
+        args = action.get("args") if isinstance(action.get("args"), dict) else {}
+        if name == "submit_training":
+            proposal_id = str(args.get("proposal_id") or "").strip()
+            if proposal_id:
+                submit_ids.append(proposal_id)
+        elif name == "resume_training":
+            task_id = str(args.get("task_id") or "").strip()
+            checkpoint_name = str(args.get("checkpoint_name") or "").strip()
+            if task_id and checkpoint_name:
+                resume_grants.append({"task_id": task_id, "checkpoint_name": checkpoint_name})
+        elif name == "cancel_training":
+            task_id = str(args.get("task_id") or "").strip()
+            if task_id:
+                cancel_ids.append(task_id)
+
+    if not submit_ids and not resume_grants and not cancel_ids:
         return
+
     with _session_grant_lock(session_id):
         session = repository.get_session(session_id) or {}
         if not training_tools_enabled_for_session(session):
             return
         metadata = dict(session.get("metadata") or {})
-        grants = metadata.get("approved_training_submissions")
-        grants = list(grants) if isinstance(grants, list) else []
         permission_part_id = str(permission_part.get("id") or "")
-        for proposal_id in proposal_ids:
-            grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
-        metadata["approved_training_submissions"] = grants
+
+        if submit_ids:
+            grants = metadata.get("approved_training_submissions")
+            grants = list(grants) if isinstance(grants, list) else []
+            for proposal_id in submit_ids:
+                grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
+            metadata["approved_training_submissions"] = grants
+
+        if resume_grants:
+            grants = metadata.get("approved_training_resumes")
+            grants = list(grants) if isinstance(grants, list) else []
+            for item in resume_grants:
+                grants.append({**item, "permission_part_id": permission_part_id})
+            metadata["approved_training_resumes"] = grants
+
+        if cancel_ids:
+            grants = metadata.get("approved_training_cancellations")
+            grants = list(grants) if isinstance(grants, list) else []
+            for task_id in cancel_ids:
+                grants.append({"task_id": task_id, "permission_part_id": permission_part_id})
+            metadata["approved_training_cancellations"] = grants
+
         repository.update_session(session_id, metadata=metadata)
 
 
 def consume_training_submission_grant(repository: Any, session_id: str, proposal_id: str) -> bool:
     """Consume exactly one matching official approval before calling training."""
 
-    with _session_grant_lock(session_id):
-        session = repository.get_session(session_id) or {}
-        if not training_tools_enabled_for_session(session):
-            return False
-        metadata = dict(session.get("metadata") or {})
-        grants = metadata.get("approved_training_submissions")
-        if not isinstance(grants, list):
-            return False
-        index = next(
-            (
-                offset
-                for offset, item in enumerate(grants)
-                if isinstance(item, dict) and str(item.get("proposal_id") or "") == proposal_id
-            ),
-            None,
-        )
-        if index is None:
-            return False
-        next_grants = list(grants)
-        next_grants.pop(index)
-        metadata["approved_training_submissions"] = next_grants
-        repository.update_session(session_id, metadata=metadata)
-        return True
+    return _consume_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_submissions",
+        match=lambda item: str(item.get("proposal_id") or "") == proposal_id,
+    )
 
 
 def restore_training_submission_grant(
@@ -155,15 +194,124 @@ def restore_training_submission_grant(
     proposal_id = str(proposal_id or "").strip()
     if not session_id or not proposal_id:
         return
+    _append_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_submissions",
+        entry={"proposal_id": proposal_id, "permission_part_id": permission_part_id},
+    )
+
+
+def consume_training_resume_grant(
+    repository: Any,
+    session_id: str,
+    *,
+    task_id: str,
+    checkpoint_name: str,
+) -> bool:
+    return _consume_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_resumes",
+        match=lambda item: (
+            str(item.get("task_id") or "") == task_id
+            and str(item.get("checkpoint_name") or "") == checkpoint_name
+        ),
+    )
+
+
+def restore_training_resume_grant(
+    repository: Any,
+    session_id: str,
+    *,
+    task_id: str,
+    checkpoint_name: str,
+    permission_part_id: str = "restored-after-failed-resume",
+) -> None:
+    _append_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_resumes",
+        entry={
+            "task_id": task_id,
+            "checkpoint_name": checkpoint_name,
+            "permission_part_id": permission_part_id,
+        },
+    )
+
+
+def consume_training_cancel_grant(repository: Any, session_id: str, task_id: str) -> bool:
+    return _consume_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_cancellations",
+        match=lambda item: str(item.get("task_id") or "") == task_id,
+    )
+
+
+def restore_training_cancel_grant(
+    repository: Any,
+    session_id: str,
+    task_id: str,
+    *,
+    permission_part_id: str = "restored-after-failed-cancel",
+) -> None:
+    _append_list_grant(
+        repository,
+        session_id,
+        metadata_key="approved_training_cancellations",
+        entry={"task_id": task_id, "permission_part_id": permission_part_id},
+    )
+
+
+def _consume_list_grant(
+    repository: Any,
+    session_id: str,
+    *,
+    metadata_key: str,
+    match,
+) -> bool:
+    with _session_grant_lock(session_id):
+        session = repository.get_session(session_id) or {}
+        if not training_tools_enabled_for_session(session):
+            return False
+        metadata = dict(session.get("metadata") or {})
+        grants = metadata.get(metadata_key)
+        if not isinstance(grants, list):
+            return False
+        index = next(
+            (
+                offset
+                for offset, item in enumerate(grants)
+                if isinstance(item, dict) and match(item)
+            ),
+            None,
+        )
+        if index is None:
+            return False
+        next_grants = list(grants)
+        next_grants.pop(index)
+        metadata[metadata_key] = next_grants
+        repository.update_session(session_id, metadata=metadata)
+        return True
+
+
+def _append_list_grant(
+    repository: Any,
+    session_id: str,
+    *,
+    metadata_key: str,
+    entry: dict[str, str],
+) -> None:
     with _session_grant_lock(session_id):
         session = repository.get_session(session_id) or {}
         if not training_tools_enabled_for_session(session):
             return
         metadata = dict(session.get("metadata") or {})
-        grants = metadata.get("approved_training_submissions")
+        grants = metadata.get(metadata_key)
         grants = list(grants) if isinstance(grants, list) else []
-        grants.append({"proposal_id": proposal_id, "permission_part_id": permission_part_id})
-        metadata["approved_training_submissions"] = grants
+        grants.append(entry)
+        metadata[metadata_key] = grants
         repository.update_session(session_id, metadata=metadata)
 
 
@@ -192,7 +340,7 @@ def _session_may_read_training_task(
     owner_id: str | None,
     task_id: str,
 ) -> bool:
-    """Restrict summary reads to the Agent session that owns the training link.
+    """Restrict summary/mutation to the Agent session that owns the training link.
 
     Repositories without a training-link store (simple unit doubles) stay open
     so pure tool-adapter tests remain focused. Production AgentSessionRepository
@@ -284,8 +432,6 @@ def build_training_tools(
                 )
             )
         try:
-            # Offload blocking preflight + orchestrator work so the Agent event
-            # loop stays responsive; preflight itself is also loop-safe.
             submission = await asyncio.to_thread(
                 training_service.submit_training,
                 ApprovedTrainingAction(proposal_id=proposal_id, approved=True),
@@ -304,12 +450,110 @@ def build_training_tools(
                 task_id=submission.task_id,
             )
         except Exception:
-            # The training side effect already succeeded. Never report the
-            # task itself as failed or invite a duplicate retry merely because
-            # the optional Workbench live-sync link could not be persisted.
             result["sync_status"] = "degraded"
             result["sync_message"] = "Training started, but live progress is temporarily unavailable."
         return _json_tool_result(result)
+
+    async def resume_training(task_id: str, checkpoint_name: str) -> str:
+        if not _session_may_read_training_task(
+            repository,
+            session_id=session_id,
+            owner_id=owner_id,
+            task_id=task_id,
+        ):
+            return _json_tool_result(
+                safe_training_payload(
+                    {
+                        "task_id": task_id,
+                        "status": "failed",
+                        "code": "training_run_forbidden",
+                        "error": "Training run is not visible to this Agent session.",
+                    }
+                )
+            )
+        if not consume_training_resume_grant(
+            repository,
+            session_id,
+            task_id=task_id,
+            checkpoint_name=checkpoint_name,
+        ):
+            return _json_tool_result(
+                safe_training_payload(
+                    {
+                        "task_id": task_id,
+                        "checkpoint_name": checkpoint_name,
+                        "status": "failed",
+                        "error": "Official approval is required before training resume.",
+                    }
+                )
+            )
+        try:
+            resumed = await asyncio.to_thread(
+                training_service.resume_training,
+                task_id=task_id,
+                checkpoint_name=checkpoint_name,
+                owner_id=owner_id,
+                session_id=session_id,
+            )
+        except Exception as exc:
+            restore_training_resume_grant(
+                repository,
+                session_id,
+                task_id=task_id,
+                checkpoint_name=checkpoint_name,
+            )
+            return _json_tool_result(_error_projection(exc))
+        result = _tool_result_from_activity(resumed)
+        try:
+            repository.create_training_link(
+                session_id=session_id,
+                owner_id=owner_id,
+                proposal_id=f"resume:{task_id}:{checkpoint_name}",
+                task_id=resumed.task_id,
+            )
+        except Exception:
+            result["sync_status"] = "degraded"
+            result["sync_message"] = "Resume started, but live progress is temporarily unavailable."
+        return _json_tool_result(result)
+
+    async def cancel_training(task_id: str) -> str:
+        if not _session_may_read_training_task(
+            repository,
+            session_id=session_id,
+            owner_id=owner_id,
+            task_id=task_id,
+        ):
+            return _json_tool_result(
+                safe_training_payload(
+                    {
+                        "task_id": task_id,
+                        "status": "failed",
+                        "code": "training_run_forbidden",
+                        "error": "Training run is not visible to this Agent session.",
+                    }
+                )
+            )
+        if not consume_training_cancel_grant(repository, session_id, task_id):
+            return _json_tool_result(
+                safe_training_payload(
+                    {
+                        "task_id": task_id,
+                        "status": "failed",
+                        "error": "Official approval is required before training cancel.",
+                    }
+                )
+            )
+        try:
+            cancelled = await asyncio.to_thread(
+                training_service.cancel_training,
+                task_id=task_id,
+                owner_id=owner_id,
+                session_id=session_id,
+            )
+        except Exception as exc:
+            restore_training_cancel_grant(repository, session_id, task_id)
+            return _json_tool_result(_error_projection(exc))
+        return _json_tool_result(_tool_result_from_activity(cancelled))
 
     async def get_training_summary(task_id: str) -> str:
         if not _session_may_read_training_task(
@@ -354,6 +598,21 @@ def build_training_tools(
             args_schema=SubmitTrainingInput,
         ),
         StructuredTool.from_function(
+            coroutine=resume_training,
+            name="resume_training",
+            description=(
+                "Resume a training run from a named checkpoint under that run's checkpoints/ folder. "
+                "Always pauses for human approval. Creates a new task_id."
+            ),
+            args_schema=ResumeTrainingInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=cancel_training,
+            name="cancel_training",
+            description="Request cancel/stop for a training task owned by this session. Always pauses for human approval.",
+            args_schema=CancelTrainingInput,
+        ),
+        StructuredTool.from_function(
             coroutine=get_training_summary,
             name="get_training_summary",
             description="Read the safe status summary of an existing training task.",
@@ -363,10 +622,15 @@ def build_training_tools(
 
 
 __all__ = [
+    "TRAINING_MUTATING_TOOL_NAMES",
     "TRAINING_TOOL_NAMES",
     "build_training_tools",
+    "consume_training_cancel_grant",
+    "consume_training_resume_grant",
     "consume_training_submission_grant",
     "grant_approved_training_submissions",
+    "restore_training_cancel_grant",
+    "restore_training_resume_grant",
     "restore_training_submission_grant",
     "safe_training_payload",
     "training_submission_interrupt_metadata",

@@ -10,8 +10,10 @@ from pathlib import Path
 from agent_training.errors import AgentTrainingError
 from agent_training.models import (
     ApprovedTrainingAction,
+    TrainingCancelResult,
     TrainingProposal,
     TrainingProposalRequest,
+    TrainingResumeResult,
     TrainingRunSummary,
     TrainingSubmission,
 )
@@ -26,6 +28,7 @@ from services.training.validator import (
     estimate_preflight_required_vram,
     validate_release_supported_features,
 )
+from training_engine.schemas import TrainingConfigInput
 
 
 class AgentTrainingService:
@@ -207,6 +210,223 @@ class AgentTrainingService:
     def get_training_run_summary(self, task_id: str) -> TrainingRunSummary:
         """Tool-friendly alias for :meth:`get_run_summary`."""
         return self.get_run_summary(task_id)
+
+    def resume_training(
+        self,
+        *,
+        task_id: str,
+        checkpoint_name: str,
+        owner_id: str | None = None,
+        session_id: str | None = None,
+    ) -> TrainingResumeResult:
+        """Start a new training job from a validated checkpoint of an existing run.
+
+        ``owner_id`` / ``session_id`` are accepted for API symmetry with submit;
+        session ownership must be enforced by the tool layer via training links.
+        """
+        _ = owner_id, session_id
+        source_task_id = str(task_id or "").strip()
+        checkpoint = self._sanitize_checkpoint_name(checkpoint_name)
+        record = find_training_record(source_task_id)
+        if record is None:
+            raise AgentTrainingError(
+                "training_run_not_found",
+                "Training run was not found.",
+                details={"task_id": source_task_id},
+            )
+
+        output_dir = Path(str(record.output_path or "")).expanduser()
+        if not str(record.output_path or "").strip():
+            raise AgentTrainingError(
+                "checkpoint_not_found",
+                "Training run has no output path; cannot locate checkpoints.",
+                details={"task_id": source_task_id},
+            )
+        try:
+            output_dir = output_dir.resolve(strict=False)
+        except OSError as exc:
+            raise AgentTrainingError(
+                "checkpoint_not_found",
+                "Training output path is invalid.",
+                details={"task_id": source_task_id},
+            ) from exc
+        checkpoint_path = (output_dir / "checkpoints" / checkpoint).resolve(strict=False)
+        if not checkpoint_path.is_relative_to(output_dir.resolve(strict=False)):
+            raise AgentTrainingError(
+                "invalid_checkpoint_name",
+                "Checkpoint path escapes the training output directory.",
+                details={"checkpoint_name": checkpoint},
+            )
+        if not checkpoint_path.exists():
+            raise AgentTrainingError(
+                "checkpoint_not_found",
+                "Checkpoint was not found for this training run.",
+                details={"task_id": source_task_id, "checkpoint_name": checkpoint},
+            )
+
+        from training_engine.checkpoint_manager import validate_checkpoint
+
+        validation = validate_checkpoint(str(checkpoint_path))
+        if not validation.get("valid"):
+            missing = validation.get("missing") or []
+            raise AgentTrainingError(
+                "checkpoint_invalid",
+                "Checkpoint is incomplete and cannot be used for resumption.",
+                details={"missing": missing, "checkpoint_name": checkpoint},
+            )
+        if not validation.get("has_trainer_state"):
+            raise AgentTrainingError(
+                "checkpoint_invalid",
+                "Checkpoint is missing trainer_state.json and cannot be resumed.",
+                details={"checkpoint_name": checkpoint},
+            )
+
+        if self._settings.training_execution_mode == "worker":
+            from training_worker.repository import get_training_job_repository
+
+            if get_training_job_repository().active_job() is not None:
+                raise AgentTrainingError(
+                    "training_busy",
+                    "Training already in progress; wait for it to finish before resuming.",
+                    details={"task_id": source_task_id},
+                )
+        else:
+            state = self._submission_state()
+            if state is not None and state.is_training():
+                raise AgentTrainingError(
+                    "training_busy",
+                    "Training already in progress; wait for it to finish before resuming.",
+                    details={"task_id": source_task_id},
+                )
+
+        config_dict = dict(record.config or {})
+        config_dict["resume_from_checkpoint"] = str(checkpoint_path)
+        try:
+            config = TrainingConfigInput.model_validate(config_dict)
+        except Exception as exc:
+            raise AgentTrainingError(
+                "proposal_stale",
+                "Stored training config is no longer valid for resume; start a new proposal.",
+                details={"error": str(exc)},
+            ) from exc
+
+        model_path = self._resolve_catalog_directory(self._settings.models_dir_resolved, config.model_id)
+        if not model_path.exists():
+            raise AgentTrainingError(
+                "proposal_stale",
+                "Model is no longer available; request a new training proposal.",
+                details={"model_id": config.model_id},
+            )
+        dataset_file = self._resolve_dataset_file(config.dataset_id)
+        if dataset_file is None:
+            raise AgentTrainingError(
+                "proposal_stale",
+                "Dataset is no longer available; request a new training proposal.",
+                details={"dataset_id": config.dataset_id},
+            )
+
+        try:
+            started = start_training_task(
+                config=config,
+                state=self._submission_state(),
+                settings=self._settings,
+                model_path=model_path,
+                dataset_file=dataset_file,
+                use_queue=False,
+                priority="normal",
+            )
+        except Exception as exc:
+            raise AgentTrainingError(
+                "resume_failed",
+                f"Failed to start resume training: {exc}",
+                details={"task_id": source_task_id, "checkpoint_name": checkpoint},
+            ) from exc
+
+        return TrainingResumeResult(
+            source_task_id=source_task_id,
+            checkpoint_name=checkpoint,
+            task_id=started.id,
+            status=started.status,
+        )
+
+    def cancel_training(
+        self,
+        *,
+        task_id: str,
+        owner_id: str | None = None,
+        session_id: str | None = None,
+    ) -> TrainingCancelResult:
+        """Request stop/cancel for a training task (session ownership enforced by tools)."""
+        _ = owner_id, session_id
+        target_id = str(task_id or "").strip()
+        if not target_id:
+            raise AgentTrainingError("invalid_task_id", "task_id is required.")
+
+        if self._settings.training_execution_mode == "worker":
+            from training_worker.repository import get_training_job_repository
+
+            repository = get_training_job_repository()
+            job = repository.get_job(target_id)
+            if job is None:
+                raise AgentTrainingError(
+                    "training_run_not_found",
+                    "Training run was not found.",
+                    details={"task_id": target_id},
+                )
+            result = repository.request_cancel(target_id)
+            if result is None:
+                return TrainingCancelResult(
+                    task_id=target_id,
+                    status=str(job.status or "terminal"),
+                    message="Training is already terminal; no cancel was needed.",
+                )
+            return TrainingCancelResult(
+                task_id=target_id,
+                status="stopping",
+                message=f"Cancellation requested for training task {target_id}.",
+            )
+
+        # in_process: only the active run can be stopped via the shared state.
+        state = self._submission_state()
+        if state is None or not state.is_training():
+            raise AgentTrainingError(
+                "training_not_running",
+                "No in-process training is currently running.",
+                details={"task_id": target_id},
+            )
+        active_id = str(getattr(state, "current_task_id", None) or getattr(state, "task_id", None) or "")
+        # If the runtime tracks an id and it differs, refuse to stop the wrong job.
+        if active_id and active_id != target_id:
+            raise AgentTrainingError(
+                "training_run_mismatch",
+                "The requested task is not the currently running training job.",
+                details={"task_id": target_id, "active_task_id": active_id},
+            )
+        state.request_stop()
+        return TrainingCancelResult(
+            task_id=target_id,
+            status="stopping",
+            message=f"Stop requested for training task {target_id}.",
+        )
+
+    @staticmethod
+    def _sanitize_checkpoint_name(checkpoint_name: str) -> str:
+        raw = str(checkpoint_name or "").strip()
+        candidate = Path(raw)
+        if (
+            not raw
+            or candidate.is_absolute()
+            or len(candidate.parts) != 1
+            or raw in {".", ".."}
+            or "/" in raw
+            or "\\" in raw
+        ):
+            raise AgentTrainingError(
+                "invalid_checkpoint_name",
+                "Checkpoint name must be a single directory name under the run's checkpoints folder.",
+                details={"checkpoint_name": raw},
+            )
+        return raw
 
     def _resolve_submission_paths(self, proposal: TrainingProposal):
         """Resolve paths again at execution time to reject stale proposals safely."""

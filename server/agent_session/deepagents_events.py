@@ -323,17 +323,21 @@ class DeepAgentsEventMapper:
                 or review_config.get("allowedDecisions")
                 or ["approve", "edit", "reject", "respond"]
             )
-            if tool_name == "submit_training":
+            if tool_name in {"submit_training", "resume_training", "cancel_training"}:
                 allowed_decisions = ["approve", "reject"]
+            training_descriptions = {
+                "submit_training": "将提交训练任务；批准后才会创建一个训练任务。",
+                "resume_training": "将从检查点恢复训练；批准后才会创建新的恢复任务。",
+                "cancel_training": "将请求取消/停止训练任务；批准后才会发出停止请求。",
+            }
             actions.append(
                 {
                     "index": index,
                     "name": tool_name,
                     "args": safe_training_payload(action.get("args")) if tool_name in TRAINING_TOOL_NAMES and isinstance(action.get("args"), dict) else action.get("args") if isinstance(action.get("args"), dict) else {},
                     "description": (
-                        "将提交训练任务；批准后才会创建一个训练任务。"
-                        if tool_name == "submit_training"
-                        else str(action.get("description") or f"工具 {tool_name} 需要确认后继续。")
+                        training_descriptions.get(tool_name)
+                        or str(action.get("description") or f"工具 {tool_name} 需要确认后继续。")
                     ),
                     "allowed_decisions": list(allowed_decisions) if isinstance(allowed_decisions, list | tuple) else ["approve", "reject"],
                 }

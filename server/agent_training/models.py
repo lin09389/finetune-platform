@@ -56,6 +56,23 @@ class TrainingSubmission(BaseModel):
     status: str
 
 
+class TrainingResumeResult(BaseModel):
+    """A new training task started from an existing run's checkpoint."""
+
+    source_task_id: str
+    checkpoint_name: str
+    task_id: str
+    status: str
+
+
+class TrainingCancelResult(BaseModel):
+    """Result of requesting cancel/stop for a linked training run."""
+
+    task_id: str
+    status: str
+    message: str = ""
+
+
 class TrainingRunSummary(BaseModel):
     """Read-only projection of an authoritative training record."""
 
@@ -147,6 +164,21 @@ class TrainingSubmissionActivity(_TrainingActivityBase):
     task_id: str = Field(min_length=1)
 
 
+class TrainingResumeActivity(_TrainingActivityBase):
+    kind: Literal["resume"] = "resume"
+    source_tool: Literal["resume_training"] = "resume_training"
+    source_task_id: str = Field(min_length=1)
+    checkpoint_name: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+
+
+class TrainingCancelActivity(_TrainingActivityBase):
+    kind: Literal["cancel"] = "cancel"
+    source_tool: Literal["cancel_training"] = "cancel_training"
+    task_id: str = Field(min_length=1)
+    message: str = ""
+
+
 class TrainingRunSummaryActivity(_TrainingActivityBase):
     kind: Literal["run_summary"] = "run_summary"
     source_tool: Literal["get_training_summary"] = "get_training_summary"
@@ -170,7 +202,11 @@ class TrainingRunSummaryActivity(_TrainingActivityBase):
 
 
 TrainingActivity: TypeAlias = Annotated[
-    TrainingProposalActivity | TrainingSubmissionActivity | TrainingRunSummaryActivity,
+    TrainingProposalActivity
+    | TrainingSubmissionActivity
+    | TrainingResumeActivity
+    | TrainingCancelActivity
+    | TrainingRunSummaryActivity,
     Field(discriminator="kind"),
 ]
 _TRAINING_ACTIVITY_ADAPTER = TypeAdapter(TrainingActivity)
@@ -202,7 +238,7 @@ def _run_summary(status: str) -> str:
 
 
 def training_activity_for(
-    value: TrainingProposal | TrainingSubmission | TrainingRunSummary,
+    value: TrainingProposal | TrainingSubmission | TrainingResumeResult | TrainingCancelResult | TrainingRunSummary,
 ) -> TrainingActivity:
     """Serialize authoritative training state into the persisted timeline contract."""
 
@@ -225,6 +261,21 @@ def training_activity_for(
             task_id=value.task_id,
             status=value.status,
             summary=_submission_summary(value.status),
+        )
+    if isinstance(value, TrainingResumeResult):
+        return TrainingResumeActivity(
+            source_task_id=value.source_task_id,
+            checkpoint_name=value.checkpoint_name,
+            task_id=value.task_id,
+            status=value.status,
+            summary=f"Training resume from checkpoint {value.checkpoint_name} started.",
+        )
+    if isinstance(value, TrainingCancelResult):
+        return TrainingCancelActivity(
+            task_id=value.task_id,
+            status=value.status,
+            message=value.message,
+            summary=value.message or f"Training cancel requested for {value.task_id}.",
         )
     return TrainingRunSummaryActivity(
         task_id=value.task_id,
@@ -262,6 +313,24 @@ def training_activity_from_tool_result(tool_name: str, value: Any) -> TrainingAc
         if tool_name == "submit_training":
             return TrainingSubmissionActivity.model_validate(
                 {"kind": "submission", "source_tool": tool_name, "summary": _submission_summary(str(value.get("status") or "")), **value}
+            )
+        if tool_name == "resume_training":
+            return TrainingResumeActivity.model_validate(
+                {
+                    "kind": "resume",
+                    "source_tool": tool_name,
+                    "summary": f"Training resume from checkpoint {value.get('checkpoint_name') or ''} started.",
+                    **value,
+                }
+            )
+        if tool_name == "cancel_training":
+            return TrainingCancelActivity.model_validate(
+                {
+                    "kind": "cancel",
+                    "source_tool": tool_name,
+                    "summary": str(value.get("message") or f"Training cancel requested for {value.get('task_id') or ''}."),
+                    **value,
+                }
             )
         if tool_name == "get_training_summary":
             return TrainingRunSummaryActivity.model_validate(

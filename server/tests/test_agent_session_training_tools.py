@@ -44,6 +44,8 @@ class _Repository:
 class _TrainingService:
     def __init__(self):
         self.submissions = []
+        self.resumes = []
+        self.cancels = []
         self.propose_scopes = []
         self.submit_scopes = []
         self.fail_submit_once = False
@@ -84,6 +86,23 @@ class _TrainingService:
         self.submissions.append(action)
         return TrainingSubmission(proposal_id=action.proposal_id, task_id="task-1", status="queued")
 
+    def resume_training(self, *, task_id, checkpoint_name, **scope):
+        self.resumes.append({"task_id": task_id, "checkpoint_name": checkpoint_name, **scope})
+        from agent_training.models import TrainingResumeResult
+
+        return TrainingResumeResult(
+            source_task_id=task_id,
+            checkpoint_name=checkpoint_name,
+            task_id="task-resume-1",
+            status="queued",
+        )
+
+    def cancel_training(self, *, task_id, **scope):
+        self.cancels.append({"task_id": task_id, **scope})
+        from agent_training.models import TrainingCancelResult
+
+        return TrainingCancelResult(task_id=task_id, status="stopping", message="Cancellation requested")
+
 
 class _FailingLinkRepository(_Repository):
     def create_training_link(self, **link):
@@ -105,14 +124,20 @@ def test_training_tools_are_limited_to_train_or_hybrid_build_sessions():
 def test_proposal_and_summary_tools_are_read_only_and_never_expose_absolute_paths():
     service = _TrainingService()
     tools = build_training_tools(_session(), repository=_Repository(), training_service=service)
-    assert [tool.name for tool in tools] == ["propose_training", "submit_training", "get_training_summary"]
+    assert [tool.name for tool in tools] == [
+        "propose_training",
+        "submit_training",
+        "resume_training",
+        "cancel_training",
+        "get_training_summary",
+    ]
 
     proposal = json.loads(
         asyncio.run(
             tools[0].ainvoke({"training_config": {"model_id": "tiny-model", "dataset_id": "tiny-dataset"}})
         )
     )
-    summary = json.loads(asyncio.run(tools[2].ainvoke({"task_id": "task-1"})))
+    summary = json.loads(asyncio.run(tools[4].ainvoke({"task_id": "task-1"})))
 
     assert proposal["proposal_id"] == "proposal-1"
     assert proposal["model_id"] == "tiny-model"
@@ -209,7 +234,8 @@ def test_tools_forward_owner_and_session_scope_to_the_training_service():
         "agent_id": "build",
         "metadata": {"task_mode": "train", "user_id": "alice"},
     }
-    propose, submit, _ = build_training_tools(session, repository=repository, training_service=service)
+    tools = {tool.name: tool for tool in build_training_tools(session, repository=repository, training_service=service)}
+    propose, submit = tools["propose_training"], tools["submit_training"]
 
     asyncio.run(propose.ainvoke({"training_config": {"model_id": "tiny-model", "dataset_id": "tiny-dataset"}}))
     grant_approved_training_submissions(
@@ -270,8 +296,8 @@ def test_summary_is_denied_when_the_training_link_belongs_to_another_session():
             }
 
     service = _TrainingService()
-    summary = build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)[2]
-    denied = json.loads(asyncio.run(summary.ainvoke({"task_id": "task-1"})))
+    tools = {tool.name: tool for tool in build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)}
+    denied = json.loads(asyncio.run(tools["get_training_summary"].ainvoke({"task_id": "task-1"})))
 
     assert denied["status"] == "failed"
     assert denied["code"] == "training_run_forbidden"
@@ -288,8 +314,8 @@ def test_summary_is_allowed_for_the_session_that_owns_the_training_link():
             }
 
     service = _TrainingService()
-    summary = build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)[2]
-    result = json.loads(asyncio.run(summary.ainvoke({"task_id": "task-1"})))
+    tools = {tool.name: tool for tool in build_training_tools(_session(), repository=_LinkedRepository(), training_service=service)}
+    result = json.loads(asyncio.run(tools["get_training_summary"].ainvoke({"task_id": "task-1"})))
 
     assert result["task_id"] == "task-1"
     assert result["status"] == "completed"
@@ -298,7 +324,8 @@ def test_summary_is_allowed_for_the_session_that_owns_the_training_link():
 def test_successful_training_tool_results_reconstruct_strict_timeline_activities():
     repository = _Repository()
     service = _TrainingService()
-    propose, submit, summary = build_training_tools(_session(), repository=repository, training_service=service)
+    tools = {tool.name: tool for tool in build_training_tools(_session(), repository=repository, training_service=service)}
+    propose, submit, summary = tools["propose_training"], tools["submit_training"], tools["get_training_summary"]
 
     proposal_result = json.loads(
         asyncio.run(propose.ainvoke({"training_config": {"model_id": "tiny-model", "dataset_id": "tiny-dataset"}}))
@@ -337,6 +364,80 @@ def test_approved_submission_creates_one_persisted_link_and_stable_training_card
     assert link is not None
     assert len(repository.list_parts("session-train")) == 1
     assert repository.get_part(link["part_id"])["payload"]["training_activity"]["kind"] == "submission"
+
+
+def test_resume_and_cancel_require_one_time_official_approval_grants():
+    repository = _Repository()
+    service = _TrainingService()
+    tools = {tool.name: tool for tool in build_training_tools(_session(), repository=repository, training_service=service)}
+
+    denied_resume = json.loads(
+        asyncio.run(tools["resume_training"].ainvoke({"task_id": "task-1", "checkpoint_name": "checkpoint-10"}))
+    )
+    assert denied_resume["status"] == "failed"
+    assert service.resumes == []
+
+    grant_approved_training_submissions(
+        repository,
+        {
+            "session_id": "session-train",
+            "id": "permission-resume",
+            "payload": {
+                "official_hitl": True,
+                "action_requests": [
+                    {"name": "resume_training", "args": {"task_id": "task-1", "checkpoint_name": "checkpoint-10"}}
+                ],
+            },
+        },
+        [{"type": "approve"}],
+    )
+    resumed = json.loads(
+        asyncio.run(tools["resume_training"].ainvoke({"task_id": "task-1", "checkpoint_name": "checkpoint-10"}))
+    )
+    assert resumed["task_id"] == "task-resume-1"
+    assert resumed["source_task_id"] == "task-1"
+    assert resumed["checkpoint_name"] == "checkpoint-10"
+    assert service.resumes[0]["task_id"] == "task-1"
+    assert any(link["task_id"] == "task-resume-1" for link in repository.training_links)
+
+    denied_cancel = json.loads(asyncio.run(tools["cancel_training"].ainvoke({"task_id": "task-1"})))
+    assert denied_cancel["status"] == "failed"
+    assert service.cancels == []
+
+    grant_approved_training_submissions(
+        repository,
+        {
+            "session_id": "session-train",
+            "id": "permission-cancel",
+            "payload": {
+                "official_hitl": True,
+                "action_requests": [{"name": "cancel_training", "args": {"task_id": "task-1"}}],
+            },
+        },
+        [{"type": "approve"}],
+    )
+    cancelled = json.loads(asyncio.run(tools["cancel_training"].ainvoke({"task_id": "task-1"})))
+    assert cancelled["status"] == "stopping"
+    assert service.cancels[0]["task_id"] == "task-1"
+
+
+def test_build_manifest_does_not_list_training_tools():
+    from pathlib import Path
+    import yaml
+
+    manifest = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "agent_session" / "agents" / "build.agent.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    allowed = set(manifest.get("Tools", {}).get("allowed") or [])
+    assert not {
+        "propose_training",
+        "submit_training",
+        "resume_training",
+        "cancel_training",
+        "get_training_summary",
+    } & allowed
 
 
 def test_submit_training_waits_for_official_hitl_then_submits_once(tmp_path):

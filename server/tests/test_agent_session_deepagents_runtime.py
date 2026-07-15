@@ -443,10 +443,17 @@ def test_deepagents_runtime_registers_training_tools_only_for_train_or_hybrid_bu
         )
     )
 
-    assert {"propose_training", "submit_training", "get_training_summary"}.issubset(
-        {tool.name for tool in captured["tools"]}
-    )
+    train_tools = {tool.name for tool in captured["tools"]}
+    assert {
+        "propose_training",
+        "submit_training",
+        "resume_training",
+        "cancel_training",
+        "get_training_summary",
+    }.issubset(train_tools)
     assert captured["interrupt_on"]["submit_training"] is True
+    assert captured["interrupt_on"]["resume_training"] is True
+    assert captured["interrupt_on"]["cancel_training"] is True
 
     asyncio.run(
         runner._build_graph(
@@ -462,9 +469,13 @@ def test_deepagents_runtime_registers_training_tools_only_for_train_or_hybrid_bu
         )
     )
 
-    assert not {"propose_training", "submit_training", "get_training_summary"} & {
-        tool.name for tool in captured["tools"]
-    }
+    assert not {
+        "propose_training",
+        "submit_training",
+        "resume_training",
+        "cancel_training",
+        "get_training_summary",
+    } & {tool.name for tool in captured["tools"]}
     assert captured["interrupt_on"] is None
 
 

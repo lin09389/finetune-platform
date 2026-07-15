@@ -326,6 +326,18 @@ class AgentRuntimePermissionPolicy:
             base = None
         else:
             base = {str(tool).strip() for tool in self.agent.tools if str(tool).strip()}
+        # Train/Hybrid sessions inject training tools at runtime; allow them even
+        # when the static Build manifest no longer lists them (coding-only default).
+        if base is not None:
+            from .training_tools import TRAINING_TOOL_NAMES, training_tools_enabled_for_session
+
+            session_like = {
+                "agent_id": self.agent_id,
+                "metadata": self.metadata,
+                "task_mode": self.metadata.get("task_mode"),
+            }
+            if training_tools_enabled_for_session(session_like):
+                base = set(base) | set(TRAINING_TOOL_NAMES)
         if self.autonomy_mode() != "read_only":
             return base
         # Fail-closed: strip write/execute tools under read_only.
