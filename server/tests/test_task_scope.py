@@ -94,6 +94,47 @@ def test_scope_prompt_section():
     assert format_scope_prompt_section(None) == ""
 
 
+def test_recommend_verify_commands_python_and_client(tmp_path: Path):
+    from agent_session.task_scope import format_verify_recommendations_section, recommend_verify_commands
+
+    (tmp_path / "server" / "tests").mkdir(parents=True)
+    (tmp_path / "server" / "foo").mkdir(parents=True)
+    (tmp_path / "server" / "foo" / "bar.py").write_text("x=1\n", encoding="utf-8")
+    (tmp_path / "server" / "tests" / "test_bar.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (tmp_path / "client" / "src").mkdir(parents=True)
+    (tmp_path / "client" / "package.json").write_text(
+        '{"scripts":{"typecheck":"tsc -b","test":"vitest run"}}',
+        encoding="utf-8",
+    )
+
+    recipe = {
+        "commands": ["python -m pytest -q", "npm run typecheck", "npm run test"],
+        "sources": ["package.json"],
+    }
+    rec = recommend_verify_commands(
+        written_paths=["server/foo/bar.py", "client/src/Widget.tsx"],
+        recipe=recipe,
+        project_path=tmp_path,
+    )
+    cmds = " ".join(rec["commands"])
+    assert "py_compile" in cmds or "pytest" in cmds
+    assert "typecheck" in cmds or "vitest" in cmds
+    # path-narrowed test when present
+    assert any("test_bar" in c for c in rec["commands"]) or "pytest" in cmds
+
+    section = format_verify_recommendations_section(rec)
+    assert "相关验证推荐" in section
+    assert "`" in section
+
+
+def test_recommend_verify_commands_docs_only():
+    from agent_session.task_scope import recommend_verify_commands
+
+    rec = recommend_verify_commands(written_paths=["docs/guide.md"], recipe=None, project_path=None)
+    assert rec["strategy"] == "docs_reread"
+    assert rec["commands"] == []
+
+
 def test_trajectory_blocks_write_outside_scope(tmp_path: Path):
     import asyncio
 

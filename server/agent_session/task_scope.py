@@ -319,6 +319,227 @@ def workspace_path_to_rel(path: str) -> str:
         return str(path or "").strip().replace("\\", "/").lstrip("/")
 
 
+def _rel_paths(paths: list[str] | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in paths or []:
+        try:
+            rel = workspace_path_to_rel(str(raw))
+        except Exception:
+            rel = str(raw or "").strip().replace("\\", "/").lstrip("/")
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        out.append(rel)
+    return out
+
+
+def recommend_verify_commands(
+    *,
+    written_paths: list[str] | None,
+    recipe: dict[str, Any] | None = None,
+    project_path: str | Path | None = None,
+    scope: dict[str, Any] | None = None,
+    max_commands: int = 6,
+) -> dict[str, Any]:
+    """Phase B2: pick focused verify commands from changed paths + recipe.
+
+    Prefer path-narrowed checks over full-repo scans. Recipe commands are used
+    as stack hints when they match the changed file kinds.
+    """
+    paths = _rel_paths(written_paths)
+    # If no writes yet, fall back to scope paths for "what we will likely touch".
+    if not paths and scope:
+        paths = _rel_paths([str(p) for p in (scope.get("paths") or [])])
+
+    root = Path(project_path).resolve() if project_path else None
+    recipe_commands = [str(c).strip() for c in ((recipe or {}).get("commands") or []) if str(c).strip()]
+
+    has_py = any(p.endswith(".py") or "/tests/" in f"/{p}/" for p in paths)
+    has_ts = any(p.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")) for p in paths)
+    has_client = any(p.startswith("client/") or "/client/" in f"/{p}/" for p in paths)
+    has_server = any(p.startswith("server/") or "/server/" in f"/{p}/" for p in paths)
+    # pure docs
+    doc_ext = {".md", ".txt", ".rst"}
+    only_docs = bool(paths) and all(Path(p).suffix.lower() in doc_ext for p in paths)
+
+    ranked: list[dict[str, str]] = []
+
+    def add(command: str, reason: str, *, priority: int = 50) -> None:
+        cmd = " ".join(command.strip().split())
+        if not cmd:
+            return
+        if any(item["command"] == cmd for item in ranked):
+            return
+        ranked.append({"command": cmd, "reason": reason, "priority": str(priority)})
+
+    if only_docs:
+        for p in paths[:3]:
+            add(f"# docs-only: re-read `{p}` after edit", "文档变更：最终重新读取确认即可", priority=10)
+        ranked.sort(key=lambda item: int(item.get("priority") or 99))
+        return {
+            "schema_version": 1,
+            "commands": [item["command"] for item in ranked[:max_commands] if not item["command"].startswith("#")],
+            "items": ranked[:max_commands],
+            "paths": paths[:20],
+            "strategy": "docs_reread",
+        }
+
+    # Path-narrowed Python checks
+    py_files = [p for p in paths if p.endswith(".py")]
+    for p in py_files[:4]:
+        add(f"python -m py_compile {p}", f"语法快检：`{p}`", priority=20)
+        # Guess related test path
+        if root is not None:
+            candidates = _related_pytest_targets(root, p)
+            for target in candidates[:2]:
+                add(
+                    f"python -m pytest {target} -q",
+                    f"针对 `{p}` 的相关测试",
+                    priority=15,
+                )
+
+    if has_py or has_server:
+        # Prefer recipe pytest if present
+        pytest_from_recipe = [c for c in recipe_commands if "pytest" in c.lower()]
+        if pytest_from_recipe and not any("pytest" in i["command"] for i in ranked):
+            add(pytest_from_recipe[0], "项目菜谱中的 pytest", priority=30)
+        elif has_server and not any("pytest" in i["command"] for i in ranked):
+            # narrow to server/tests if exists
+            if root is not None and (root / "server" / "tests").is_dir():
+                add("python -m pytest server/tests -q --tb=line -x", "服务端测试子集（失败即停）", priority=35)
+            else:
+                add("python -m pytest -q --tb=line -x", "Python 测试（失败即停）", priority=40)
+
+    if has_ts or has_client:
+        typecheck_cmds = [c for c in recipe_commands if "typecheck" in c.lower() or "tsc" in c.lower()]
+        vitest_cmds = [c for c in recipe_commands if "vitest" in c.lower() or c.lower() in {"npm test", "npm run test"}]
+        if typecheck_cmds:
+            cmd = typecheck_cmds[0]
+            if has_client and not cmd.strip().startswith("cd "):
+                # client scripts usually need client cwd
+                if (root is not None and (root / "client" / "package.json").is_file()) or has_client:
+                    add(f"cd client && {cmd}" if "client" not in cmd else cmd, "前端类型检查", priority=18)
+                else:
+                    add(cmd, "类型检查（菜谱）", priority=18)
+            else:
+                add(cmd, "类型检查（菜谱）", priority=18)
+        elif has_client:
+            add("cd client && npm run typecheck", "前端类型检查", priority=18)
+
+        # Path-narrowed vitest when possible
+        ts_files = [p for p in paths if p.endswith((".ts", ".tsx"))]
+        for p in ts_files[:3]:
+            if p.startswith("client/"):
+                rel = p[len("client/") :]
+                # common pattern: Foo.tsx -> Foo.test.tsx nearby
+                stem = Path(rel).stem
+                parent = str(Path(rel).parent).replace("\\", "/")
+                guess = f"{parent}/{stem}.test.tsx" if parent != "." else f"{stem}.test.tsx"
+                add(
+                    f"cd client && npx vitest run {guess}",
+                    f"尝试相关 vitest：`{guess}`（若文件不存在可改跑邻近测试）",
+                    priority=25,
+                )
+        if vitest_cmds and not any("vitest" in i["command"] for i in ranked):
+            cmd = vitest_cmds[0]
+            if has_client and not cmd.strip().startswith("cd "):
+                add(f"cd client && {cmd}" if "client" not in cmd else cmd, "前端测试（菜谱）", priority=28)
+            else:
+                add(cmd, "前端测试（菜谱）", priority=28)
+
+    # Generic recipe leftovers matching stacks
+    for cmd in recipe_commands:
+        low = cmd.lower()
+        if has_py and any(t in low for t in ("pytest", "ruff", "mypy", "py_compile")):
+            add(cmd, "菜谱命令（Python）", priority=45)
+        if (has_ts or has_client) and any(t in low for t in ("typecheck", "vitest", "eslint", "lint", "tsc")):
+            add(cmd, "菜谱命令（前端）", priority=45)
+
+    if not ranked and recipe_commands:
+        for cmd in recipe_commands[:3]:
+            add(cmd, "通用菜谱命令", priority=50)
+
+    if not ranked and paths:
+        # last resort
+        if has_py:
+            add("python -m pytest -q --tb=line -x", "默认 Python 验证", priority=60)
+        if has_ts or has_client:
+            add("cd client && npm run typecheck", "默认前端 typecheck", priority=60)
+
+    ranked.sort(key=lambda item: int(item.get("priority") or 99))
+    items = ranked[:max_commands]
+    return {
+        "schema_version": 1,
+        "commands": [item["command"] for item in items if not str(item["command"]).startswith("#")],
+        "items": items,
+        "paths": paths[:20],
+        "strategy": "path_aware_v1",
+    }
+
+
+def _related_pytest_targets(root: Path, py_rel: str) -> list[str]:
+    """Heuristic related test targets for a Python source file."""
+    rel = py_rel.replace("\\", "/")
+    stem = Path(rel).stem
+    parent = str(Path(rel).parent).replace("\\", "/")
+    candidates: list[str] = []
+
+    guesses = [
+        f"server/tests/test_{stem}.py",
+        f"tests/test_{stem}.py",
+        f"{parent}/test_{stem}.py",
+        f"{parent}/tests/test_{stem}.py",
+    ]
+    # map server/foo/bar.py -> server/tests/test_bar.py already covered
+    if rel.startswith("server/") and not rel.startswith("server/tests/"):
+        guesses.append(f"server/tests/test_{stem}.py")
+
+    for guess in guesses:
+        path = root / guess
+        if path.is_file() and guess not in candidates:
+            candidates.append(guess)
+
+    # If source itself is a test file, run it directly
+    if stem.startswith("test_") or "/tests/" in f"/{rel}/":
+        if rel not in candidates:
+            candidates.insert(0, rel)
+
+    return candidates[:4]
+
+
+def format_verify_recommendations_section(rec: dict[str, Any] | None) -> str:
+    if not rec:
+        return ""
+    items = rec.get("items") if isinstance(rec.get("items"), list) else []
+    commands = rec.get("commands") if isinstance(rec.get("commands"), list) else []
+    if not items and not commands:
+        return ""
+    lines = [
+        "【相关验证推荐（平台，按改动路径）】",
+        "请优先执行下列命令（可按路径再缩小）；不要无目标全仓乱扫。验证失败则先读真实错误与相关文件再改。",
+    ]
+    if items:
+        for item in items[:6]:
+            if not isinstance(item, dict):
+                continue
+            cmd = str(item.get("command") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            if not cmd or cmd.startswith("#"):
+                continue
+            if reason:
+                lines.append(f"- `{cmd}`  — {reason}")
+            else:
+                lines.append(f"- `{cmd}`")
+    else:
+        for cmd in commands[:6]:
+            lines.append(f"- `{cmd}`")
+    paths = [str(p) for p in (rec.get("paths") or []) if str(p).strip()][:8]
+    if paths:
+        lines.append("关联改动：" + "、".join(f"`{p}`" for p in paths))
+    return "\n".join(lines)
+
+
 __all__ = [
     "TASK_SCOPE_KEY",
     "VERIFY_RECIPE_KEY",
@@ -327,9 +548,11 @@ __all__ = [
     "discover_verify_recipe",
     "format_scope_prompt_section",
     "format_verify_recipe_prompt_section",
+    "format_verify_recommendations_section",
     "get_task_scope",
     "normalize_rel_path",
     "path_in_scope",
+    "recommend_verify_commands",
     "resolve_scope_paths",
     "workspace_path_to_rel",
 ]

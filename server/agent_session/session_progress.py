@@ -584,7 +584,27 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
             + ("；写入范围外会被拦截" if scope_paths else "")
         )
     recipe = meta.get("verify_recipe") if isinstance(meta.get("verify_recipe"), dict) else None
-    if recipe and recipe.get("commands"):
+    # Phase B2: path-aware verify recommendations (prefer over raw recipe list).
+    verify_rec = None
+    try:
+        from agent_session.task_scope import recommend_verify_commands
+
+        workspace = meta.get("workspace") if isinstance(meta.get("workspace"), dict) else {}
+        project_path = workspace.get("path")
+        verify_rec = recommend_verify_commands(
+            written_paths=list(snap.get("written_paths") or []),
+            recipe=recipe,
+            project_path=project_path,
+            scope=scope if isinstance(scope, dict) else None,
+        )
+    except Exception:
+        verify_rec = None
+    rec_cmds = []
+    if isinstance(verify_rec, dict):
+        rec_cmds = [str(c) for c in (verify_rec.get("commands") or []) if str(c).strip()][:5]
+    if rec_cmds:
+        lines.append("- **相关验证推荐**：" + "；".join(f"`{c}`" for c in rec_cmds))
+    elif recipe and recipe.get("commands"):
         cmds = [str(c) for c in (recipe.get("commands") or []) if str(c).strip()][:4]
         if cmds:
             lines.append("- 验证菜谱命令：" + "；".join(f"`{c}`" for c in cmds))
@@ -599,7 +619,10 @@ def build_working_state_card(metadata: dict[str, Any] | None) -> str:
         lines.append(f"- 再次修改前必须重新读取：{fmt_paths(reread)}")
     todos: list[str] = []
     if snap.get("written_paths") and not snap.get("verify_ok"):
-        todos.append("对已写源码运行并通过测试/类型检查/lint 或语法检查")
+        if rec_cmds:
+            todos.append("优先执行相关验证：" + "；".join(f"`{c}`" for c in rec_cmds[:3]))
+        else:
+            todos.append("对已写源码运行并通过测试/类型检查/lint 或语法检查")
     if reread:
         todos.append("先 read 再 edit，不要重复提交相同失败写入")
     if snap.get("require_observation_before_retry") or int(snap.get("tools_failed") or 0) > 0:

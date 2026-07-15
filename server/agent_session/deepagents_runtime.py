@@ -508,21 +508,49 @@ class DeepAgentsSessionRunner:
             for issue in issues
         )
         card = ""
+        rec_section = ""
         if session_id:
             try:
                 from agent_session.session_progress import build_working_state_card
+                from agent_session.task_scope import (
+                    format_verify_recommendations_section,
+                    get_task_scope,
+                    recommend_verify_commands,
+                )
 
                 session = self.repository.get_session(session_id) or {}
-                card = build_working_state_card(dict(session.get("metadata") or {}))
+                metadata = dict(session.get("metadata") or {})
+                card = build_working_state_card(metadata)
+                # Collect paths from issues + trajectory writes for B2 recommendations.
+                issue_paths: list[str] = []
+                for issue in issues:
+                    for path in issue.get("paths") or []:
+                        issue_paths.append(str(path))
+                traj = metadata.get("trajectory_guard") if isinstance(metadata.get("trajectory_guard"), dict) else {}
+                written = list((traj.get("writes") or traj.get("written_paths") or {}).keys()) if isinstance(
+                    traj.get("writes") or traj.get("written_paths"), dict
+                ) else list(traj.get("written_paths") or [])
+                recipe = metadata.get("verify_recipe") if isinstance(metadata.get("verify_recipe"), dict) else None
+                workspace = metadata.get("workspace") if isinstance(metadata.get("workspace"), dict) else {}
+                rec = recommend_verify_commands(
+                    written_paths=issue_paths or written,
+                    recipe=recipe,
+                    project_path=workspace.get("path") or session.get("project_path"),
+                    scope=get_task_scope(metadata),
+                )
+                rec_section = format_verify_recommendations_section(rec)
             except Exception:
                 card = ""
+                rec_section = ""
         card_block = f"\n{card}\n" if card else "\n"
+        rec_block = f"\n{rec_section}\n" if rec_section else "\n"
         return (
             f"这是第 {attempt} 次轨迹自动纠正。你刚才准备结束任务，但尚未满足平台验证要求：\n"
             f"{issue_text}\n"
             f"{card_block}"
-            "请立即完成缺失的验证。源码、测试或配置应运行相关测试、构建、类型检查、lint 或语法检查；"
-            "文档可重新读取最终内容确认。若验证失败，先重新读取受影响文件，再修复并重新验证。"
+            f"{rec_block}"
+            "请立即完成缺失的验证。优先执行上方「相关验证推荐」中的命令（可再缩小到改动路径）；"
+            "不要无目标全仓扫描。文档可重新读取最终内容确认。若验证失败，先重新读取受影响文件，再修复并重新验证。"
             "不要只解释计划，必须实际执行验证。"
         )
 
