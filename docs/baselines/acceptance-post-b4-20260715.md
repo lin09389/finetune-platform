@@ -21,21 +21,31 @@ Scratch evidence dir: goal implementer scratch (`phase-b-offline-pytest*.log`, `
 
 ## §2 Offline regression (gating)
 
+### Clean HEAD proof (authoritative)
+
+Run with a clean worktree (WIP stashed) after shipping the missing module:
+
 | suite | result |
 |------|--------|
 | `test_task_scope.py` | pass |
-| `test_workspace_inventory.py` | pass (after B1 card label restore) |
+| `test_workspace_inventory.py` | pass |
 | `test_session_progress_step2.py` | pass |
 | `test_trajectory_step2.py` | pass |
 | `test_multi_file.py` | pass |
 | `test_session_progress.py` | pass |
-| **Total** | **44 passed** (`phase-b-offline-pytest-rerun.log`, exit 0) |
+| `test_knowledge_binding.py` | pass (covers shipped `context.knowledge_binding`) |
+| **Total** | **43 passed** (`phase-b-offline-clean-head-final.log`, exit 0) |
 
-### Regression fixed during this run
+### Ship-tree fix (skeptic gap)
 
-- **Symptom:** `test_working_state_card_surfaces_b1_context` failed — working-state card line dropped the `（B1）` marker (WIP copy said `**上下文**`).
-- **Fix:** restore label to `**上下文（B1）**` in `build_working_state_card` so Phase B observability stays identifiable.
-- **Proof:** same offline suite re-run → 44 passed; test asserts the real `build_working_state_card` string.
+- **Symptom on clean HEAD:** 3 failures with `ModuleNotFoundError: context.knowledge_binding`.
+- **Root cause:** `server/context/deepagents.py` (committed with B1-era pack) imports `resolve_agent_knowledge_collection`, but `server/context/knowledge_binding.py` was never tracked.
+- **Fix:** add and commit `server/context/knowledge_binding.py` + unit tests driving the real resolver.
+- **Proof:** clean-tree suite log above (43 passed). Earlier “44 passed” claim was measured on a dirty WIP tree that already had the untracked module — superseded by this clean-HEAD evidence.
+
+### Non-authoritative WIP note
+
+While WIP was present, an extra session_progress test failure appeared when the card label was temporarily `**上下文**` without `（B1）`. Clean HEAD already labels `上下文（B1）`.
 
 ## §3 Live C1 / C3 / C5 (gating)
 
