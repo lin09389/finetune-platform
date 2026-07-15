@@ -250,9 +250,18 @@ export function selectWorkspaceStatus(state: AgentRuntimeState): string {
   const metadata = state.session?.metadata || {};
   const failureKind = typeof metadata.failure_kind === 'string' ? metadata.failure_kind : '';
   const nextAction = typeof metadata.next_action === 'string' ? metadata.next_action : '';
-  if (state.session?.status === 'needs_manual_review' || state.session?.status === 'failed') {
+  const statusName = state.session?.status || '';
+  // Plan A: waiting HITL after process restart keeps approval continuity.
+  if (
+    (statusName === 'waiting_approval' || statusName === 'waiting_permission')
+    && (nextAction === 'continue_approval' || metadata.recovered_after_restart === true)
+  ) {
+    return '服务已恢复，请继续审批';
+  }
+  if (statusName === 'needs_manual_review' || statusName === 'failed') {
     if (failureKind === 'configuration_error' || nextAction === 'configure_model')
       return '需要配置模型';
+    if (failureKind === 'timeout') return '任务超时，可重新运行';
     if (failureKind === 'process_restart') return '进程重启后已停止，可重新运行';
     if (failureKind === 'user_interrupted') return '已中断';
     if (failureKind === 'runtime_error') return '运行失败，需复核';

@@ -17,6 +17,25 @@ from .profiles import ApplicationProfile
 
 logger = logging.getLogger("finetune-platform")
 _TRAINING_RECONCILER: Any | None = None
+# Populated during Agent profile startup; consumed by /api/info (agent_ready).
+_AGENT_READINESS: dict[str, Any] = {
+    "ready": False,
+    "session_service": False,
+    "context_service": False,
+    "memory_service": False,
+    "issues": ["not_initialized"],
+}
+
+
+def get_agent_readiness() -> dict[str, Any]:
+    """Return a shallow copy of the latest Agent service readiness snapshot."""
+    return {
+        "ready": bool(_AGENT_READINESS.get("ready")),
+        "session_service": bool(_AGENT_READINESS.get("session_service")),
+        "context_service": bool(_AGENT_READINESS.get("context_service")),
+        "memory_service": bool(_AGENT_READINESS.get("memory_service")),
+        "issues": list(_AGENT_READINESS.get("issues") or []),
+    }
 
 
 def _warn_about_auth_configuration() -> None:
@@ -116,6 +135,11 @@ def _cleanup_tmp_residue() -> None:
 
 
 async def _initialize_agent_services() -> None:
+    issues: list[str] = []
+    session_ok = False
+    context_ok = False
+    memory_ok = False
+
     try:
         from api.agent_sessions import get_agent_session_service
 
@@ -124,9 +148,15 @@ async def _initialize_agent_services() -> None:
         if recovered.get("scheduled") or recovered.get("synchronized"):
             logger.info("Async subagent recovery complete: %s", recovered)
         recovered_sessions = service.recover_active_sessions_after_restart()
-        if recovered_sessions.get("recovered") or recovered_sessions.get("failed"):
+        if (
+            recovered_sessions.get("recovered")
+            or recovered_sessions.get("preserved")
+            or recovered_sessions.get("failed")
+        ):
             logger.info("Agent session restart recovery complete: %s", recovered_sessions)
+        session_ok = True
     except Exception as exc:
+        issues.append(f"session_service:{exc}")
         logger.warning("Agent session recovery failed: %s", exc)
 
     await _initialize_training_reconciler()
@@ -148,7 +178,9 @@ async def _initialize_agent_services() -> None:
         vector_store = get_vector_store()
         get_context_service(embedder=embedder, vector_store=vector_store)
         logger.info("Project context service initialized")
+        context_ok = True
     except Exception as exc:
+        issues.append(f"context_service:{exc}")
         logger.warning("Context service init failed: %s", exc)
 
     try:
@@ -156,8 +188,29 @@ async def _initialize_agent_services() -> None:
 
         get_memory_service()
         logger.info("Memory service initialized")
+        memory_ok = True
     except Exception as exc:
+        issues.append(f"memory_service:{exc}")
         logger.warning("Memory service init failed: %s", exc)
+
+    # Core Agent path requires the session service. Context/memory are beta assist
+    # layers: degrade agent_ready when missing, but do not hard-fail startup.
+    ready = session_ok
+    if not session_ok:
+        issues = issues or ["session_service_unavailable"]
+    _AGENT_READINESS.update(
+        {
+            "ready": ready,
+            "session_service": session_ok,
+            "context_service": context_ok,
+            "memory_service": memory_ok,
+            "issues": issues,
+        }
+    )
+    if ready and issues:
+        logger.warning("Agent services started in degraded mode: %s", issues)
+    elif not ready:
+        logger.error("Agent session service is not ready: %s", issues)
 
 
 async def _initialize_finetune_services():
@@ -441,4 +494,4 @@ def create_lifespan(profile: ApplicationProfile) -> Callable:
     return lifespan
 
 
-__all__ = ["create_lifespan"]
+__all__ = ["create_lifespan", "get_agent_readiness"]

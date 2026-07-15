@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     stream_flush_interval_ms: int = Field(default=8, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
     enable_backpressure: bool = Field(default=True, description="启用背压控制")
     agent_session_langgraph_enabled: bool = Field(default=True, description="是否启用 agent_session LangGraph 主路径")
+    agent_session_max_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=24 * 3600,
+        description="单次 Agent prompt/resume 墙钟超时（秒，AGENT_SESSION_MAX_SECONDS），默认 1 小时",
+    )
     agent_cloud_model_timeout_seconds: int = Field(default=180, ge=10, le=900, description="Agent 云端模型请求超时（秒）")
     agent_cloud_model_max_retries: int = Field(default=2, ge=0, le=10, description="Agent 云端模型请求最大重试次数")
     langgraph_checkpoint_retention_days: int = Field(

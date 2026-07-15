@@ -153,21 +153,42 @@ export function selectAttentionItems(state: AgentRuntimeState, now = Date.now())
   const permission = state.workspace?.pending_permission;
 
   if (permission) {
-    const permissionEvent = findEvent(state, ['permission_asked']);
+    const permissionEvent = findEvent(state, ['permission_asked', 'session_recovered_after_restart']);
     const permissionPart = state.session?.parts.find((part) => part.id === permission.part_id);
-    const occurredAt = permissionEvent?.created_at || permissionPart?.created_at || fallbackTime;
+    const metadata = state.session?.metadata || {};
+    const afterRestart =
+      metadata.next_action === 'continue_approval' || metadata.recovered_after_restart === true;
+    // After process restart, re-anchor TTL to service_restarted_at (or recovery event)
+    // so a still-pending permission is not falsely shown as expired.
+    const restartAnchor =
+      typeof metadata.service_restarted_at === 'string' && metadata.service_restarted_at
+        ? metadata.service_restarted_at
+        : findEvent(state, ['session_recovered_after_restart'])?.created_at;
+    const occurredAt = afterRestart
+      ? restartAnchor || permissionEvent?.created_at || permissionPart?.created_at || fallbackTime
+      : permissionEvent?.created_at || permissionPart?.created_at || fallbackTime;
     const expiresAt = new Date(new Date(occurredAt).getTime() + PERMISSION_TTL_MS).toISOString();
-    const expired = new Date(expiresAt).getTime() <= now;
+    const expired = afterRestart ? false : new Date(expiresAt).getTime() <= now;
     items.push({
       id: `permission:${permission.part_id}`,
       kind: expired ? 'expired_permission' : 'permission',
-      severity: expired ? 'high' : 'medium',
+      severity: expired ? 'high' : afterRestart ? 'high' : 'medium',
       status: expired ? 'expired' : 'open',
-      title: expired ? '审批请求已过期' : permission.title || '工具执行等待审批',
+      title: expired
+        ? '审批请求已过期'
+        : afterRestart
+          ? '服务已恢复，请继续审批'
+          : permission.title || '工具执行等待审批',
       occurredAt,
-      whatHappened: permission.content || `${permission.actions.length} 个工具动作等待决定。`,
+      whatHappened: afterRestart
+        ? '服务重启后待审批状态与执行断点已保留。' + (permission.content ? ` ${permission.content}` : '')
+        : permission.content || `${permission.actions.length} 个工具动作等待决定。`,
       impactScope: '当前 Agent 暂停在工具执行前，不会继续修改工作区。',
-      recommendedAction: expired ? '刷新会话以获取最新审批状态。' : '核对工具、参数和影响范围后批准或拒绝。',
+      recommendedAction: expired
+        ? '刷新会话以获取最新审批状态。'
+        : afterRestart
+          ? '直接批准或拒绝即可从断点继续，无需重新发送任务。'
+          : '核对工具、参数和影响范围后批准或拒绝。',
       actions: expired
         ? [{ id: 'refresh', label: '刷新审批', primary: true }]
         : [

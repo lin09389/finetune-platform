@@ -349,6 +349,28 @@ class BackgroundTaskManagerService:
                     if self._prompt_threads.get(session_id) is threading.current_thread():
                         self._prompt_threads.pop(session_id, None)
 
+    def _session_max_seconds(self) -> float:
+        try:
+            from core.config import settings
+
+            # Config Field enforces ge=60 for env values; allow lower only when
+            # tests monkeypatch settings for fast timeout coverage.
+            raw = int(getattr(settings, "agent_session_max_seconds", 3600) or 3600)
+            return float(max(1, raw))
+        except Exception:
+            return 3600.0
+
+    async def _await_with_session_timeout(self, awaitable: Any, *, label: str) -> Any:
+        """Enforce a wall-clock budget around long prompt/resume work."""
+        timeout = self._session_max_seconds()
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout)
+        except TimeoutError as exc:
+            raise TimeoutError(
+                f"Agent {label} exceeded wall-clock limit of {int(timeout)} seconds "
+                f"(AGENT_SESSION_MAX_SECONDS)."
+            ) from exc
+
     async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
         loop = asyncio.get_running_loop()
         current_task = asyncio.current_task()
@@ -358,7 +380,7 @@ class BackgroundTaskManagerService:
         try:
             if not self._is_active_prompt(session_id, prompt_id):
                 return
-            await self.service.prompt(session_id, request)
+            await self._await_with_session_timeout(self.service.prompt(session_id, request), label="prompt")
             session = self.service.repository.get_session(session_id)
             if session:
                 self.service.state_machine.clear_active_prompt(session_id, prompt_id)
@@ -367,6 +389,13 @@ class BackgroundTaskManagerService:
             if session and str(session.get("status") or "") not in self.service.TERMINAL_STATUSES:
                 self.interrupt_session(session_id, "Agent 后台任务已取消。")
             raise
+        except TimeoutError as exc:
+            try:
+                if self._is_active_prompt(session_id, prompt_id):
+                    self._record_session_timeout(session_id, exc)
+            except Exception as failure_exc:
+                if self._is_active_prompt(session_id, prompt_id):
+                    self._record_background_failure_fallback(session_id, exc, failure_exc)
         except Exception as exc:
             try:
                 if self._is_active_prompt(session_id, prompt_id):
@@ -385,6 +414,84 @@ class BackgroundTaskManagerService:
             with self._session_start_locks_lock:
                 self._session_start_locks.pop(session_id, None)
 
+    def _freeze_running_parts(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        flag_key: str,
+        title: str | None = None,
+    ) -> None:
+        """Mark in-flight parts blocked so the timeline matches a terminal session."""
+        repository = self.service.repository
+        for part in repository.list_parts(session_id):
+            if part.get("status") != "running":
+                continue
+            payload = dict(part.get("payload") or {})
+            payload[flag_key] = True
+            repository.update_part(
+                part["id"],
+                status="blocked",
+                title=part.get("title") or title or "已停止",
+                content=part.get("content") or reason,
+                payload=payload,
+            )
+
+    def _record_session_timeout(self, session_id: str, exc: Exception) -> None:
+        """Persist a recoverable timeout terminal state for wall-clock budget violations."""
+        repository = self.service.repository
+        session = repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        message = str(exc)[:600] or "Agent 任务已超时。"
+        # Best-effort cancel of the in-process task (subprocess tools may still
+        # run briefly; part freeze keeps the transcript consistent either way).
+        self._cancel_prompt_task(session_id)
+        self._freeze_running_parts(
+            session_id,
+            reason=message,
+            flag_key="timed_out",
+            title="已超时",
+        )
+        # Re-read after part updates so ensure_failed_metadata sees latest metadata.
+        session = repository.get_session(session_id) or session
+        metadata = ensure_failed_metadata(
+            session,
+            message,
+            failure_kind="timeout",
+            next_action="rerun_prompt",
+            recoverable=True,
+        )
+        summary = repository.add_part(
+            session_id,
+            "summary",
+            status="completed",
+            title="任务超时",
+            content=message,
+            payload={
+                "summary": message,
+                "failure_kind": "timeout",
+                "next_action": "rerun_prompt",
+                "timeout": True,
+            },
+        )
+        self.service.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
+        self.service.event_service._event(
+            session_id,
+            "session_failed",
+            message,
+            {
+                "session_id": session_id,
+                "part_id": summary.get("id"),
+                "part_type": "summary",
+                "status": "needs_manual_review",
+                "summary": message,
+                "error": message,
+                "failure_kind": "timeout",
+                "next_action": "rerun_prompt",
+            },
+        )
+
     def _is_active_prompt(self, session_id: str, prompt_id: str) -> bool:
         session = self.service.repository.get_session(session_id)
         if not session:
@@ -402,17 +509,12 @@ class BackgroundTaskManagerService:
 
         message = reason or "用户已中断 Agent 任务。"
         self._cancel_prompt_task(session_id)
-        for part in repository.list_parts(session_id):
-            if part.get("status") == "running":
-                payload = dict(part.get("payload") or {})
-                payload["interrupted"] = True
-                repository.update_part(
-                    part["id"],
-                    status="blocked",
-                    title=part.get("title") or "已中断",
-                    content=part.get("content") or message,
-                    payload=payload,
-                )
+        self._freeze_running_parts(
+            session_id,
+            reason=message,
+            flag_key="interrupted",
+            title="已中断",
+        )
 
         metadata = ensure_session_state(dict((repository.get_session(session_id) or session).get("metadata") or {}))
         metadata["failure_kind"] = "user_interrupted"

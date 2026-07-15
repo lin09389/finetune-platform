@@ -6,11 +6,13 @@ import json
 import shutil
 import sqlite3
 import uuid
+from collections import deque
 from pathlib import Path
 
 import pytest
 from agent_session.agent_registry import AgentRegistry
 from agent_session.async_subagents import AsyncSubagentService
+from agent_session.deepagents_checkpoint import get_checkpoint_db_path
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
 from agent_session.errors import AgentConfigurationError
@@ -1423,12 +1425,56 @@ def test_agent_session_restart_recovery_marks_stale_running_sessions(tmp_path: P
     recovered = service.recover_active_sessions_after_restart()
 
     assert recovered["recovered"] == 1
+    assert recovered.get("preserved", 0) == 0
     stale = service.get_session(running.id)
     done = service.get_session(completed.id)
     assert stale.status == "needs_manual_review"
     assert stale.metadata["recovered_after_restart"] is True
     assert any(part.type == "summary" and "服务重启" in part.content for part in stale.parts)
     assert done.status == "completed"
+
+
+def test_agent_prompt_background_respects_wall_clock_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "agent_session_max_seconds", 1)
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="timeout", project_path=str(Path.cwd())))
+    prompt_id = "prompt-timeout"
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={"active_prompt_id": prompt_id, "background_run": True, "runtime": "deepagents"},
+    )
+    running_part = service.repository.add_part(
+        session.id,
+        "tool_call",
+        status="running",
+        title="执行中",
+        content="still running",
+        payload={"tool": "execute"},
+    )
+
+    async def slow_prompt(_session_id, _request):
+        await asyncio.sleep(2.5)
+        return service.get_session(session.id)
+
+    monkeypatch.setattr(service, "prompt", slow_prompt)
+    asyncio.run(
+        service.background_manager._run_prompt_background(
+            session.id,
+            AgentPromptRequest(content="slow"),
+            prompt_id,
+        )
+    )
+
+    timed_out = service.get_session(session.id)
+    assert timed_out.status == "needs_manual_review"
+    assert timed_out.metadata.get("failure_kind") == "timeout"
+    assert timed_out.metadata.get("next_action") == "rerun_prompt"
+    assert any(part.type == "summary" and "超时" in (part.title or part.content or "") for part in timed_out.parts)
+    frozen = service.repository.get_part(running_part["id"])
+    assert frozen is not None
+    assert frozen["status"] == "blocked"
+    assert frozen.get("payload", {}).get("timed_out") is True
 
 
 def test_detached_prompts_use_non_daemon_threads(tmp_path: Path, monkeypatch):
@@ -1491,19 +1537,156 @@ def test_shutdown_persists_interruption_for_running_prompt_task(tmp_path: Path, 
 
 
 @pytest.mark.parametrize("waiting_status", ["waiting_approval", "waiting_permission"])
-def test_agent_session_restart_recovery_marks_waiting_sessions(tmp_path: Path, waiting_status: str):
+def test_agent_session_restart_recovery_preserves_waiting_sessions(tmp_path: Path, waiting_status: str):
+    """Plan A: HITL waits keep status + pending parts for Command(resume)."""
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     waiting = service.create_session(AgentSessionCreate(title="stale waiting", project_path=str(Path.cwd())))
-    service.repository.update_session(waiting.id, status=waiting_status, metadata={"runtime": "deepagents"})
+    part = service.repository.add_part(
+        waiting.id,
+        "permission",
+        status="pending",
+        title="confirm",
+        content="need approve",
+        payload={"official_hitl": True, "actions": [{"name": "edit_file", "allowed_decisions": ["approve", "reject"]}]},
+    )
+    service.repository.update_session(
+        waiting.id,
+        status=waiting_status,
+        metadata={
+            "runtime": "deepagents",
+            "pending_deepagents_interrupt": {"part_id": part["id"]},
+        },
+    )
 
     recovered = service.recover_active_sessions_after_restart()
 
-    # waiting_approval / waiting_permission lose their executor on restart and
-    # must be recovered alongside running/verifying/repairing.
-    assert recovered["recovered"] == 1
-    stale = service.get_session(waiting.id)
-    assert stale.status == "needs_manual_review"
-    assert stale.metadata["recovered_after_restart"] is True
+    assert recovered["recovered"] == 0
+    assert recovered["preserved"] == 1
+    preserved = service.get_session(waiting.id)
+    assert preserved.status == waiting_status
+    assert preserved.metadata["recovered_after_restart"] is True
+    assert preserved.metadata["next_action"] == "continue_approval"
+    assert preserved.metadata.get("pending_deepagents_interrupt", {}).get("part_id") == part["id"]
+    assert service.repository.get_part(part["id"])["status"] == "pending"
+    assert any(
+        event["event_type"] == "session_recovered_after_restart"
+        for event in service.list_events(waiting.id)
+    )
+
+
+def test_hitl_interrupt_survives_process_restart_and_resumes_from_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Real HITL interrupt → restart recovery → approve → LangGraph Command(resume).
+
+    Locks the cross-process continuity contract that static audits could only
+    partially prove: permission parts stay pending, recovery marks
+    needs_manual_review, and resume must still apply the interrupted edit via
+    the dedicated checkpoint SQLite file (not a fresh prompt).
+    """
+    checkpoint_db = tmp_path / "langgraph_checkpoints.db"
+    monkeypatch.setenv("LANGGRAPH_CHECKPOINT_DB", str(checkpoint_db))
+    get_checkpoint_db_path.cache_clear()
+
+    # project_path must sit under an allowed workspace root (same as other HITL tests).
+    workspace = Path.cwd() / "tmp" / f"deepagents-restart-resume-{uuid.uuid4().hex[:8]}"
+    workspace.mkdir(parents=True)
+    target = workspace / "hello.txt"
+    target.write_text("hello\n", encoding="utf-8")
+    session_db = str(tmp_path / "agents.db")
+
+    scripted = deque(
+        [
+            json.dumps(
+                {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "tool": "edit_file",
+                    "arguments": {
+                        "file_path": "/workspace/hello.txt",
+                        "old_string": "hello\n",
+                        "new_string": "hi\n",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            # Consumed only after resume continues the graph.
+            json.dumps(
+                {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
+                ensure_ascii=False,
+            ),
+            json.dumps({"type": "final", "content": "已在重启后完成写入。"}, ensure_ascii=False),
+        ]
+    )
+
+    async def model_call(_messages):
+        if not scripted:
+            raise AssertionError("scripted model responses exhausted")
+        return scripted.popleft()
+
+    try:
+        # --- process 1: reach official HITL interrupt and persist checkpoint ---
+        service_before = AgentSessionService(AgentSessionRepository(session_db), model_call=model_call)
+        session = service_before.create_session(
+            AgentSessionCreate(
+                title="restart resume contract",
+                project_path=str(workspace),
+                autonomy_mode="confirm_all",
+            )
+        )
+        waiting = asyncio.run(service_before.prompt(session.id, AgentPromptRequest(content="把 hello 改成 hi")))
+        permission = next(part for part in waiting.parts if part.type == "permission" and part.status == "pending")
+
+        assert waiting.status == "waiting_approval"
+        assert permission.payload.get("official_hitl") is True
+        assert permission.payload.get("tool") == "edit_file"
+        assert target.read_text(encoding="utf-8") == "hello\n"
+        assert checkpoint_db.exists() or any(checkpoint_db.parent.glob("langgraph_checkpoints.db*"))
+        # Drop in-process runner state the way a real process exit would.
+        asyncio.run(service_before.deepagents_runner.aclose())
+
+        # --- process 2: new service instance + intentional restart recovery ---
+        service_after = AgentSessionService(AgentSessionRepository(session_db), model_call=model_call)
+        recovered = service_after.recover_active_sessions_after_restart()
+        preserved = service_after.get_session(session.id)
+        pending_after_restart = next(part for part in preserved.parts if part.id == permission.id)
+
+        assert recovered["recovered"] == 0
+        assert recovered["preserved"] == 1
+        assert preserved.status == "waiting_approval"
+        assert preserved.metadata.get("next_action") == "continue_approval"
+        assert preserved.metadata.get("recovered_after_restart") is True
+        assert preserved.metadata.get("failure_kind") is None
+        assert pending_after_restart.status == "pending"
+        # Hydrated workspace still projects the pending permission from the part.
+        workspace_view = service_after.get_workspace(session.id)
+        assert workspace_view.pending_permission is not None
+        assert workspace_view.pending_permission["part_id"] == permission.id
+        assert target.read_text(encoding="utf-8") == "hello\n"
+
+        # Approve + resume after mark-lost recovery (same HTTP path as production).
+        bg = BackgroundTasks()
+        asyncio.run(service_after.approve_permission_async(permission.id, True, bg))
+        assert bg.tasks, "approve must queue a background Command(resume)"
+        for bg_task in bg.tasks:
+            asyncio.run(bg_task.func(*bg_task.args, **bg_task.kwargs))
+
+        completed = service_after.get_session(session.id)
+        assert completed.status == "completed", {
+            "status": completed.status,
+            "latest_error": (completed.metadata or {}).get("latest_error"),
+            "parts": [(part.type, part.status, (part.content or "")[:120]) for part in completed.parts],
+            "remaining_scripted": list(scripted),
+        }
+        assert target.read_text(encoding="utf-8") == "hi\n"
+        assert not scripted, "resume must consume the post-interrupt model turns"
+        assert any(part.type == "summary" for part in completed.parts)
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+        get_checkpoint_db_path.cache_clear()
 
 
 def test_interrupt_session_is_idempotent_on_needs_manual_review(tmp_path: Path):

@@ -27,8 +27,16 @@ function sessionStatusLabel(session: AgentRuntimeState['session']): string {
   const metadata = session?.metadata || {};
   const failureKind = typeof metadata.failure_kind === 'string' ? metadata.failure_kind : '';
   const nextAction = typeof metadata.next_action === 'string' ? metadata.next_action : '';
-  if (session?.status === 'needs_manual_review' || session?.status === 'failed') {
+  const statusName = session?.status || '';
+  if (
+    (statusName === 'waiting_approval' || statusName === 'waiting_permission')
+    && (nextAction === 'continue_approval' || metadata.recovered_after_restart === true)
+  ) {
+    return '请继续审批';
+  }
+  if (statusName === 'needs_manual_review' || statusName === 'failed') {
     if (failureKind === 'configuration_error' || nextAction === 'configure_model') return '需配置模型';
+    if (failureKind === 'timeout') return '任务超时';
     if (failureKind === 'process_restart') return '可重新运行';
     if (failureKind === 'runtime_error') return '运行失败';
   }

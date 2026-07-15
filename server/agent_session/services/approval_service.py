@@ -85,7 +85,10 @@ class ApprovalService:
                 self.service.background_manager._prompt_tasks[session_id] = (loop, current_task)
         try:
             self.service.model_call_coordinator._sync_async_service_model_call()
-            await self.service.deepagents_runner.resume(session_id, decision)
+            await self.service.background_manager._await_with_session_timeout(
+                self.service.deepagents_runner.resume(session_id, decision),
+                label="resume",
+            )
         except AgentLoopGuardTriggered:
             return
         except asyncio.CancelledError:
@@ -93,6 +96,11 @@ class ApprovalService:
             if session and str(session.get("status") or "") not in self.service.TERMINAL_STATUSES:
                 self.service.background_manager.interrupt_session(session_id, "权限审批后的 Agent 恢复执行已取消。")
             raise
+        except TimeoutError as exc:
+            try:
+                self.service.background_manager._record_session_timeout(session_id, exc)
+            except Exception as failure_exc:
+                self.service.background_manager._record_background_failure_fallback(session_id, exc, failure_exc)
         except Exception as exc:
             try:
                 self.service.background_manager.record_prompt_failure(session_id, exc)

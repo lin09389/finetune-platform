@@ -14,6 +14,7 @@ from agent_session.models import (
 )
 from agent_session.services.utils import ensure_failed_metadata
 from agent_session.state import ensure_session_state
+from agent_session.status import EXECUTOR_BOUND_SESSION_STATUSES, WAITING_SESSION_STATUSES
 
 if TYPE_CHECKING:
     from agent_session.service import AgentSessionService
@@ -121,23 +122,49 @@ class RecoveryService:
         return await self.service.async_subagent_service.recover_running_tasks()
 
     def recover_active_sessions_after_restart(self) -> dict[str, Any]:
+        """Reconcile ACTIVE sessions after process start.
+
+        Plan A (product contract):
+        - ``running`` / ``verifying`` / ``repairing`` lost their executor →
+          ``needs_manual_review`` + ``process_restart`` (must re-prompt).
+        - ``waiting_approval`` / ``waiting_permission`` keep status, pending
+          permission parts, and LangGraph checkpoint so users can continue HITL
+          with ``Command(resume)`` instead of re-running the whole prompt.
+        """
         sessions = self.service.repository.list_sessions_by_status(self.service.ACTIVE_STATUSES)
         recovered = 0
+        preserved = 0
         failed = 0
+        session_ids: list[str] = []
         for session in sessions:
             session_id = str(session.get("id") or "")
             if not session_id:
                 continue
+            session_ids.append(session_id)
             metadata = dict(session.get("metadata") or {})
             if metadata.get("async_subagent") or metadata.get("async_task_id"):
                 continue
+            status = str(session.get("status") or "")
             try:
-                self._mark_session_lost_after_restart(session)
-                recovered += 1
+                if status in WAITING_SESSION_STATUSES:
+                    self._preserve_waiting_session_after_restart(session)
+                    preserved += 1
+                elif status in EXECUTOR_BOUND_SESSION_STATUSES:
+                    self._mark_session_lost_after_restart(session)
+                    recovered += 1
+                else:
+                    # Defensive: unknown active status still treated as lost executor.
+                    self._mark_session_lost_after_restart(session)
+                    recovered += 1
             except Exception:
                 failed += 1
-                logger.exception("Failed to mark stale Agent session after restart: %s", session_id)
-        return {"recovered": recovered, "failed": failed, "session_ids": [str(item.get("id")) for item in sessions if item.get("id")]}
+                logger.exception("Failed to reconcile Agent session after restart: %s", session_id)
+        return {
+            "recovered": recovered,
+            "preserved": preserved,
+            "failed": failed,
+            "session_ids": session_ids,
+        }
 
     async def shutdown_async_subtasks(self) -> None:
         prompt_shutdown = await self.service.background_manager.shutdown_prompt_tasks()
@@ -307,6 +334,50 @@ class RecoveryService:
             prompt += f"\n用户补充恢复说明：{instruction}"
         return prompt
 
+    def _preserve_waiting_session_after_restart(self, session: dict[str, Any]) -> None:
+        """Keep HITL waits alive so users can approve/reject after process restart."""
+        session_id = str(session.get("id") or "")
+        if not session_id:
+            return
+        message = "服务已重启，待审批状态与执行断点已保留。请继续批准或拒绝当前工具调用。"
+        repository = self.service.repository
+
+        def write_preservation() -> None:
+            current = repository.get_session(session_id) or session
+            status = str(current.get("status") or "")
+            if status not in WAITING_SESSION_STATUSES:
+                return
+            metadata = ensure_session_state(dict(current.get("metadata") or {}))
+            now = datetime.now().isoformat()
+            metadata["recovered_after_restart"] = True
+            metadata["service_restarted_at"] = now
+            metadata["next_action"] = "continue_approval"
+            metadata["restart_notice"] = "service_restarted_awaiting_approval"
+            # Do not clear pending_deepagents_interrupt / pending permission latches.
+            # Do not set failure_kind=process_restart (that path means re-prompt only).
+            metadata.pop("failure_kind", None)
+            state = dict(metadata.get("state") or {})
+            state["next_action"] = "continue_approval"
+            state.pop("failure_kind", None)
+            metadata["state"] = state
+            repository.update_session(session_id, metadata=metadata)
+            event = repository.add_event(
+                session_id,
+                "session_recovered_after_restart",
+                message,
+                {
+                    "session_id": session_id,
+                    "status": status,
+                    "summary": message,
+                    "recovered_after_restart": True,
+                    "preserved_waiting": True,
+                    "next_action": "continue_approval",
+                },
+            )
+            self.service.event_service._notify_event(session_id, event)
+
+        repository.run_write_with_retry(write_preservation)
+
     def _mark_session_lost_after_restart(self, session: dict[str, Any]) -> None:
         session_id = str(session.get("id") or "")
         if not session_id:
@@ -316,7 +387,9 @@ class RecoveryService:
 
         def write_recovery() -> None:
             current = repository.get_session(session_id) or session
-            if str(current.get("status") or "") not in self.service.ACTIVE_STATUSES:
+            status = str(current.get("status") or "")
+            # Waiting sessions are handled by _preserve_waiting_session_after_restart.
+            if status not in EXECUTOR_BOUND_SESSION_STATUSES:
                 return
             metadata = ensure_failed_metadata(
                 current,

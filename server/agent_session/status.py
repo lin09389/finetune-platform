@@ -29,6 +29,11 @@ SESSION_LIFECYCLE: tuple[AgentSessionStatus, ...] = (
 ACTIVE_SESSION_STATUSES: frozenset[AgentSessionStatus] = frozenset(
     {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
 )
+# Sessions that require a live in-process executor; lost on process restart.
+EXECUTOR_BOUND_SESSION_STATUSES: frozenset[AgentSessionStatus] = frozenset(
+    {"running", "verifying", "repairing"}
+)
+# HITL / permission waits keep LangGraph checkpoint + pending parts; preserve on restart.
 WAITING_SESSION_STATUSES: frozenset[AgentSessionStatus] = frozenset({"waiting_approval", "waiting_permission"})
 TERMINAL_SESSION_STATUSES: frozenset[AgentSessionStatus] = frozenset(
     {"completed", "failed", "interrupted", "needs_manual_review"}

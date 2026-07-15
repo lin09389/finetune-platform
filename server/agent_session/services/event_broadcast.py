@@ -576,9 +576,25 @@ class EventBroadcastService:
         if status == "completed":
             return summary_text or event_message or "任务已完成。", "可以查看结果，或继续提出下一步需求。"
         if status == "waiting_approval":
+            if (
+                state.get("next_action") == "continue_approval"
+                or str((latest_event or {}).get("event_type") or "") == "session_recovered_after_restart"
+            ):
+                return (
+                    event_message or "服务已重启，待审批状态与执行断点已保留。",
+                    "请继续批准或拒绝当前工具调用，无需重新发送任务。",
+                )
             reason = action_reason or event_message or "有修改或命令需要确认。"
             return reason, "请确认待处理的修改或验证命令。"
         if status == "waiting_permission":
+            if (
+                state.get("next_action") == "continue_approval"
+                or str((latest_event or {}).get("event_type") or "") == "session_recovered_after_restart"
+            ):
+                return (
+                    event_message or "服务已重启，待权限确认的状态已保留。",
+                    "请继续批准或拒绝该工具调用，无需重新发送任务。",
+                )
             return event_message or "有工具调用需要权限确认。", "请批准或拒绝该工具调用。"
         if status == "needs_manual_review":
             reason = summary_text or error_text or latest_state_error or event_message or "Agent 已停在需要人工处理的状态。"

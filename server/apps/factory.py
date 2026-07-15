@@ -448,6 +448,22 @@ def _agent_runtime_env_for_info() -> dict:
         return {"warnings": [f"agent_runtime_env probe failed: {exc}"]}
 
 
+def _agent_ready_payload() -> dict:
+    """Agent control-plane readiness for Workbench / ops (not model catalog readiness)."""
+    try:
+        from apps.lifespan import get_agent_readiness
+
+        return get_agent_readiness()
+    except Exception as exc:
+        return {
+            "ready": False,
+            "session_service": False,
+            "context_service": False,
+            "memory_service": False,
+            "issues": [f"agent_ready probe failed: {exc}"],
+        }
+
+
 def _storage_info_for_api() -> dict:
     try:
         from core.storage import APP_DB_PATH, get_langgraph_checkpoint_db_path
@@ -518,6 +534,7 @@ async def api_info():
             cloud_model_configured=cloud_model_configured,
         ),
         "agent_runtime_env": _agent_runtime_env_for_info(),
+        "agent_ready": _agent_ready_payload(),
         "storage": _storage_info_for_api(),
         "ocr_backends": ocr_backends,
         "endpoints": tier_payload["endpoints"],

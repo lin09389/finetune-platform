@@ -327,6 +327,23 @@ describe('Agent protocol and runtime', () => {
     expect(selectWorkspaceStatus(failed)).toBe('进程重启后已停止，可重新运行');
   });
 
+  it('explains waiting approval after service restart as continue-approval (Plan A)', () => {
+    const waiting = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'session_loaded',
+      session: {
+        ...session,
+        status: 'waiting_approval',
+        metadata: {
+          ...session.metadata,
+          recovered_after_restart: true,
+          next_action: 'continue_approval',
+        },
+      },
+    });
+
+    expect(selectWorkspaceStatus(waiting)).toBe('服务已恢复，请继续审批');
+  });
+
   it('treats streamed model content as an authoritative snapshot when present', () => {
     const textPart: AgentSession['parts'][number] = {
       id: 'agp_text',
@@ -534,6 +551,35 @@ describe('Agent Phase 7 feature contract gates', () => {
       status: 'expired',
     });
     expect(items[0]?.actions.map((action) => action.id)).toEqual(['refresh']);
+  });
+
+  it('keeps approve actions after process restart even when original permission is older than TTL', () => {
+    const { workspace: permissionWorkspace } = createFlowScenario('permission');
+    const restartedWorkspace = {
+      ...permissionWorkspace,
+      session: {
+        ...permissionWorkspace.session,
+        status: 'waiting_approval' as const,
+        metadata: {
+          ...permissionWorkspace.session.metadata,
+          recovered_after_restart: true,
+          next_action: 'continue_approval',
+          service_restarted_at: '2026-06-20T00:50:00Z',
+        },
+      },
+    };
+    const state = agentRuntimeReducer(initialAgentRuntimeState, {
+      type: 'workspace_loaded',
+      workspace: restartedWorkspace,
+    });
+    // Well past the original permission TTL, but still within post-restart window.
+    const items = selectAttentionItems(state, new Date('2026-06-20T01:00:00Z').getTime());
+    expect(items[0]).toMatchObject({
+      kind: 'permission',
+      status: 'open',
+      title: '服务已恢复，请继续审批',
+    });
+    expect(items[0]?.actions.map((action) => action.id)).toEqual(['approve', 'reject']);
   });
 
   it('removes resolved tool and loop failures from the Attention Center', () => {
