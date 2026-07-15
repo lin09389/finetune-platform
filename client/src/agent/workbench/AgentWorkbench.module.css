@@ -2633,6 +2633,238 @@
   white-space: nowrap;
 }
 
+/* 本轮指标：对齐环境卡 + diagnostics 网格语言，克制、偏编辑器侧栏质感 */
+.progressCard {
+  gap: 12px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-primary) 6%, var(--bg-secondary)) 0%,
+      var(--bg-secondary) 28%
+    );
+}
+
+.progressStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 118px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-tertiary) 10%, transparent);
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressStatusDot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.progressStatusOk {
+  color: var(--success, #3f9c6a);
+  background: color-mix(in srgb, var(--success, #3f9c6a) 12%, transparent);
+}
+
+.progressStatusWarn {
+  color: var(--warning, #c48a1a);
+  background: color-mix(in srgb, var(--warning, #c48a1a) 14%, transparent);
+}
+
+.progressStatusGap {
+  color: var(--warning, #c48a1a);
+  background: color-mix(in srgb, var(--warning, #c48a1a) 14%, transparent);
+}
+
+.progressMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.progressMetricCell {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+}
+
+.progressMetricCell span {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.progressMetricCell strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressMetricSub {
+  margin-left: 2px;
+  color: var(--text-tertiary);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.progressToneOk {
+  color: var(--success, #3f9c6a) !important;
+}
+
+.progressToneWarn {
+  color: var(--warning, #c48a1a) !important;
+}
+
+.progressToneDanger {
+  color: var(--danger, #c44a4a) !important;
+}
+
+.progressFooter {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
+}
+
+.progressNote {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.progressNote :global(.anticon) {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.progressNoteWarn {
+  border: 1px solid color-mix(in srgb, var(--warning, #c48a1a) 28%, var(--border-color));
+  background: color-mix(in srgb, var(--warning, #c48a1a) 8%, var(--bg-primary));
+  color: color-mix(in srgb, var(--warning, #c48a1a) 70%, var(--text-secondary));
+}
+
+.progressNoteWarn :global(.anticon) {
+  color: var(--warning, #c48a1a);
+}
+
+.progressGateBlock {
+  display: grid;
+  gap: 5px;
+}
+
+.progressGateRow {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.progressGateRow strong {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.progressGapList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.progressGapChip {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #c48a1a) 12%, transparent);
+  color: color-mix(in srgb, var(--warning, #c48a1a) 78%, var(--text-secondary));
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.progressPaths {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 活动栏 chips：贴近 activitySinceEvent / activitySubagent 的原生胶囊 */
+.activityProgressChips {
+  flex: 0 1 auto;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  max-width: min(38%, 220px);
+  overflow: hidden;
+}
+
+.activityProgressChip {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-tertiary) 10%, transparent);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.activityProgressChipOk {
+  color: var(--success, #3f9c6a);
+  background: color-mix(in srgb, var(--success, #3f9c6a) 14%, transparent);
+}
+
+.activityProgressChipWarn {
+  color: var(--warning, #c48a1a);
+  background: color-mix(in srgb, var(--warning, #c48a1a) 15%, transparent);
+}
+
+.activityProgressChipDanger {
+  color: var(--danger, #c44a4a);
+  background: color-mix(in srgb, var(--danger, #c44a4a) 14%, transparent);
+}
+
 .workspacePathChip {
   min-width: 0;
   max-width: 140px;

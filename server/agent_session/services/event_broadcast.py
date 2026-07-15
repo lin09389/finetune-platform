@@ -29,8 +29,8 @@ class EventBroadcastService:
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         apply_execution_event_to_session(self.service.repository, session_id, event)
         self._clear_recovery_latches_for_event(session_id, event)
-        self.service._event_bus.notify(session_id, event)
-        self.service.failure_guard.observe_event(session_id, event)
+        # Persist tool/recovery metrics before fan-out so live UI can read them
+        # from the same event payload (and so workspace refresh is not racing).
         try:
             from agent_session.session_progress import observe_and_persist_tool_metrics
 
@@ -38,6 +38,29 @@ class EventBroadcastService:
         except Exception:
             # Metrics must never break the live event path.
             pass
+        event = self._attach_session_progress(session_id, event)
+        self.service._event_bus.notify(session_id, event)
+        self.service.failure_guard.observe_event(session_id, event)
+
+    def _attach_session_progress(self, session_id: str, event: dict[str, Any]) -> dict[str, Any]:
+        """Embed a compact progress snapshot for Workbench live projection."""
+        try:
+            session = self.service.repository.get_session(session_id)
+            if not session:
+                return event
+            metadata = dict(session.get("metadata") or {})
+            progress: dict[str, Any] = {}
+            for key in ("tool_metrics", "working_state", "recovery_state", "completion_gate"):
+                value = metadata.get(key)
+                if value is not None:
+                    progress[key] = value
+            if not progress:
+                return event
+            payload = dict(event.get("payload") or {}) if isinstance(event.get("payload"), dict) else {}
+            payload["session_progress"] = progress
+            return {**event, "payload": payload}
+        except Exception:
+            return event
 
     def _clear_recovery_latches_for_event(self, session_id: str, event: dict[str, Any]) -> None:
         event_type = str(event.get("event_type") or "")

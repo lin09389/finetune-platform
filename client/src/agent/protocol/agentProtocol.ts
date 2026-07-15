@@ -523,6 +523,22 @@ function partFromDeltaEvent(event: AgentSessionEvent, partId: string): AgentPart
   };
 }
 
+/** Merge Step1/2 progress fields published on event.payload.session_progress. */
+function progressMetadataFromEvent(event: AgentSessionEvent): Record<string, unknown> {
+  const progress = event.payload?.session_progress;
+  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) {
+    return {};
+  }
+  const source = progress as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const key of ['tool_metrics', 'working_state', 'recovery_state', 'completion_gate'] as const) {
+    if (source[key] != null) {
+      next[key] = source[key];
+    }
+  }
+  return next;
+}
+
 export function applyEventToSession(
   session: AgentSession | null,
   event: AgentSessionEvent,
@@ -561,6 +577,7 @@ export function applyEventToSession(
     updated_at: event.created_at || session.updated_at,
     metadata: {
       ...session.metadata,
+      ...progressMetadataFromEvent(event),
       state: {
         ...session.metadata?.state,
         current_phase: event.phase || session.metadata?.state?.current_phase,

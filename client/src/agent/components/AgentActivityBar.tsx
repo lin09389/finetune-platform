@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMotionConfig } from '../../components/motion/useMotionConfig';
 import type { AgentActivity } from '../selectors/currentActivity';
 import type { AgentConnectionState } from '../protocol/agentProtocol';
+import type { SessionProgressView } from '../selectors/sessionProgress';
 import styles from '../workbench/AgentWorkbench.module.css';
 
 interface AgentActivityBarProps {
@@ -24,6 +25,8 @@ interface AgentActivityBarProps {
   planCompleted: number;
   /** 执行计划总步骤数 */
   planTotal: number;
+  /** Step1/2 会话进度 chips（可选） */
+  progressChips?: SessionProgressView['chips'];
 }
 
 const STALE_THRESHOLD_MS = 30_000;
@@ -55,6 +58,13 @@ const CONNECTION_DOT_CLASS: Record<AgentConnectionState, string | undefined> = {
  * - session 非运行态时整个 bar 不渲染
  * - 脉动动画经 useMotionConfig 尊重 prefers-reduced-motion
  */
+const CHIP_TONE_CLASS: Record<SessionProgressView['chips'][number]['tone'], string | undefined> = {
+  default: undefined,
+  ok: styles.activityProgressChipOk,
+  warn: styles.activityProgressChipWarn,
+  danger: styles.activityProgressChipDanger,
+};
+
 export default function AgentActivityBar({
   activity,
   isRunning,
@@ -65,6 +75,7 @@ export default function AgentActivityBar({
   subagentRunningCount,
   planCompleted,
   planTotal,
+  progressChips = [],
 }: AgentActivityBarProps) {
   const { shouldReduceMotion } = useMotionConfig();
   const [now, setNow] = useState(Date.now());
@@ -108,6 +119,19 @@ export default function AgentActivityBar({
         {label}
         {detail ? <span className={styles.activityDetail}>{detail}</span> : null}
       </span>
+      {progressChips.length > 0 ? (
+        <span className={styles.activityProgressChips} aria-label="本轮运行指标">
+          {progressChips.slice(0, 4).map((chip) => (
+            <span
+              key={chip.key}
+              className={`${styles.activityProgressChip} ${CHIP_TONE_CLASS[chip.tone] || ''}`.trim()}
+              title={chip.label}
+            >
+              {chip.label}
+            </span>
+          ))}
+        </span>
+      ) : null}
       {planTotal > 0 ? (
         <span className={styles.activityPlanProgress} title={`执行计划：已完成 ${planCompleted}/${planTotal} 步`}>
           步骤 {planCompleted}/{planTotal}

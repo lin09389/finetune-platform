@@ -59,6 +59,7 @@ import {
   selectWorkspaceStatus,
 } from '../selectors/workbenchSelectors';
 import { selectCurrentActivity } from '../selectors/currentActivity';
+import { selectSessionProgress } from '../selectors/sessionProgress';
 import AgentWorkbenchShell from './AgentWorkbenchShell';
 import { buildPanelSurfaceStyle, usePanelResize } from './usePanelResize';
 import styles from './AgentWorkbench.module.css';
@@ -203,6 +204,10 @@ export default function AgentWorkbenchPage({
   const planNodes = state.workspace?.execution_plan?.nodes || [];
   const planTotal = planNodes.length;
   const planCompleted = planNodes.filter((n) => n.status === 'completed').length;
+  const sessionProgress = useMemo(
+    () => selectSessionProgress((state.session?.metadata || {}) as Record<string, unknown>),
+    [state.session?.metadata],
+  );
   const recoveredAt = state.recoveredAt;
 
   useEffect(() => {
@@ -532,6 +537,7 @@ export default function AgentWorkbenchPage({
                 subagentRunningCount={subagentRunningCount}
                 planCompleted={planCompleted}
                 planTotal={planTotal}
+                progressChips={sessionProgress.chips}
               />
               <Suspense fallback={<div className={styles.panelLoading}><SmoothLoader size="md" /></div>}>
                 <AgentRunTimeline
