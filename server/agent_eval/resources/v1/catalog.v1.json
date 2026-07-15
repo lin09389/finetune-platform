@@ -1,0 +1,326 @@
+{
+  "schema_version": 1,
+  "catalog_id": "phase9-core-v1",
+  "scenarios": [
+    {
+      "schema_version": 1, "id": "python-debug-null-config", "revision": 1,
+      "title": "Handle null configuration", "mode": "coding", "category": "debug",
+      "stacks": ["python"], "fixture_id": "cases/python-debug-null-config",
+      "task": "Diagnose and fix the null input failure without changing valid normalization behavior.",
+      "criteria": [
+        {"id": "behavior", "description": "Null and valid values have defined behavior", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Focused regression tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["python", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "python-debug-off-by-one", "revision": 1,
+      "title": "Fix indexed selection", "mode": "coding", "category": "debug",
+      "stacks": ["python"], "fixture_id": "cases/python-debug-off-by-one",
+      "task": "Correct the indexed selection boundary bug and cover the first and last valid positions.",
+      "criteria": [
+        {"id": "behavior", "description": "Selection returns the requested position", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Boundary regression tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["python", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "python-refactor-service-boundary", "revision": 1,
+      "title": "Extract a service boundary", "mode": "coding", "category": "refactor",
+      "stacks": ["python"], "fixture_id": "cases/python-refactor-service-boundary",
+      "task": "Extract normalization behavior behind a small service boundary while preserving public behavior.",
+      "criteria": [
+        {"id": "structure", "description": "Responsibility is separated without duplication", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "Existing behavior remains covered and passing", "weight": 0.5, "required": true}
+      ], "tags": ["python", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "python-refactor-async-io", "revision": 1,
+      "title": "Move blocking work off event loop", "mode": "coding", "category": "refactor",
+      "stacks": ["python", "asyncio"], "fixture_id": "cases/python-refactor-async-io",
+      "task": "Refactor a blocking operation so an async caller stays responsive and errors remain visible.",
+      "criteria": [
+        {"id": "nonblocking", "description": "Blocking work no longer runs on the event loop", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Async success and failure tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["python", "asyncio", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "python-feature-cli-validation", "revision": 1,
+      "title": "Add CLI input validation", "mode": "coding", "category": "feature",
+      "stacks": ["python", "cli"], "fixture_id": "cases/python-feature-cli-validation",
+      "task": "Add deterministic CLI validation with actionable errors and a successful normal path.",
+      "criteria": [
+        {"id": "validation", "description": "Invalid values are rejected with stable errors", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "CLI success and failure tests pass", "weight": 0.5, "required": true}
+      ], "tags": ["python", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "python-feature-bounded-cache", "revision": 1,
+      "title": "Add a bounded cache", "mode": "coding", "category": "feature",
+      "stacks": ["python"], "fixture_id": "cases/python-feature-bounded-cache",
+      "task": "Implement a bounded cache with deterministic eviction and no mutation of caller values.",
+      "criteria": [
+        {"id": "behavior", "description": "Capacity and eviction semantics are correct", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Cache behavior tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["python", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "python-debug-resource-leak", "revision": 1,
+      "title": "Close resources on failure", "mode": "coding", "category": "debug",
+      "stacks": ["python"], "fixture_id": "cases/python-debug-resource-leak",
+      "task": "Ensure resources close on success, cancellation, and exception without hiding the original failure.",
+      "criteria": [
+        {"id": "cleanup", "description": "All terminal paths release resources", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Cleanup and exception tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["python", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "python-refactor-typing", "revision": 1,
+      "title": "Strengthen domain typing", "mode": "coding", "category": "refactor",
+      "stacks": ["python", "typing"], "fixture_id": "cases/python-refactor-typing",
+      "task": "Replace ambiguous dictionaries with explicit typed domain values while retaining compatibility.",
+      "criteria": [
+        {"id": "typing", "description": "Domain values have explicit stable types", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "Type and behavior checks pass", "weight": 0.5, "required": true}
+      ], "tags": ["python", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "react-debug-stale-state", "revision": 1,
+      "title": "Fix stale state update", "mode": "coding", "category": "debug",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-debug-stale-state",
+      "task": "Fix stale React state updates during rapid interaction and preserve accessible behavior.",
+      "criteria": [
+        {"id": "behavior", "description": "Rapid updates do not lose increments", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Component interaction tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["react", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "react-debug-request-race", "revision": 1,
+      "title": "Prevent request race", "mode": "coding", "category": "debug",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-debug-request-race",
+      "task": "Prevent an older request from replacing newer UI state and cancel obsolete work safely.",
+      "criteria": [
+        {"id": "race", "description": "Only the latest request updates visible state", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Out-of-order response tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["react", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "react-refactor-hook", "revision": 1,
+      "title": "Extract reusable state hook", "mode": "coding", "category": "refactor",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-refactor-hook",
+      "task": "Extract reusable state behavior into a hook without changing the rendered interaction contract.",
+      "criteria": [
+        {"id": "structure", "description": "Hook has a focused reusable contract", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "Hook and component tests pass", "weight": 0.5, "required": true}
+      ], "tags": ["react", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "react-refactor-component", "revision": 1,
+      "title": "Split a large component", "mode": "coding", "category": "refactor",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-refactor-component",
+      "task": "Split UI responsibilities into typed components while preserving layout and user interactions.",
+      "criteria": [
+        {"id": "structure", "description": "Components have clear typed boundaries", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "Rendered behavior tests pass", "weight": 0.5, "required": true}
+      ], "tags": ["react", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "react-feature-error-state", "revision": 1,
+      "title": "Add recoverable error state", "mode": "coding", "category": "feature",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-feature-error-state",
+      "task": "Add loading, recoverable error, retry, and success states without visual layout jumps.",
+      "criteria": [
+        {"id": "states", "description": "All request states render deterministically", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "State transition tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["react", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "react-feature-accessibility", "revision": 1,
+      "title": "Add keyboard accessibility", "mode": "coding", "category": "feature",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-feature-accessibility",
+      "task": "Make the primary interaction keyboard reachable with an accessible name and visible focus.",
+      "criteria": [
+        {"id": "accessibility", "description": "Keyboard and accessible naming contracts hold", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Accessibility-focused tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["react", "accessibility"]
+    },
+    {
+      "schema_version": 1, "id": "react-debug-stream-reconnect", "revision": 1,
+      "title": "Repair stream reconnection", "mode": "coding", "category": "debug",
+      "stacks": ["react", "typescript", "sse"], "fixture_id": "cases/react-debug-stream-reconnect",
+      "task": "Repair duplicate events after stream reconnection and clean up timers when the view unmounts.",
+      "criteria": [
+        {"id": "stream", "description": "Reconnect is idempotent and bounded", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Reconnect and cleanup tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["react", "sse", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "react-refactor-api-client", "revision": 1,
+      "title": "Centralize API access", "mode": "coding", "category": "refactor",
+      "stacks": ["react", "typescript"], "fixture_id": "cases/react-refactor-api-client",
+      "task": "Move scattered network access into a typed API client while preserving cancellation semantics.",
+      "criteria": [
+        {"id": "boundary", "description": "Network access uses one typed boundary", "weight": 0.5, "required": true},
+        {"id": "verification", "description": "Client and component tests pass", "weight": 0.5, "required": true}
+      ], "tags": ["react", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-debug-contract", "revision": 1,
+      "title": "Align API field contract", "mode": "coding", "category": "debug",
+      "stacks": ["python", "react", "typescript"], "fixture_id": "cases/crossstack-debug-contract",
+      "task": "Align backend and frontend user field naming with an explicit compatibility boundary.",
+      "criteria": [
+        {"id": "contract", "description": "Both sides agree on one versioned shape", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Backend and frontend contract tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-debug-error-mapping", "revision": 1,
+      "title": "Normalize error mapping", "mode": "coding", "category": "debug",
+      "stacks": ["python", "react", "typescript"], "fixture_id": "cases/crossstack-debug-error-mapping",
+      "task": "Map backend error codes to stable frontend states without leaking raw internal errors.",
+      "criteria": [
+        {"id": "mapping", "description": "Known and unknown errors have safe states", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Cross-stack error tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-feature-pagination", "revision": 1,
+      "title": "Add cursor pagination", "mode": "coding", "category": "feature",
+      "stacks": ["python", "react", "typescript"], "fixture_id": "cases/crossstack-feature-pagination",
+      "task": "Add typed cursor pagination with stable ordering and correct empty and final-page behavior.",
+      "criteria": [
+        {"id": "contract", "description": "Cursor contract is stable across both sides", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Pagination integration tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-refactor-schema", "revision": 1,
+      "title": "Share generated schema", "mode": "coding", "category": "refactor",
+      "stacks": ["python", "typescript"], "fixture_id": "cases/crossstack-refactor-schema",
+      "task": "Establish one schema source and verify frontend types cannot silently drift from the backend.",
+      "criteria": [
+        {"id": "schema", "description": "One authoritative schema drives both sides", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Schema drift check passes", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-debug-timeout", "revision": 1,
+      "title": "Handle service timeout", "mode": "coding", "category": "debug",
+      "stacks": ["python", "react", "typescript"], "fixture_id": "cases/crossstack-debug-timeout",
+      "task": "Return a bounded backend timeout and present a recoverable frontend retry state.",
+      "criteria": [
+        {"id": "timeout", "description": "Timeout is bounded and classified correctly", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Timeout integration tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "crossstack-feature-sse", "revision": 1,
+      "title": "Add resumable progress stream", "mode": "coding", "category": "feature",
+      "stacks": ["python", "react", "typescript", "sse"], "fixture_id": "cases/crossstack-feature-sse",
+      "task": "Add a resumable progress stream with ordered events, heartbeat, and duplicate suppression.",
+      "criteria": [
+        {"id": "protocol", "description": "Stream ordering and resume semantics are explicit", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Server and client stream tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["cross-stack", "sse", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "training-debug-config", "revision": 1,
+      "title": "Validate unsafe training config", "mode": "training", "category": "training",
+      "stacks": ["python", "training"], "fixture_id": "cases/training-debug-config",
+      "task": "Reject unsafe batch, epoch, and learning-rate values before scheduling any training work.",
+      "criteria": [
+        {"id": "validation", "description": "Unsafe values fail before submission", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Valid and invalid configuration tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "training-debug-dataset-schema", "revision": 1,
+      "title": "Diagnose dataset schema", "mode": "training", "category": "training",
+      "stacks": ["python", "training", "dataset"], "fixture_id": "cases/training-debug-dataset-schema",
+      "task": "Detect incompatible dataset rows and produce bounded actionable validation diagnostics.",
+      "criteria": [
+        {"id": "diagnostics", "description": "Invalid rows are classified without raw data leakage", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Dataset validation tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "dataset"]
+    },
+    {
+      "schema_version": 1, "id": "training-refactor-checkpoint", "revision": 1,
+      "title": "Harden checkpoint metadata", "mode": "training", "category": "training",
+      "stacks": ["python", "training"], "fixture_id": "cases/training-refactor-checkpoint",
+      "task": "Make checkpoint metadata writes atomic and recover safely from an interrupted replacement.",
+      "criteria": [
+        {"id": "atomicity", "description": "Checkpoint metadata cannot be partially published", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Failure injection tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "training-feature-dry-run", "revision": 1,
+      "title": "Add training dry run", "mode": "training", "category": "training",
+      "stacks": ["python", "training"], "fixture_id": "cases/training-feature-dry-run",
+      "task": "Add a dry run that validates resources and configuration without loading a model or claiming GPU.",
+      "criteria": [
+        {"id": "safety", "description": "Dry run performs no GPU or training side effects", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "No-side-effect dry-run tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "training-debug-resume", "revision": 1,
+      "title": "Repair interrupted resume", "mode": "training", "category": "training",
+      "stacks": ["python", "training"], "fixture_id": "cases/training-debug-resume",
+      "task": "Resume from the latest valid checkpoint and reject incompatible or incomplete checkpoint data.",
+      "criteria": [
+        {"id": "resume", "description": "Only compatible complete checkpoints resume", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Resume and rejection tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "training-refactor-metrics", "revision": 1,
+      "title": "Normalize training metrics", "mode": "training", "category": "training",
+      "stacks": ["python", "training"], "fixture_id": "cases/training-refactor-metrics",
+      "task": "Normalize step and epoch metrics into a versioned event contract while preserving old readers.",
+      "criteria": [
+        {"id": "contract", "description": "Metrics use one compatible event contract", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Compatibility and metric tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["training", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "hybrid-debug-gpu-contention", "revision": 1,
+      "title": "Resolve GPU contention", "mode": "hybrid", "category": "hybrid",
+      "stacks": ["python", "training", "inference"], "fixture_id": "cases/hybrid-debug-gpu-contention",
+      "task": "Coordinate training and inference so a busy GPU produces a safe visible retry path.",
+      "criteria": [
+        {"id": "coordination", "description": "Only one incompatible GPU owner proceeds", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Contention and recovery tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["hybrid", "gpu", "debug"]
+    },
+    {
+      "schema_version": 1, "id": "hybrid-feature-train-evaluate", "revision": 1,
+      "title": "Train then evaluate workflow", "mode": "hybrid", "category": "hybrid",
+      "stacks": ["python", "training", "evaluation"], "fixture_id": "cases/hybrid-feature-train-evaluate",
+      "task": "Connect a completed training artifact to evaluation using stable references and explicit readiness.",
+      "criteria": [
+        {"id": "workflow", "description": "Only ready artifacts enter evaluation", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Workflow success and failure tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["hybrid", "feature"]
+    },
+    {
+      "schema_version": 1, "id": "hybrid-refactor-artifact-contract", "revision": 1,
+      "title": "Version artifact references", "mode": "hybrid", "category": "hybrid",
+      "stacks": ["python", "typescript", "training"], "fixture_id": "cases/hybrid-refactor-artifact-contract",
+      "task": "Replace absolute artifact paths with versioned portable references across backend and workbench.",
+      "criteria": [
+        {"id": "portability", "description": "Artifact references contain no absolute path", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Round-trip and UI contract tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["hybrid", "refactor"]
+    },
+    {
+      "schema_version": 1, "id": "hybrid-debug-cancel", "revision": 1,
+      "title": "Propagate workflow cancellation", "mode": "hybrid", "category": "hybrid",
+      "stacks": ["python", "react", "training"], "fixture_id": "cases/hybrid-debug-cancel",
+      "task": "Propagate cancellation through Agent task, training job, and UI without publishing false success.",
+      "criteria": [
+        {"id": "cancellation", "description": "Every layer reaches a consistent terminal state", "weight": 0.6, "required": true},
+        {"id": "verification", "description": "Cancellation integration tests pass", "weight": 0.4, "required": true}
+      ], "tags": ["hybrid", "debug"]
+    }
+  ]
+}

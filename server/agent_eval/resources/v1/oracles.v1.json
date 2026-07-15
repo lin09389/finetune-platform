@@ -1,0 +1,539 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "scenario_id": "python-debug-null-config",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "app.py",
+          "expected": "if value is None",
+          "criterion_id": "behavior"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "app.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-debug-off-by-one",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "app.py",
+          "expected": "return items[index]",
+          "criterion_id": "behavior"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "app.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-refactor-service-boundary",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "service.py",
+          "expected": "self.repository.save",
+          "criterion_id": "structure"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "repository.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-refactor-async-io",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "worker.py",
+          "expected": "await asyncio.sleep",
+          "criterion_id": "nonblocking"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "worker.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-feature-cli-validation",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "cli.py",
+          "expected": "raise ValueError",
+          "criterion_id": "validation"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "cli.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-feature-bounded-cache",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "cache.py",
+          "expected": "OrderedDict",
+          "criterion_id": "behavior"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "cache.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-debug-resource-leak",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "reader.py",
+          "expected": "with open(path)",
+          "criterion_id": "cleanup"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "reader.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "python-refactor-typing",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "models.py",
+          "expected": "class UserRecord",
+          "criterion_id": "typing"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "service.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-debug-stale-state",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Counter.tsx",
+          "expected": "previous => previous + 1",
+          "criterion_id": "behavior"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/Counter.tsx",
+          "expected": "setCount",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-debug-request-race",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Search.tsx",
+          "expected": "AbortController",
+          "criterion_id": "race"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/Search.tsx",
+          "expected": "signal",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-refactor-hook",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/useCounter.ts",
+          "expected": "function useCounter",
+          "criterion_id": "structure"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/Counter.tsx",
+          "expected": "useCounter",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-refactor-component",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Dashboard.tsx",
+          "expected": "<DashboardHeader",
+          "criterion_id": "structure"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/DashboardHeader.tsx",
+          "expected": "DashboardHeader",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-feature-error-state",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Result.tsx",
+          "expected": "role=\"alert\"",
+          "criterion_id": "states"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/Result.tsx",
+          "expected": "Retry",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-feature-accessibility",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Action.tsx",
+          "expected": "<button",
+          "criterion_id": "accessibility"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/Action.tsx",
+          "expected": "aria-label",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-debug-stream-reconnect",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/stream.ts",
+          "expected": "lastEventId",
+          "criterion_id": "stream"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/stream.ts",
+          "expected": "clearTimeout",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "react-refactor-api-client",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "src/Widget.tsx",
+          "expected": "apiClient",
+          "criterion_id": "boundary"
+        },
+        {
+          "kind": "file_contains",
+          "path": "src/apiClient.ts",
+          "expected": "AbortSignal",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-debug-contract",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "displayName",
+          "criterion_id": "contract"
+        },
+        {
+          "kind": "file_contains",
+          "path": "frontend.ts",
+          "expected": "displayName",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-debug-error-mapping",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "code",
+          "criterion_id": "mapping"
+        },
+        {
+          "kind": "file_contains",
+          "path": "frontend.ts",
+          "expected": "mapError",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-feature-pagination",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "next_cursor",
+          "criterion_id": "contract"
+        },
+        {
+          "kind": "file_contains",
+          "path": "frontend.ts",
+          "expected": "cursor",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-refactor-schema",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "UserSchema",
+          "criterion_id": "schema"
+        },
+        {
+          "kind": "file_contains",
+          "path": "schema.ts",
+          "expected": "z.object",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-debug-timeout",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "timeout=5",
+          "criterion_id": "timeout"
+        },
+        {
+          "kind": "file_contains",
+          "path": "frontend.ts",
+          "expected": "Retry",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "crossstack-feature-sse",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "backend.py",
+          "expected": "event_id",
+          "criterion_id": "protocol"
+        },
+        {
+          "kind": "file_contains",
+          "path": "frontend.ts",
+          "expected": "Last-Event-ID",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-debug-config",
+      "validators": [
+        {
+          "kind": "json_equals",
+          "path": "config.json",
+          "json_pointer": "/batch_size",
+          "expected": 8,
+          "criterion_id": "validation"
+        },
+        {
+          "kind": "json_equals",
+          "path": "config.json",
+          "json_pointer": "/learning_rate",
+          "expected": 0.0001,
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-debug-dataset-schema",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "dataset.py",
+          "expected": "raise ValueError",
+          "criterion_id": "diagnostics"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "dataset.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-refactor-checkpoint",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "checkpoint.py",
+          "expected": "os.replace",
+          "criterion_id": "atomicity"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "checkpoint.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-feature-dry-run",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "train.py",
+          "expected": "validate_resources",
+          "criterion_id": "safety"
+        },
+        {
+          "kind": "json_equals",
+          "path": "config.json",
+          "json_pointer": "/dry_run",
+          "expected": true,
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-debug-resume",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "resume.py",
+          "expected": "latest_valid_checkpoint",
+          "criterion_id": "resume"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "resume.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "training-refactor-metrics",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "metrics.py",
+          "expected": "schema_version",
+          "criterion_id": "contract"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "metrics.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "hybrid-debug-gpu-contention",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "workflow.py",
+          "expected": "claim_gpu",
+          "criterion_id": "coordination"
+        },
+        {
+          "kind": "python_syntax",
+          "path": "workflow.py",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "hybrid-feature-train-evaluate",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "workflow.py",
+          "expected": "artifact_id",
+          "criterion_id": "workflow"
+        },
+        {
+          "kind": "file_contains",
+          "path": "ui.ts",
+          "expected": "evaluationReady = true",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "hybrid-refactor-artifact-contract",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "workflow.py",
+          "expected": "artifact_id",
+          "criterion_id": "portability"
+        },
+        {
+          "kind": "file_contains",
+          "path": "artifact.ts",
+          "expected": "relative_path",
+          "criterion_id": "verification"
+        }
+      ]
+    },
+    {
+      "scenario_id": "hybrid-debug-cancel",
+      "validators": [
+        {
+          "kind": "file_contains",
+          "path": "workflow.py",
+          "expected": "cancelled",
+          "criterion_id": "cancellation"
+        },
+        {
+          "kind": "file_contains",
+          "path": "ui.ts",
+          "expected": "interrupted",
+          "criterion_id": "verification"
+        }
+      ]
+    }
+  ]
+}

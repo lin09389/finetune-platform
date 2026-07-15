@@ -74,6 +74,7 @@ def test_combined_profile_preserves_legacy_application_contract():
         "/v1/chat/completions",
         "/chat/sessions",
         "/agent-sessions",
+        "/agent-eval/overview",
         "/knowledge/collections",
         "/workspace/workspaces",
         "/runtime/bootstrap",
@@ -93,6 +94,7 @@ def test_agent_profile_owns_workspace_and_agent_routes_only():
     assert {
         "/agents",
         "/agent-sessions",
+        "/agent-eval/overview",
         "/chat/sessions",
         "/knowledge/collections",
         "/workspace/workspaces",
@@ -122,6 +124,7 @@ def test_finetune_profile_owns_gpu_and_model_lifecycle_routes_only():
         "/model-runtime/selection",
     } <= paths
     assert "/agent-sessions" not in paths
+    assert "/agent-eval/overview" not in paths
     assert "/chat/sessions" not in paths
     assert "/workspace/workspaces" not in paths
 

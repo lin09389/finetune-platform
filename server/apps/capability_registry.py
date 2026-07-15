@@ -42,6 +42,7 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
     CapabilitySpec("memory", "beta", "Memory", ("/memory",), router_group="agent_aux"),
     CapabilitySpec("model_center", "beta", "Model center", ("/model-center",), router_group="finetune"),
     CapabilitySpec("workspace", "beta", "Workspace", ("/workspace",), router_group="agent"),
+    CapabilitySpec("agent_eval", "beta", "Agent evaluation", ("/agent-eval",), router_group="agent_aux"),
     # Always-on auxiliary (not gated by ENABLE_EXPERIMENTAL_CAPABILITIES)
     CapabilitySpec("cloud_chat", "beta", "Cloud chat / API keys", ("/cloud",), router_group="agent_aux"),
     # Experimental
@@ -173,6 +174,7 @@ def build_info_capability_payload(settings: Any | None = None) -> dict[str, Any]
             "workspace": "/workspace",
             "context": "/context",
             "model_center": "/model-center",
+            "agent_eval": "/agent-eval",
             "experimental_status": f"{EXPERIMENTAL_MOUNT_PREFIX}/status",
             "experimental": {
                 "cua": mount_map["cua"] if enabled else None,

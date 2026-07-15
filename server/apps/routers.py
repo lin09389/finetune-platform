@@ -83,6 +83,7 @@ AGENT_AUXILIARY_ROUTERS = (
     RouterSpec("workspace.file_api", prefix="/files", tags=("Files",)),
     RouterSpec("workspace.task_api", prefix="/tasks", tags=("Tasks",)),
     RouterSpec("api.cloud_chat", prefix="/cloud", tags=("Cloud",)),
+    RouterSpec("api.agent_eval"),
     RouterSpec("api.code_executor", prefix="/code", tags=("Code",)),
     RouterSpec("api.file_parser", tags=("File Parser",)),
     RouterSpec("api.chat_branch", tags=("Chat Branch",)),

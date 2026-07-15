@@ -42,6 +42,7 @@ def test_capability_registry_tiers_are_complete():
     assert "device" in tiers["ga"]
     assert "training" in tiers["ga"]
     assert "memory" in tiers["beta"]
+    assert "agent_eval" in tiers["beta"]
     assert "cua" in tiers["experimental"]
     assert "gateway" in tiers["experimental"]
     assert all(c.tier in {"ga", "beta", "experimental"} for c in list_capabilities())
@@ -174,6 +175,7 @@ def test_api_info_and_experimental_status_on_shipped_app():
     assert "experimental" in body["capability_tiers"]
     assert "experimental_enabled" in body
     assert body["endpoints"]["chat"] == "/chat/sessions"
+    assert body["endpoints"]["agent_eval"] == "/agent-eval"
     assert body["endpoints"]["experimental_status"] == "/experimental/status"
 
     # Registry parity: every catalog id appears in some tier list
