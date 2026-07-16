@@ -5,7 +5,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { PROTOCOL_VERSION, createServiceDescriptors, STOP_ORDER } = require('../runtime-contract');
+const {
+  PROTOCOL_VERSION,
+  MANAGED_RUNTIME_STATES,
+  createServiceDescriptors,
+  normalizeManagedRuntimeStatus,
+  STOP_ORDER,
+} = require('../runtime-contract');
 const {
   resolveRuntimePaths,
   ensureRuntimeDirectories,
@@ -27,6 +33,42 @@ test('desktop protocol and service endpoints are frozen at v1', () => {
   assert.equal(services[2].healthUrl, null);
   assert.ok(services.every((service) => service.cwd === paths.dataRoot));
   assert.deepEqual(STOP_ORDER, ['training-worker', 'inference-service', 'control-plane']);
+});
+
+test('managed runtime IPC exposes a strict, serializable protocol-v1 status', () => {
+  const status = normalizeManagedRuntimeStatus({
+    protocolVersion: 1,
+    state: 'preparing',
+    operationId: 'runtime-op-001',
+    profile: 'base',
+    runtimeVersion: null,
+    pythonVersion: null,
+    source: 'managed',
+    progress: { completed: 4, total: 10 },
+    recoverable: true,
+    lastErrorCode: null,
+    updatedAt: '2026-07-16T00:00:00.000Z',
+  });
+
+  assert.deepEqual(MANAGED_RUNTIME_STATES, [
+    'unavailable',
+    'checking',
+    'preparing',
+    'verifying',
+    'ready',
+    'repair_required',
+    'failed',
+  ]);
+  assert.deepEqual(status.progress, { completed: 4, total: 10 });
+  assert.ok(Object.isFrozen(status));
+  assert.throws(
+    () => normalizeManagedRuntimeStatus({ ...status, state: 'downloading' }),
+    (error) => error.code === 'INVALID_MANAGED_RUNTIME_STATUS',
+  );
+  assert.throws(
+    () => normalizeManagedRuntimeStatus({ ...status, internalRuntimePath: 'C:\\secret' }),
+    (error) => error.code === 'INVALID_MANAGED_RUNTIME_STATUS',
+  );
 });
 
 test('runtime data, databases, models and secrets stay under userData', () => {

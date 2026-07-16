@@ -526,12 +526,43 @@ export interface DesktopServiceStatus {
   updatedAt: string;
 }
 
+export type ManagedRuntimeState =
+  | 'unavailable'
+  | 'checking'
+  | 'preparing'
+  | 'verifying'
+  | 'ready'
+  | 'repair_required'
+  | 'failed';
+
+export type ManagedRuntimeSource = 'managed' | 'development' | 'system' | 'none';
+
+export interface ManagedRuntimeStatus {
+  protocolVersion: 1;
+  state: ManagedRuntimeState;
+  operationId: string | null;
+  profile: 'base';
+  runtimeVersion: string | null;
+  pythonVersion: string | null;
+  source: ManagedRuntimeSource;
+  progress: { completed: number; total: number } | null;
+  recoverable: boolean;
+  lastErrorCode: string | null;
+  updatedAt: string;
+}
+
 export interface ElectronAPI {
   readonly protocolVersion: 1;
   getRuntime: () => Promise<DesktopRuntimeDescriptor>;
   getServiceStatuses: () => Promise<DesktopServiceStatus[]>;
   onServiceStatus: (callback: (statuses: DesktopServiceStatus[]) => void) => () => void;
   restartService: (serviceId: string) => Promise<DesktopServiceStatus[]>;
+  getManagedRuntimeStatus: () => Promise<ManagedRuntimeStatus>;
+  prepareBaseRuntime: () => Promise<ManagedRuntimeStatus>;
+  repairBaseRuntime: () => Promise<ManagedRuntimeStatus>;
+  retryRuntimeOperation: () => Promise<ManagedRuntimeStatus>;
+  revealRuntimeLogs: () => Promise<boolean>;
+  onManagedRuntimeStatus: (callback: (status: ManagedRuntimeStatus) => void) => () => void;
   selectFolder: (defaultPath?: string) => Promise<string | null>;
   selectFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | null>;
   readFile: (filePath: string) => Promise<{ data: string; name: string } | null>;

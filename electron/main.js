@@ -21,6 +21,9 @@ const DEV_FRONTEND_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let supervisor = null;
+// Track A supplies this coordinator. Keeping it optional lets the Phase 10 renderer and
+// protocol be independently tested while a development shell continues to start normally.
+let managedRuntimeCoordinator = null;
 let removeIpcHandlers = null;
 let quitting = false;
 let rendererRoot = null;
@@ -196,6 +199,16 @@ async function initializeDesktopRuntime() {
     authorizer,
     supervisor,
     runtimeDescriptor,
+    managedRuntimeCoordinator,
+    revealRuntimeLogs: async () => {
+      const errorMessage = await shell.openPath(paths.logsRoot);
+      if (errorMessage) {
+        throw Object.assign(new Error('Unable to reveal desktop logs.'), {
+          code: 'RUNTIME_LOG_REVEAL_FAILED',
+        });
+      }
+      return true;
+    },
   });
 
   createWindow();
@@ -237,6 +250,7 @@ app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
   supervisor?.beginShutdown?.();
+  managedRuntimeCoordinator?.beginShutdown?.();
   Promise.resolve(supervisor?.stopAll())
     .catch((error) => console.error('[desktop] shutdown failed', error))
     .finally(() => {

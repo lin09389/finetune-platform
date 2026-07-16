@@ -1,6 +1,29 @@
 'use strict';
 
 const PROTOCOL_VERSION = 1;
+const MANAGED_RUNTIME_STATES = Object.freeze([
+  'unavailable',
+  'checking',
+  'preparing',
+  'verifying',
+  'ready',
+  'repair_required',
+  'failed',
+]);
+const MANAGED_RUNTIME_SOURCES = Object.freeze(['managed', 'development', 'system', 'none']);
+const MANAGED_RUNTIME_STATUS_KEYS = Object.freeze([
+  'protocolVersion',
+  'state',
+  'operationId',
+  'profile',
+  'runtimeVersion',
+  'pythonVersion',
+  'source',
+  'progress',
+  'recoverable',
+  'lastErrorCode',
+  'updatedAt',
+]);
 const SERVICE_STATES = Object.freeze([
   'stopped',
   'starting',
@@ -21,6 +44,102 @@ const STOP_ORDER = Object.freeze([
   'inference-service',
   'control-plane',
 ]);
+
+function invalidManagedRuntimeStatus(message) {
+  return Object.assign(new Error(`Invalid managed runtime status: ${message}`), {
+    code: 'INVALID_MANAGED_RUNTIME_STATUS',
+  });
+}
+
+function nullableString(value, field) {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw invalidManagedRuntimeStatus(`${field} must be a non-empty string or null.`);
+  }
+  return value;
+}
+
+function normalizeManagedRuntimeStatus(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw invalidManagedRuntimeStatus('status must be an object.');
+  }
+  const keys = Object.keys(input);
+  if (keys.length !== MANAGED_RUNTIME_STATUS_KEYS.length
+    || keys.some((key) => !MANAGED_RUNTIME_STATUS_KEYS.includes(key))) {
+    throw invalidManagedRuntimeStatus('status contains unknown or missing fields.');
+  }
+  if (input.protocolVersion !== PROTOCOL_VERSION) {
+    throw invalidManagedRuntimeStatus('unsupported protocol version.');
+  }
+  if (!MANAGED_RUNTIME_STATES.includes(input.state)) {
+    throw invalidManagedRuntimeStatus('unknown state.');
+  }
+  if (input.profile !== 'base') {
+    throw invalidManagedRuntimeStatus('only the base profile is renderer-visible.');
+  }
+  if (!MANAGED_RUNTIME_SOURCES.includes(input.source)) {
+    throw invalidManagedRuntimeStatus('unknown source.');
+  }
+  if (typeof input.recoverable !== 'boolean') {
+    throw invalidManagedRuntimeStatus('recoverable must be a boolean.');
+  }
+  const operationId = nullableString(input.operationId, 'operationId');
+  const runtimeVersion = nullableString(input.runtimeVersion, 'runtimeVersion');
+  const pythonVersion = nullableString(input.pythonVersion, 'pythonVersion');
+  const lastErrorCode = nullableString(input.lastErrorCode, 'lastErrorCode');
+  if (lastErrorCode && !/^[A-Z][A-Z0-9_]{2,79}$/.test(lastErrorCode)) {
+    throw invalidManagedRuntimeStatus('lastErrorCode must be a stable error code.');
+  }
+  if (typeof input.updatedAt !== 'string' || Number.isNaN(Date.parse(input.updatedAt))) {
+    throw invalidManagedRuntimeStatus('updatedAt must be an ISO timestamp.');
+  }
+
+  let progress = null;
+  if (input.progress !== null) {
+    if (!input.progress || typeof input.progress !== 'object' || Array.isArray(input.progress)
+      || Object.keys(input.progress).length !== 2
+      || !Object.hasOwn(input.progress, 'completed')
+      || !Object.hasOwn(input.progress, 'total')
+      || !Number.isInteger(input.progress.completed)
+      || !Number.isInteger(input.progress.total)
+      || input.progress.completed < 0
+      || input.progress.total <= 0
+      || input.progress.completed > input.progress.total) {
+      throw invalidManagedRuntimeStatus('progress must be bounded completed/total integers.');
+    }
+    progress = Object.freeze({ completed: input.progress.completed, total: input.progress.total });
+  }
+
+  return Object.freeze({
+    protocolVersion: PROTOCOL_VERSION,
+    state: input.state,
+    operationId,
+    profile: 'base',
+    runtimeVersion,
+    pythonVersion,
+    source: input.source,
+    progress,
+    recoverable: input.recoverable,
+    lastErrorCode,
+    updatedAt: input.updatedAt,
+  });
+}
+
+function createUnavailableManagedRuntimeStatus(updatedAt = new Date().toISOString()) {
+  return normalizeManagedRuntimeStatus({
+    protocolVersion: PROTOCOL_VERSION,
+    state: 'unavailable',
+    operationId: null,
+    profile: 'base',
+    runtimeVersion: null,
+    pythonVersion: null,
+    source: 'none',
+    progress: null,
+    recoverable: true,
+    lastErrorCode: null,
+    updatedAt,
+  });
+}
 
 function createServiceDescriptors(paths) {
   const shared = {
@@ -77,9 +196,13 @@ function publicServiceStatus(status) {
 
 module.exports = {
   PROTOCOL_VERSION,
+  MANAGED_RUNTIME_STATES,
+  MANAGED_RUNTIME_SOURCES,
   SERVICE_STATES,
   START_ORDER,
   STOP_ORDER,
   createServiceDescriptors,
+  normalizeManagedRuntimeStatus,
+  createUnavailableManagedRuntimeStatus,
   publicServiceStatus,
 };
