@@ -11,7 +11,21 @@ const VERSION_SCRIPT = [
   'print(json.dumps({"major": sys.version_info.major, "minor": sys.version_info.minor, "patch": sys.version_info.micro, "executable": sys.executable}))',
 ].join('; ');
 
-function pythonCandidates({ explicitPython, projectRoot, managedRuntimeRoot, platform = process.platform }) {
+function healthyManagedRuntimeCandidate(managedRuntime) {
+  if (!managedRuntime || managedRuntime.health?.status !== 'healthy'
+    || typeof managedRuntime.executablePath !== 'string' || !path.isAbsolute(managedRuntime.executablePath)
+    || !/^3\.11\.\d+$/.test(managedRuntime.health.pythonVersion || '')) {
+    return null;
+  }
+  return {
+    source: 'managed-runtime',
+    command: managedRuntime.executablePath,
+    prefixArgs: [],
+    runtimeVersion: managedRuntime.version || null,
+  };
+}
+
+function pythonCandidates({ explicitPython, projectRoot, managedRuntime, platform = process.platform }) {
   const windows = platform === 'win32';
   const candidates = [];
   if (explicitPython) {
@@ -24,13 +38,8 @@ function pythonCandidates({ explicitPython, projectRoot, managedRuntimeRoot, pla
     prefixArgs: [],
   });
 
-  if (managedRuntimeRoot) {
-    candidates.push({
-      source: 'managed-runtime',
-      command: path.join(managedRuntimeRoot, windows ? 'python.exe' : 'bin/python3'),
-      prefixArgs: [],
-    });
-  }
+  const managedCandidate = healthyManagedRuntimeCandidate(managedRuntime);
+  if (managedCandidate) candidates.push(managedCandidate);
 
   if (windows) {
     candidates.push({ source: 'system', command: 'py', prefixArgs: ['-3.11'] });
@@ -94,4 +103,4 @@ async function resolvePython(options, probe = defaultProbe) {
   throw error;
 }
 
-module.exports = { VERSION_SCRIPT, pythonCandidates, resolvePython, defaultProbe };
+module.exports = { VERSION_SCRIPT, healthyManagedRuntimeCandidate, pythonCandidates, resolvePython, defaultProbe };

@@ -7,7 +7,12 @@ const { VERSION_SCRIPT, pythonCandidates, resolvePython } = require('../python-r
 const OPTIONS = {
   explicitPython: 'C:\\configured\\python.exe',
   projectRoot: 'C:\\project',
-  managedRuntimeRoot: 'C:\\managed',
+  managedRuntime: {
+    profile: 'base',
+    version: '3.11.9-base.1',
+    executablePath: 'C:\\managed\\versions\\base\\3.11.9-base.1\\python.exe',
+    health: { status: 'healthy', pythonVersion: '3.11.9' },
+  },
   platform: 'win32',
 };
 
@@ -20,6 +25,15 @@ test('Python candidates preserve explicit, venv, managed, system order', () => {
     'system',
     'system',
   ]);
+});
+
+test('resolver only receives a managed candidate from a healthy activation record', () => {
+  const unhealthy = {
+    ...OPTIONS,
+    managedRuntime: { ...OPTIONS.managedRuntime, health: { status: 'failed' } },
+  };
+  assert.equal(pythonCandidates(unhealthy).some((candidate) => candidate.source === 'managed-runtime'), false);
+  assert.equal(pythonCandidates({ ...OPTIONS, managedRuntime: null }).some((candidate) => candidate.source === 'managed-runtime'), false);
 });
 
 test('resolver rejects incompatible Python and reports selected 3.11 runtime', async () => {
