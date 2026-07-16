@@ -26,6 +26,14 @@ class DeepAgentsRuntimeFactory:
         patch_torch_pytree_for_transformers()
         from deepagents import create_deep_agent
 
+        # Scheme A: apply platform token eviction defaults before graph assembly.
+        try:
+            from agent_session.tool_result_limits import apply_deepagents_tool_eviction_defaults
+
+            apply_deepagents_tool_eviction_defaults()
+        except Exception:
+            pass
+
         return create_deep_agent(
             model=contract.model,
             tools=contract.tools or [],

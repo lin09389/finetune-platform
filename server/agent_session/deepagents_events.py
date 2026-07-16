@@ -208,25 +208,68 @@ class DeepAgentsEventMapper:
         if activity:
             part_payload["training_activity"] = activity
         status = "failed" if failed else "completed"
+        # Scheme A: detect DeepAgents /large_tool_results offload + bound UI content size.
+        detection: dict[str, Any] = {}
+        ui_content = content_text
+        try:
+            from agent_session.tool_result_limits import (
+                detect_tool_result_offload,
+                record_tool_offload_in_metadata,
+                truncate_tool_result_for_ui,
+            )
+
+            detection = detect_tool_result_offload(content_text)
+            ui_content, ui_truncated = truncate_tool_result_for_ui(content_text)
+            if detection.get("offloaded") or detection.get("truncated") or ui_truncated:
+                part_payload = {
+                    **part_payload,
+                    "tool_result_limits": {
+                        **detection,
+                        "ui_truncated": ui_truncated,
+                    },
+                }
+                session = self.repository.get_session(self.session_id) or {}
+                meta = record_tool_offload_in_metadata(
+                    dict(session.get("metadata") or {}),
+                    tool=name,
+                    detection={**detection, "truncated": bool(detection.get("truncated") or ui_truncated)},
+                )
+                self.repository.update_session(self.session_id, metadata=meta)
+        except Exception:
+            ui_content = content_text
+            detection = {}
         if part_id:
-            part = self.repository.update_part(part_id, status=status, content=content_text, payload=part_payload)
+            part = self.repository.update_part(part_id, status=status, content=ui_content, payload=part_payload)
         else:
             part = self.repository.add_part(
                 self.session_id,
                 "tool_result",
                 status=status,
                 title=name,
-                content=content_text,
+                content=ui_content,
                 payload={
                     "tool": name,
                     "runtime": "deepagents",
                     "run_id": run_id,
                     **agent_context,
                     **({"training_activity": activity} if activity else {}),
+                    **(
+                        {"tool_result_limits": part_payload.get("tool_result_limits")}
+                        if part_payload.get("tool_result_limits")
+                        else {}
+                    ),
                 },
             )
         agent_context = self._agent_context_from_part(part) or agent_context
         if failed:
+            # Keep full error for debugging, but still bound for UI storage.
+            fail_content, _ = (ui_content, False)
+            try:
+                from agent_session.tool_result_limits import truncate_tool_result_for_ui
+
+                fail_content, _ = truncate_tool_result_for_ui(content_text)
+            except Exception:
+                fail_content = content_text[:12_000]
             self._record_last_tool_error(name, content_text)
             self.publish(
                 "tool_call_failed",
@@ -237,17 +280,32 @@ class DeepAgentsEventMapper:
                     "part_type": part.get("type"),
                     "status": "failed",
                     "tool": name,
-                    "error": content_text,
-                    "summary": content_text,
+                    "error": fail_content,
+                    "summary": fail_content,
                     "part": part,
                     **agent_context,
                 },
             )
             return
+        completed_payload: dict[str, Any] = {
+            "session_id": self.session_id,
+            "part_id": part.get("id"),
+            "part_type": part.get("type"),
+            "tool": name,
+            "part": part,
+            **agent_context,
+        }
+        if detection.get("offloaded") or detection.get("truncated"):
+            completed_payload["tool_result_offload"] = detection
+            completed_payload["summary"] = (
+                f"工具结果已外置：{detection.get('path')}"
+                if detection.get("path")
+                else "工具结果已截断/外置以控制上下文体积"
+            )
         self.publish(
             "tool_call_completed",
             f"工具调用完成：{name}",
-            {"session_id": self.session_id, "part_id": part.get("id"), "part_type": part.get("type"), "tool": name, "part": part, **agent_context},
+            completed_payload,
         )
 
     def _tool_error(self, event: dict[str, Any]) -> None:

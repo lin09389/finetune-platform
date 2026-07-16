@@ -151,6 +151,25 @@ class Settings(BaseSettings):
         default=None,
         description="Agent 默认项目路径（本地开发可设为绝对路径；未设置则自动推断到仓库根目录）",
     )
+    # Scheme A: DeepAgents tool-result offload / execute capture limits
+    agent_execute_max_output_bytes: int = Field(
+        default=200_000,
+        ge=8_192,
+        le=5_000_000,
+        description="execute 命令捕获输出上限（字节，AGENT_EXECUTE_MAX_OUTPUT_BYTES）；超出则截断",
+    )
+    agent_tool_token_limit_before_evict: int = Field(
+        default=12_000,
+        ge=1_000,
+        le=100_000,
+        description="工具结果超过该约 token 数时由 DeepAgents 外置到 /large_tool_results/（AGENT_TOOL_TOKEN_LIMIT_BEFORE_EVICT）",
+    )
+    agent_tool_result_ui_max_chars: int = Field(
+        default=12_000,
+        ge=2_000,
+        le=200_000,
+        description="写入时间线 part 的工具结果最大字符数（AGENT_TOOL_RESULT_UI_MAX_CHARS）；全文可在 VFS",
+    )
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
     intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")

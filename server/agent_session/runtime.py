@@ -129,20 +129,21 @@ def build_deepagents_backend(
     from memory.memory_service import get_memory_service
 
     from .platform_shell import (
-        EXECUTE_MAX_OUTPUT_BYTES,
         EXECUTE_TIMEOUT_SECONDS,
         PlatformShellBackend,
     )
     from .runtime_factory import deepagents_shell_env
+    from .tool_result_limits import get_execute_max_output_bytes
 
     env = deepagents_shell_env()
     wsl_enabled = settings.sandbox_execution_mode == "wsl" and sys.platform == "win32"
     wsl_distribution = settings.sandbox_wsl_distribution
+    max_output_bytes = get_execute_max_output_bytes()
     project_backend = PlatformShellBackend(
         root_dir=str(Path(project_path).resolve()),
         virtual_mode=True,
         timeout=EXECUTE_TIMEOUT_SECONDS,
-        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
+        max_output_bytes=max_output_bytes,
         env=env,
         inherit_env=False,
         wsl_enabled=wsl_enabled,
@@ -156,7 +157,7 @@ def build_deepagents_backend(
         root_dir=str(memory_service.store.resolver.files_dir_for("user", user_id).resolve()),
         virtual_mode=True,
         timeout=EXECUTE_TIMEOUT_SECONDS,
-        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
+        max_output_bytes=max_output_bytes,
         env=env,
         inherit_env=False,
         wsl_enabled=wsl_enabled,
@@ -166,7 +167,7 @@ def build_deepagents_backend(
         root_dir=str(memory_service.store.resolver.files_dir_for("agent", agent_id).resolve()),
         virtual_mode=True,
         timeout=EXECUTE_TIMEOUT_SECONDS,
-        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
+        max_output_bytes=max_output_bytes,
         env=env,
         inherit_env=False,
         wsl_enabled=wsl_enabled,
@@ -176,7 +177,7 @@ def build_deepagents_backend(
         root_dir=str(memory_service.store.resolver.files_dir_for("org", org_id).resolve()),
         virtual_mode=True,
         timeout=EXECUTE_TIMEOUT_SECONDS,
-        max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
+        max_output_bytes=max_output_bytes,
         env=env,
         inherit_env=False,
         wsl_enabled=wsl_enabled,
@@ -187,7 +188,7 @@ def build_deepagents_backend(
             root_dir=str(source.path.resolve()),
             virtual_mode=True,
             timeout=EXECUTE_TIMEOUT_SECONDS,
-            max_output_bytes=EXECUTE_MAX_OUTPUT_BYTES,
+            max_output_bytes=max_output_bytes,
             env=env,
             inherit_env=False,
             wsl_enabled=wsl_enabled,
