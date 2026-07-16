@@ -35,7 +35,7 @@ SKILLS_PROMPT = (
 )
 EXECUTION_PROMPT = (
     "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
-    "命令不需要平台白名单审批。"
+    "命令本身不再走平台白名单，但高风险动作仍可能命中 HITL 人工审批。"
     "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
 )
 
@@ -101,6 +101,45 @@ ERROR_RECOVERY_PROMPT = (
     "以及超出探索预算的无效扫描。"
     "最终摘要必须包含「已完成项」「变更文件」「验证结果」；有源码写入时必须实际验证通过后再收尾。"
 )
+
+
+def _agent_required_sections(agent: AgentDefinition | None) -> tuple[str, ...]:
+    """Return the manifest-declared required summary sections for an agent.
+
+    Falls back to the Build trio when the agent is unknown or declares none.
+    """
+    if agent is None:
+        return ("已完成项", "变更文件", "验证结果")
+    sections = agent.output_schema.get("required_sections") if isinstance(agent.output_schema, dict) else None
+    if not sections or not isinstance(sections, (list, tuple)):
+        return ("已完成项", "变更文件", "验证结果")
+    return tuple(str(s).strip() for s in sections if str(s).strip())
+
+
+def build_error_recovery_prompt(agent: AgentDefinition | None = None) -> str:
+    """Per-agent error-recovery prompt.
+
+    The base discipline (no blind retry, re-observe before re-executing) is
+    shared, but the final-summary section contract is derived from the agent's
+    manifest so Explore quotes its own sections instead of Build-only ones.
+    """
+    sections = _agent_required_sections(agent)
+    sections_text = "「" + "」「".join(sections) + "」"
+    recovery = (
+        "【强制错误恢复机制】如果执行工具报错（例如 execute 失败、edit_file 后出现语法错误、grep 找不到预期内容），"
+        "绝对禁止盲目重试或瞎猜修改。你必须立刻停下来，使用 read_file/grep/ls 检查具体报错与真实代码内容，理清原因后再尝试修复。"
+        "平台会拦截：execute 失败后在未重新观察（read_file/grep/ls/glob）前的任何再次 execute（不限是否同一命令）；"
+        "以及超出探索预算的无效扫描。"
+    )
+    if agent is not None and agent.id == "explore":
+        # Explore is read-only: no source writes, so the gate is about
+        # evidence-backed conclusions rather than write/verify.
+        recovery += f"最终摘要必须包含{sections_text}；结论必须有文件证据支撑，不要臆测。"
+    elif agent is not None and agent.id == "review":
+        recovery += f"最终摘要必须包含{sections_text}；风险必须有代码证据，验证建议必须可执行。"
+    else:
+        recovery += f"最终摘要必须包含{sections_text}；有源码写入时必须实际验证通过后再收尾。"
+    return recovery
 
 
 @dataclass(frozen=True)
@@ -261,7 +300,7 @@ def agent_system_prompt(agent: AgentDefinition) -> str:
     return f"{prompt}\n\n## 输出要求\n{requirements}" if prompt else f"## 输出要求\n{requirements}"
 
 
-def platform_prompt_sections() -> list[str]:
+def platform_prompt_sections(agent: AgentDefinition | None = None) -> list[str]:
     return [
         PLATFORM_IDENTITY_PROMPT,
         REASONING_PROMPT,
@@ -269,7 +308,7 @@ def platform_prompt_sections() -> list[str]:
         CONTEXT_PROMPT,
         SKILLS_PROMPT,
         build_execution_prompt(),
-        ERROR_RECOVERY_PROMPT,
+        build_error_recovery_prompt(agent),
     ]
 
 
@@ -284,7 +323,7 @@ def system_prompt_sections(
         prompt = agent_system_prompt(agent)
         if prompt:
             sections.append(prompt)
-    sections.extend(platform_prompt_sections())
+    sections.extend(platform_prompt_sections(agent))
     async_section = async_subagent_prompt(agent_registry, agent)
     if async_section:
         sections.append(async_section)
@@ -334,6 +373,7 @@ __all__ = [
     "PROJECT_CHAT_PROMPT",
     "agent_system_prompt",
     "async_subagent_prompt",
+    "build_error_recovery_prompt",
     "build_execution_prompt",
     "build_system_prompt",
     "normalize_enabled_skill_sources",

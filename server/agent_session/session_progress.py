@@ -21,7 +21,9 @@ _OBSERVE_TOOLS = frozenset({"ls", "glob", "grep", "read_file"})
 
 _MAX_PATHS = 10
 _MAX_TOOL_NAME_BUCKETS = 24
+# Build agent default; other agents derive sections from their manifest.
 _REQUIRED_SUMMARY_SECTIONS = ("已完成项", "变更文件", "验证结果")
+BUILD_REQUIRED_SUMMARY_SECTIONS = _REQUIRED_SUMMARY_SECTIONS
 
 _VERIFY_HINTS = (
     "pytest",
@@ -387,12 +389,49 @@ def mark_blind_retry_blocked(metadata: dict[str, Any]) -> dict[str, Any]:
     return next_metadata
 
 
-def enrich_final_summary(content: str | None, metadata: dict[str, Any] | None, *, status: str = "completed") -> str:
+def required_summary_sections_for_agent(
+    agent: Any = None,
+    *,
+    agent_id: str | None = None,
+) -> tuple[str, ...]:
+    """Return the required final-summary sections for an agent.
+
+    Sections come from the agent manifest's ``output_schema.required_sections``.
+    When neither ``agent`` nor ``agent_id`` resolves, the Build default is used
+    so legacy callers keep their contract.
+    """
+    definition = agent
+    if definition is None and agent_id:
+        try:
+            from agent_session.agent_registry import AgentRegistry
+
+            definition = AgentRegistry().get(agent_id)
+        except Exception:
+            definition = None
+    if definition is None:
+        return BUILD_REQUIRED_SUMMARY_SECTIONS
+    schema = getattr(definition, "output_schema", None)
+    sections = schema.get("required_sections") if isinstance(schema, dict) else None
+    if not sections or not isinstance(sections, (list, tuple)):
+        return BUILD_REQUIRED_SUMMARY_SECTIONS
+    cleaned = tuple(str(s).strip() for s in sections if str(s).strip())
+    return cleaned or BUILD_REQUIRED_SUMMARY_SECTIONS
+
+
+def enrich_final_summary(
+    content: str | None,
+    metadata: dict[str, Any] | None,
+    *,
+    status: str = "completed",
+    agent: Any = None,
+    agent_id: str | None = None,
+) -> str:
     """Ensure final summary includes required sections and completion-gate facts."""
     text = str(content or "").strip() or "任务已结束。"
     meta = dict(metadata or {})
     gate = build_completion_gate(meta, status=status)
-    missing = [section for section in _REQUIRED_SUMMARY_SECTIONS if section not in text]
+    required = required_summary_sections_for_agent(agent, agent_id=agent_id or str(meta.get("agent_id") or "") or None)
+    missing = [section for section in required if section not in text]
     written = list(gate.get("written_paths") or [])
     verify_line = (
         "验证通过"
@@ -412,24 +451,35 @@ def enrich_final_summary(content: str | None, metadata: dict[str, Any] | None, *
     appendix_lines = ["", "## 平台完成核对"]
     if missing:
         appendix_lines.append(f"- 摘要缺少章节：{', '.join(missing)}（已由平台补全事实）")
-    appendix_lines.append("### 已完成项")
-    if gate.get("completed_ok"):
-        appendix_lines.append("- 完成定义已满足（有写则 diff+验证通过，或无写盘分析任务）")
-    else:
-        gaps = ", ".join(str(g) for g in (gate.get("gaps") or [])) or "见下方"
-        appendix_lines.append(f"- 完成定义未完全满足：{gaps}")
-    appendix_lines.append("### 变更文件")
-    if written:
-        for path in written[:12]:
-            appendix_lines.append(f"- `{path}`")
-    else:
-        appendix_lines.append("- （无源码写入）")
-    appendix_lines.append("### 验证结果")
-    appendix_lines.append(f"- {verify_line}")
-    if gate.get("diff_visible") is False and gate.get("has_writes"):
-        appendix_lines.append("- diff：缺失可审 diff")
-    elif gate.get("has_writes"):
-        appendix_lines.append("- diff：可见")
+    # Backfill the agent's required sections. For Build we keep the original
+    # gate-aware content (written paths / verify line); other agents get a
+    # neutral placeholder so their manifest sections are represented.
+    for section in required:
+        if section not in missing and section in text:
+            continue
+        appendix_lines.append(f"### {section}")
+        if section == "已完成项":
+            if gate.get("completed_ok"):
+                appendix_lines.append("- 完成定义已满足（有写则 diff+验证通过，或无写盘分析任务）")
+            else:
+                gaps = ", ".join(str(g) for g in (gate.get("gaps") or [])) or "见下方"
+                appendix_lines.append(f"- 完成定义未完全满足：{gaps}")
+        elif section == "变更文件":
+            if written:
+                for path in written[:12]:
+                    appendix_lines.append(f"- `{path}`")
+            else:
+                appendix_lines.append("- （无源码写入）")
+        elif section == "验证结果":
+            appendix_lines.append(f"- {verify_line}")
+            if gate.get("diff_visible") is False and gate.get("has_writes"):
+                appendix_lines.append("- diff：缺失可审 diff")
+            elif gate.get("has_writes"):
+                appendix_lines.append("- diff：可见")
+        else:
+            # Non-Build section (e.g. 结论/风险列表/关键发现): leave a neutral
+            # placeholder so the heading is present without fabricating facts.
+            appendix_lines.append("- （平台未观测到内容，请由 Agent 摘要补全）")
     appendix_lines.append(f"- 汇总：{gate.get('summary') or ''}")
     return text.rstrip() + "\n" + "\n".join(appendix_lines)
 
@@ -777,6 +827,7 @@ def attach_completion_gate(metadata: dict[str, Any], *, status: str | None = Non
 
 
 __all__ = [
+    "BUILD_REQUIRED_SUMMARY_SECTIONS",
     "COMPLETION_GATE_KEY",
     "HARD_OBSERVE_BUDGET",
     "HARD_TOOL_BUDGET",
@@ -802,4 +853,5 @@ __all__ = [
     "normalize_command",
     "observe_and_persist_tool_metrics",
     "reset_tool_metrics",
+    "required_summary_sections_for_agent",
 ]

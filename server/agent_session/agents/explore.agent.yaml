@@ -5,8 +5,8 @@ description: 只读探索子 Agent，快速定位项目结构和相关文件
 mode: subagent
 
 Runtime:
-  default_provider: openai
-  default_model: gpt-4o
+  default_provider: deepseek
+  default_model: deepseek-chat
   max_iterations: 4
 
 Tools:
