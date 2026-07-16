@@ -118,6 +118,13 @@ class GpuCoordinator:
                     f"cannot claim for {holder!r}",
                     code="gpu_lease_conflict",
                 )
+        if (
+            not self._expired(state, now)
+            and state.holder == holder
+            and state.owner == owner
+        ):
+            return self.renew(holder, owner=owner, lease_seconds=lease_seconds, now=now)
+
         ttl = self.lease_seconds if lease_seconds is None else lease_seconds
         new_state = GpuLeaseState(
             holder=holder,
@@ -127,6 +134,42 @@ class GpuCoordinator:
         )
         self._write(new_state)
         return new_state
+
+    def renew(
+        self,
+        holder: str,
+        *,
+        owner: str | None = None,
+        lease_seconds: float | None = None,
+        now: float | None = None,
+    ) -> GpuLeaseState:
+        """Extend an active lease. Dead processes stop renewing and TTL expires."""
+        from security.runtime_policy import gpu_coordination_enabled
+
+        if not gpu_coordination_enabled():
+            return GpuLeaseState(holder, owner, time.time(), None)
+
+        moment = time.time() if now is None else now
+        state = self._read()
+        if self._expired(state, moment) or state.holder != holder:
+            raise GpuCoordinationError(
+                f"Cannot renew GPU lease for {holder!r}: not held or expired",
+                code="gpu_lease_not_held",
+            )
+        if owner is not None and state.owner and state.owner != owner:
+            raise GpuCoordinationError(
+                f"Cannot renew GPU lease for {holder!r}: owner mismatch",
+                code="gpu_lease_owner_mismatch",
+            )
+        ttl = self.lease_seconds if lease_seconds is None else lease_seconds
+        renewed = GpuLeaseState(
+            holder=state.holder,
+            owner=state.owner if owner is None else owner,
+            acquired_at=state.acquired_at if state.acquired_at is not None else moment,
+            expires_at=moment + ttl,
+        )
+        self._write(renewed)
+        return renewed
 
     def release(self, holder: str, *, owner: str | None = None) -> None:
         from security.runtime_policy import gpu_coordination_enabled
@@ -185,6 +228,18 @@ def reset_gpu_coordinator(path: Path | None = None) -> GpuCoordinator:
 
 def claim_training_gpu(owner: str, **kwargs: Any) -> GpuLeaseState:
     return get_gpu_coordinator().claim(TRAINING_HOLDER, owner=owner, **kwargs)
+
+
+def renew_training_gpu(
+    owner: str | None = None,
+    *,
+    lease_seconds: float | None = None,
+) -> GpuLeaseState:
+    return get_gpu_coordinator().renew(
+        TRAINING_HOLDER,
+        owner=owner,
+        lease_seconds=lease_seconds,
+    )
 
 
 def release_training_gpu(owner: str | None = None) -> None:

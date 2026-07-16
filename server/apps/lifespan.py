@@ -224,6 +224,12 @@ async def _initialize_finetune_services():
 
         repository = get_training_job_repository()
         repository.recover_expired()
+        try:
+            pruned = repository.prune_events()
+            if pruned.get("deleted_by_age") or pruned.get("deleted_by_cap"):
+                logger.info("Training events pruned on startup: %s", pruned)
+        except Exception as prune_exc:
+            logger.debug("Training events prune skipped: %s", prune_exc)
         configure_training_event_hub_v2(TrainingEventRepositoryHub(repository))
         logger.info("Durable training control plane initialized (execution=worker)")
 

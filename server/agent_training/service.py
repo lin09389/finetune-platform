@@ -350,6 +350,8 @@ class AgentTrainingService:
                 dataset_file=dataset_file,
                 use_queue=False,
                 priority="normal",
+                record_id=source_task_id,
+                output_path=output_dir,
             )
         except Exception as exc:
             raise AgentTrainingError(

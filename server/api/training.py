@@ -19,9 +19,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from services.training.orchestrator import resolve_dataset_file, start_training_task
+from services.training.paths import resolve_training_metrics_file, resolve_training_output_dir as resolve_output_path
+from services.training.policy import (
+    allow_skip_resource_check,
+    authenticate_training_websocket,
+    require_training_operator,
+)
 from services.training.validator import (
     TrainingValidator,
     estimate_preflight_required_vram,
@@ -167,7 +173,7 @@ def _validate_resume_identity(
 # 路由定义
 # ============================================================================
 @router.post("/stop")
-async def stop_training():
+async def stop_training(_user=Depends(require_training_operator)):
     """停止训练"""
     from core.training_gateway import get_training_gateway
 
@@ -270,7 +276,14 @@ async def stream_training_events_v2(
 
 @router.websocket("/v2/ws/{task_id}")
 async def training_events_websocket_v2(websocket: WebSocket, task_id: str):
-    """训练事件流 V2（WebSocket）"""
+    """训练事件流 V2（WebSocket）— requires JWT when ENABLE_AUTH=true."""
+    try:
+        authenticate_training_websocket(websocket)
+    except HTTPException as exc:
+        # Reject before accept so unauthenticated clients never receive a session.
+        await websocket.close(code=1008, reason=str(exc.detail)[:120])
+        return
+
     await websocket.accept()
     hub = get_training_event_hub_v2()
     cursor = hub.parse_last_event_id(websocket.query_params.get("last_event_id"))
@@ -381,13 +394,19 @@ async def get_training_metrics_v2(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=200, ge=1, le=1000),
 ):
-    """按游标分页读取训练指标"""
-    settings = get_settings()
-    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
-    metrics_file = output_dir / "metrics.jsonl"
+    """按游标分页读取训练指标（路径来自 durable job/record.output_path）"""
+    metrics_file = resolve_training_metrics_file(task_id)
+    output_dir = metrics_file.parent
 
     if not metrics_file.exists():
-        return {"task_id": task_id, "cursor": cursor, "next_cursor": cursor, "has_more": False, "items": []}
+        return {
+            "task_id": task_id,
+            "cursor": cursor,
+            "next_cursor": cursor,
+            "has_more": False,
+            "items": [],
+            "output_dir": str(output_dir),
+        }
 
     items: list[dict[str, Any]] = []
     total = 0
@@ -406,12 +425,19 @@ async def get_training_metrics_v2(
     next_cursor = cursor + len(items)
     has_more = next_cursor < total
 
-    return {"task_id": task_id, "cursor": cursor, "next_cursor": next_cursor, "has_more": has_more, "items": items}
+    return {
+        "task_id": task_id,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "items": items,
+        "output_dir": str(output_dir),
+    }
 
 
 @router.get("/history")
 async def get_history():
-    """获取训练历史"""
+    """获取训练历史（权威源随 execution mode，见 GET /status.history_authority）"""
     from core.training_gateway import get_training_gateway
 
     gateway = get_training_gateway()
@@ -452,11 +478,23 @@ async def check_swift():
 
 
 @router.post("/start-swift", response_model=TrainingRecordResponse)
-async def start_swift_training(config: TrainingConfigInput):
+async def start_swift_training(
+    config: TrainingConfigInput,
+    _user=Depends(require_training_operator),
+):
     """使用 SWIFT 框架启动训练（保持原有逻辑）"""
     from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
     settings = get_settings()
+    if _worker_mode():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "SWIFT training is not available while TRAINING_EXECUTION_MODE=worker. "
+                "Use POST /training/start (native durable worker) or set "
+                "TRAINING_EXECUTION_MODE=in_process for SWIFT compatibility."
+            ),
+        )
     state = get_training_context().state
 
     swift_backend = get_swift_backend()
@@ -837,23 +875,34 @@ async def stream_training_logs(task_id: str, history: int = Query(default=50, ge
 
 
 @router.post("/resume/{task_id}/{checkpoint_name}")
-async def resume_training(task_id: str, checkpoint_name: str):
-    """从检查点恢复训练"""
-    state = get_training_context().state
-    settings = get_settings()
+async def resume_training(
+    task_id: str,
+    checkpoint_name: str,
+    _user=Depends(require_training_operator),
+):
+    """从检查点恢复训练（保留 task id + output_path 身份）"""
+    from core.training_gateway import get_training_gateway
 
-    if (_worker_mode() and _training_job_repository().active_job()) or (not _worker_mode() and state.is_training()):
+    state = None if _worker_mode() else get_training_context().state
+    settings = get_settings()
+    gateway = get_training_gateway()
+
+    if gateway.is_training_in_progress():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
-    original_record = _get_training_record_by_id(state, task_id)
+    original_record = None
+    if state is not None:
+        original_record = _get_training_record_by_id(state, task_id)
     if not original_record and _worker_mode():
         durable_job = _training_job_repository().get_job(task_id)
         if durable_job:
-            original_record = TrainingRecord(**durable_job.record)
+            from services.training.records import find_training_record
+
+            original_record = find_training_record(task_id)
     if not original_record:
         raise HTTPException(status_code=404, detail="Training record not found")
 
-    output_dir = _training_output_dir(task_id, state)
+    output_dir = Path(original_record.output_path) if original_record.output_path else resolve_output_path(task_id)
     checkpoint_path = output_dir / "checkpoints" / checkpoint_name
     if not checkpoint_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint not found")
@@ -907,20 +956,22 @@ async def resume_training(task_id: str, checkpoint_name: str):
     if not dataset_file:
         raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
 
-    if not _worker_mode() and not state.try_claim_training_slot():
+    if not _worker_mode() and state is not None and not state.try_claim_training_slot():
         raise HTTPException(status_code=400, detail="Training already in progress")
     try:
-        return _start_training_task(
+        return gateway.start(
             config=config,
-            state=state,
-            settings=settings,
             model_path=model_path,
             dataset_file=dataset_file,
+            settings=settings,
             use_queue=False,
             priority="normal",
+            record_id=task_id,
+            output_path=output_dir,
         )
     except Exception:
-        state.queue_training_state(False)
+        if state is not None:
+            state.queue_training_state(False)
         raise
 
 
@@ -1086,6 +1137,7 @@ async def start_training(
     use_queue: bool = False,
     priority: str = "normal",
     apply_recommended_config: bool = False,
+    _user=Depends(require_training_operator),
 ):
     """开始训练"""
     from core.training_gateway import get_training_gateway
@@ -1114,7 +1166,17 @@ async def start_training(
     config = apply_memory_preset(config)
     config = apply_precision_preset(config)
 
-    if not skip_resource_check:
+    if skip_resource_check and not allow_skip_resource_check(settings):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "skip_resource_check is not allowed in production/staging; "
+                "run preflight and start without the skip flag"
+            ),
+        )
+
+    effective_skip = bool(skip_resource_check and allow_skip_resource_check(settings))
+    if not effective_skip:
         validation_result = await TrainingValidator.validate_config(config, settings)
         for warning in validation_result.warnings:
             logger.warning(f"验证警告：{warning}")
@@ -1159,15 +1221,14 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    if not _worker_mode() and not use_queue and not state.try_claim_training_slot():
+    if not _worker_mode() and not use_queue and state is not None and not state.try_claim_training_slot():
         raise HTTPException(status_code=400, detail="Training already in progress")
     try:
-        return _start_training_task(
+        return gateway.start(
             config=config,
-            state=state,
-            settings=settings,
             model_path=model_path,
             dataset_file=dataset_file,
+            settings=settings,
             use_queue=use_queue,
             priority=priority,
         )
@@ -1214,13 +1275,19 @@ async def get_task_status(task_id: str):
 
 
 @router.post("/queue/cancel/{task_id}")
-async def cancel_task(task_id: str):
-    """取消队列中的任务"""
+async def cancel_task(task_id: str, _user=Depends(require_training_operator)):
+    """取消指定任务（queued → cancelled；active → stopping）"""
     if _worker_mode():
         result = _training_job_repository().request_cancel(task_id)
         if result is None:
             raise HTTPException(status_code=400, detail="Task not found or already terminal")
-        return {"message": f"Task {task_id} cancellation requested", "status": result}
+        status = "stopping" if result == "cancellation_requested" else result
+        return {
+            "message": f"Task {task_id} cancellation requested",
+            "status": status,
+            "task_id": task_id,
+            "result": result,
+        }
 
     ctx = get_training_context()
     queue = ctx.queue

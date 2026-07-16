@@ -159,6 +159,7 @@ class TrainingWorker:
 
     def _monitor_job(self, job_id: str, monitor_stop: threading.Event) -> None:
         interval = self.settings.training_worker_heartbeat_seconds
+        gpu_lease_seconds = max(float(self.settings.training_worker_lease_seconds) * 4.0, 60.0)
         while not monitor_stop.wait(interval):
             self.repository.heartbeat_worker(self.worker_id)
             if not self.repository.heartbeat(
@@ -168,6 +169,12 @@ class TrainingWorker:
             ):
                 self._current_cancel.set()
                 return
+            try:
+                from core.gpu_coordination import renew_training_gpu
+
+                renew_training_gpu(lease_seconds=gpu_lease_seconds)
+            except Exception:
+                pass
             current = self.repository.get_job(job_id)
             if current and current.cancel_requested:
                 self._current_cancel.set()

@@ -25,12 +25,14 @@ def test_enqueue_claim_is_atomic_and_priority_ordered(tmp_path):
     _enqueue(repo, "urgent", priority=0)
 
     claimed = repo.claim_next("worker-a", lease_seconds=30)
+    # Single-active: second claim blocked while urgent is leased.
     competing = repo.claim_next("worker-b", lease_seconds=30)
 
     assert claimed and claimed.job_id == "urgent"
     assert claimed.status == "leased"
     assert claimed.attempt == 1
-    assert competing and competing.job_id == "normal"
+    assert competing is None
+    assert repo.has_active_job() is True
     assert repo.claim_next("worker-c", lease_seconds=30) is None
 
 

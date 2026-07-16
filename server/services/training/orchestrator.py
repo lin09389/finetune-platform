@@ -63,6 +63,10 @@ def start_training_task(
 
         priority_map = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
         repository = get_training_job_repository()
+        is_resume = bool(
+            getattr(config, "resume_from_checkpoint", None)
+            or getattr(config, "resume_from_adapter", None)
+        )
         repository.enqueue(
             job_id=record_id,
             backend="native",
@@ -73,6 +77,7 @@ def start_training_task(
             output_path=str(output_path),
             record=record.model_dump(),
             max_attempts=settings.training_worker_max_attempts,
+            allow_requeue_terminal=is_resume,
         )
         logger.info("训练任务已提交到持久化 Worker 队列：%s", record_id)
         return TrainingRecordResponse(**record.model_dump())

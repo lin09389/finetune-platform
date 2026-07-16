@@ -605,13 +605,21 @@ class TestTrainingReleaseFeatureGuards:
 
         captured = {}
 
-        def fake_start_training_task(**kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
+        class FakeGateway:
+            def is_training_in_progress(self):
+                return False
+
+            def start(self, **kwargs):
+                captured.update(kwargs)
+                return {"id": task_id, "status": "queued", "ok": True}
 
         monkeypatch.setattr(training_module, "get_training_context", lambda: type('FakeCtx', (), {'state': FakeState()}))
         monkeypatch.setattr(training_module, "get_settings", lambda: settings)
-        monkeypatch.setattr(training_module, "_start_training_task", fake_start_training_task)
+        monkeypatch.setattr(training_module, "_worker_mode", lambda: False)
+        monkeypatch.setattr(
+            "core.training_gateway.get_training_gateway",
+            lambda: FakeGateway(),
+        )
 
         try:
             result = await resume_training(task_id, "checkpoint-10")
@@ -620,10 +628,11 @@ class TestTrainingReleaseFeatureGuards:
             settings.models_dir = original_models_dir
             settings.datasets_dir = original_datasets_dir
 
-        assert result == {"ok": True}
-        assert "record_id" not in captured
-        assert "output_path" not in captured
+        # New durable contract: resume preserves task identity (record_id + output_path).
+        assert captured.get("record_id") == task_id
+        assert captured.get("output_path") == Path(output_dir)
         assert captured["config"].resume_from_checkpoint == str(checkpoint_dir)
+        assert result["id"] == task_id
 
     @pytest.mark.asyncio
     async def test_resume_training_uses_record_output_path_for_checkpoint_lookup(self, tmp_path, monkeypatch):
@@ -682,13 +691,21 @@ class TestTrainingReleaseFeatureGuards:
 
         captured = {}
 
-        def fake_start_training_task(**kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
+        class FakeGateway:
+            def is_training_in_progress(self):
+                return False
+
+            def start(self, **kwargs):
+                captured.update(kwargs)
+                return {"id": task_id, "status": "queued"}
 
         monkeypatch.setattr(training_module, "get_training_context", lambda: type('FakeCtx', (), {'state': FakeState()}))
         monkeypatch.setattr(training_module, "get_settings", lambda: settings)
-        monkeypatch.setattr(training_module, "_start_training_task", fake_start_training_task)
+        monkeypatch.setattr(training_module, "_worker_mode", lambda: False)
+        monkeypatch.setattr(
+            "core.training_gateway.get_training_gateway",
+            lambda: FakeGateway(),
+        )
 
         try:
             result = await resume_training(task_id, "checkpoint-10")
@@ -697,9 +714,10 @@ class TestTrainingReleaseFeatureGuards:
             settings.models_dir = original_models_dir
             settings.datasets_dir = original_datasets_dir
 
-        assert result == {"ok": True}
-        assert "output_path" not in captured
+        # Resume must carry the original record output_path (durable identity).
+        assert captured.get("output_path") == Path(output_dir)
         assert captured["config"].resume_from_checkpoint == str(checkpoint_dir)
+        assert result["id"] == task_id
 
     @pytest.mark.asyncio
     async def test_start_training_requires_confirm_before_applying_recommended_config(self, tmp_path, monkeypatch):
@@ -914,9 +932,13 @@ class TestTrainingReleaseFeatureGuards:
         async def _fake_validate_config(*_args, **_kwargs):
             return ValidationResult()
 
-        def _fake_start_training_task(**kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
+        class FakeGateway:
+            def is_training_in_progress(self):
+                return False
+
+            def start(self, **kwargs):
+                captured.update(kwargs)
+                return {"id": "started-1", "status": "queued"}
 
         monkeypatch.setattr(training_module, "get_settings", lambda: settings)
         monkeypatch.setattr(training_module, "get_training_context", lambda: type("FakeCtx", (), {"state": FakeState()}))
@@ -926,7 +948,10 @@ class TestTrainingReleaseFeatureGuards:
             "warnings": [],
             "recommended_config": {},
         })
-        monkeypatch.setattr(training_module, "_start_training_task", _fake_start_training_task)
+        monkeypatch.setattr(
+            "core.training_gateway.get_training_gateway",
+            lambda: FakeGateway(),
+        )
 
         config = TrainingConfigInput(model_id="demo-model", dataset_id="demo-dataset")
         try:
@@ -935,5 +960,5 @@ class TestTrainingReleaseFeatureGuards:
             settings.models_dir = original_models_dir
             settings.datasets_dir = original_datasets_dir
 
-        assert result == {"ok": True}
+        assert result["id"] == "started-1"
         assert captured["dataset_file"] == dataset_file

@@ -269,6 +269,25 @@ class Settings(BaseSettings):
     training_worker_lease_seconds: int = Field(default=30, ge=5, le=3600)
     training_worker_max_attempts: int = Field(default=3, ge=1, le=20)
     training_worker_stale_seconds: int = Field(default=30, ge=5, le=3600)
+    # Durable training_events retention (worker / SQLite hub)
+    training_events_max_rows: int = Field(
+        default=50_000,
+        ge=1_000,
+        le=1_000_000,
+        description="Max training_events rows retained; older rows pruned",
+    )
+    training_events_max_age_days: int = Field(
+        default=14,
+        ge=1,
+        le=365,
+        description="Drop training_events older than this many days",
+    )
+    training_events_progress_min_step_delta: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        description="Sample progress_updated events: keep when step advances by at least this",
+    )
 
     max_upload_size: int = Field(default=100 * 1024 * 1024, description="最大上传大小 (字节)")
     allowed_file_types: list[str] | str = Field(

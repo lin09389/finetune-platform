@@ -17,6 +17,21 @@ from core.training_events_v2 import TrainingEventV2
 
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "stopped", "cancelled", "interrupted"})
 ACTIVE_JOB_STATUSES = frozenset({"leased", "running", "cancellation_requested"})
+JOB_STATUS_TO_RECORD_STATUS: dict[str, str] = {
+    "queued": "queued",
+    "leased": "loading",
+    "running": "running",
+    "cancellation_requested": "stopping",
+    "completed": "completed",
+    "failed": "failed",
+    "stopped": "stopped",
+    "cancelled": "cancelled",
+    "interrupted": "interrupted",
+}
+
+
+def record_status_for_job_status(job_status: str) -> str:
+    return JOB_STATUS_TO_RECORD_STATUS.get(job_status, job_status)
 
 
 def _utcnow() -> datetime:
@@ -131,37 +146,82 @@ class TrainingJobRepository:
         record: dict[str, Any],
         max_attempts: int = 3,
         now: datetime | None = None,
+        allow_requeue_terminal: bool = False,
     ) -> TrainingJob:
         timestamp = _iso(now)
+        requeued_terminal = False
         with self._pool.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO training_jobs (
-                    job_id, backend, priority, status, config_json, model_path,
-                    dataset_path, output_path, record_json, attempt, max_attempts,
-                    cancel_requested, created_at, queued_at, updated_at
-                ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)
-                """,
-                (
-                    job_id,
-                    backend,
-                    int(priority),
-                    json.dumps(config, ensure_ascii=False),
-                    model_path,
-                    dataset_path,
-                    output_path,
-                    json.dumps(record, ensure_ascii=False),
-                    max(1, int(max_attempts)),
-                    timestamp,
-                    timestamp,
-                    timestamp,
-                ),
-            )
+            existing = conn.execute(
+                "SELECT status FROM training_jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if existing is not None:
+                status = existing["status"]
+                if status in ACTIVE_JOB_STATUSES or status == "queued":
+                    raise ValueError(f"Training job {job_id} is already {status}; cannot enqueue")
+                if not allow_requeue_terminal:
+                    raise ValueError(f"Training job {job_id} already exists with status {status}")
+                requeued_terminal = True
+                conn.execute(
+                    """
+                    UPDATE training_jobs
+                    SET backend = ?, priority = ?, status = 'queued',
+                        config_json = ?, model_path = ?, dataset_path = ?,
+                        output_path = ?, record_json = ?, attempt = 0,
+                        max_attempts = ?, cancel_requested = 0, error = NULL,
+                        queued_at = ?, started_at = NULL, finished_at = NULL,
+                        updated_at = ?
+                    WHERE job_id = ?
+                    """,
+                    (
+                        backend,
+                        int(priority),
+                        json.dumps(config, ensure_ascii=False),
+                        model_path,
+                        dataset_path,
+                        output_path,
+                        json.dumps(record, ensure_ascii=False),
+                        max(1, int(max_attempts)),
+                        timestamp,
+                        timestamp,
+                        job_id,
+                    ),
+                )
+                conn.execute("DELETE FROM training_job_leases WHERE job_id = ?", (job_id,))
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO training_jobs (
+                        job_id, backend, priority, status, config_json, model_path,
+                        dataset_path, output_path, record_json, attempt, max_attempts,
+                        cancel_requested, created_at, queued_at, updated_at
+                    ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)
+                    """,
+                    (
+                        job_id,
+                        backend,
+                        int(priority),
+                        json.dumps(config, ensure_ascii=False),
+                        model_path,
+                        dataset_path,
+                        output_path,
+                        json.dumps(record, ensure_ascii=False),
+                        max(1, int(max_attempts)),
+                        timestamp,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
         self.append_event(
             task_id=job_id,
             phase="queued",
             kind="task_queued",
-            payload={"status": "queued", "priority": int(priority), "message": "Training task queued"},
+            payload={
+                "status": "queued",
+                "priority": int(priority),
+                "message": "Training task queued",
+                "requeued_terminal": requeued_terminal,
+            },
             now=now,
         )
         job = self.get_job(job_id)
@@ -197,6 +257,17 @@ class TrainingJobRepository:
             rows = conn.execute(sql, params).fetchall()
         return [self._job_from_row(row) for row in rows]
 
+    def has_active_job(self, *, conn=None) -> bool:
+        sql = (
+            "SELECT 1 FROM training_jobs "
+            f"WHERE status IN ({','.join('?' for _ in ACTIVE_JOB_STATUSES)}) LIMIT 1"
+        )
+        params = tuple(sorted(ACTIVE_JOB_STATUSES))
+        if conn is not None:
+            return conn.execute(sql, params).fetchone() is not None
+        with self._pool.get_readonly_connection() as readonly:
+            return readonly.execute(sql, params).fetchone() is not None
+
     def claim_next(
         self,
         worker_id: str,
@@ -209,6 +280,8 @@ class TrainingJobRepository:
         expires = _iso(moment + timedelta(seconds=max(1, int(lease_seconds))))
         job_id: str | None = None
         with self._pool.get_connection() as conn:
+            if self.has_active_job(conn=conn):
+                return None
             row = conn.execute(
                 """
                 SELECT job_id FROM training_jobs
@@ -226,11 +299,25 @@ class TrainingJobRepository:
                 SET status = 'leased', attempt = attempt + 1, error = NULL,
                     started_at = COALESCE(started_at, ?), updated_at = ?
                 WHERE job_id = ? AND status = 'queued' AND cancel_requested = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM training_jobs
+                      WHERE status IN ('leased', 'running', 'cancellation_requested')
+                        AND job_id != ?
+                  )
                 """,
-                (timestamp, timestamp, job_id),
+                (timestamp, timestamp, job_id, job_id),
             ).rowcount
             if updated != 1:  # pragma: no cover - BEGIN IMMEDIATE serializes claimers
                 return None
+            row_rec = conn.execute(
+                "SELECT record_json FROM training_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            record = _loads(row_rec["record_json"] if row_rec else None, {})
+            record["status"] = record_status_for_job_status("leased")
+            conn.execute(
+                "UPDATE training_jobs SET record_json = ? WHERE job_id = ?",
+                (json.dumps(record, ensure_ascii=False), job_id),
+            )
             conn.execute(
                 """
                 INSERT INTO training_job_leases
@@ -256,16 +343,32 @@ class TrainingJobRepository:
     def mark_running(self, job_id: str, worker_id: str, *, now: datetime | None = None) -> bool:
         timestamp = _iso(now)
         with self._pool.get_connection() as conn:
-            updated = conn.execute(
+            row = conn.execute(
                 """
-                UPDATE training_jobs SET status = 'running', updated_at = ?
+                SELECT record_json FROM training_jobs
                 WHERE job_id = ? AND status = 'leased'
                   AND EXISTS (
                       SELECT 1 FROM training_job_leases
                       WHERE job_id = training_jobs.job_id AND owner_id = ?
                   )
                 """,
-                (timestamp, job_id, worker_id),
+                (job_id, worker_id),
+            ).fetchone()
+            if row is None:
+                return False
+            record = _loads(row["record_json"], {})
+            record["status"] = record_status_for_job_status("running")
+            updated = conn.execute(
+                """
+                UPDATE training_jobs
+                SET status = 'running', record_json = ?, updated_at = ?
+                WHERE job_id = ? AND status = 'leased'
+                  AND EXISTS (
+                      SELECT 1 FROM training_job_leases
+                      WHERE job_id = training_jobs.job_id AND owner_id = ?
+                  )
+                """,
+                (json.dumps(record, ensure_ascii=False), timestamp, job_id, worker_id),
             ).rowcount
         if updated:
             self.append_event(
@@ -371,13 +474,16 @@ class TrainingJobRepository:
                 )
                 result = "cancelled"
             else:
+                record = _loads(row["record_json"], {})
+                record["status"] = record_status_for_job_status("cancellation_requested")
                 conn.execute(
                     """
                     UPDATE training_jobs
-                    SET status = 'cancellation_requested', cancel_requested = 1, updated_at = ?
+                    SET status = 'cancellation_requested', cancel_requested = 1,
+                        record_json = ?, updated_at = ?
                     WHERE job_id = ?
                     """,
-                    (timestamp, job_id),
+                    (json.dumps(record, ensure_ascii=False), timestamp, job_id),
                 )
                 result = "cancellation_requested"
         phase = "stopped" if result == "cancelled" else "stopping"
@@ -497,7 +603,17 @@ class TrainingJobRepository:
         kind: str,
         payload: dict[str, Any] | None = None,
         now: datetime | None = None,
-    ) -> TrainingEventV2:
+        force: bool = False,
+    ) -> TrainingEventV2 | None:
+        """Append a durable V2 event; may sample high-frequency progress rows.
+
+        Returns None when a progress_updated event is sampled out.
+        """
+        payload = dict(payload or {})
+        if not force and kind == "progress_updated":
+            if self._should_sample_out_progress(task_id, payload):
+                return None
+
         timestamp = _iso(now)
         event_id = f"tev2-{uuid.uuid4().hex}"
         with self._pool.get_connection() as conn:
@@ -506,7 +622,7 @@ class TrainingJobRepository:
                 INSERT INTO training_events (event_id, version, ts, task_id, phase, kind, payload_json)
                 VALUES (?, 'v2', ?, ?, ?, ?, ?)
                 """,
-                (event_id, timestamp, task_id, phase, kind, json.dumps(payload or {}, ensure_ascii=False)),
+                (event_id, timestamp, task_id, phase, kind, json.dumps(payload, ensure_ascii=False)),
             )
             sequence = int(cursor.lastrowid)
             event_id = f"tev2-{sequence}-{event_id[-8:]}"
@@ -514,15 +630,100 @@ class TrainingJobRepository:
                 "UPDATE training_events SET event_id = ? WHERE sequence = ?",
                 (event_id, sequence),
             )
+        # Opportunistic prune every ~64 inserts to keep the table bounded.
+        if sequence % 64 == 0:
+            try:
+                self.prune_events()
+            except Exception:
+                pass
         return TrainingEventV2(
             event_id=event_id,
             ts=timestamp,
             task_id=task_id,
             phase=phase,
             kind=kind,
-            payload=payload or {},
+            payload=payload,
             sequence=sequence,
         )
+
+    def _should_sample_out_progress(self, task_id: str, payload: dict[str, Any]) -> bool:
+        """Return True when this progress_updated should be dropped as redundant."""
+        try:
+            from core.config import get_settings
+
+            min_delta = int(getattr(get_settings(), "training_events_progress_min_step_delta", 1) or 1)
+        except Exception:
+            min_delta = 1
+        if min_delta <= 1:
+            return False
+        step = payload.get("step")
+        if step is None:
+            return False
+        try:
+            step_i = int(step)
+        except (TypeError, ValueError):
+            return False
+        latest = self.latest_event(task_id)
+        if latest is None or latest.kind != "progress_updated":
+            return False
+        try:
+            prev = int((latest.payload or {}).get("step") or 0)
+        except (TypeError, ValueError):
+            return False
+        # Always keep first steps and terminal-ish statuses.
+        status = str(payload.get("status") or "")
+        if status in {"completed", "failed", "stopped", "cancelled", "interrupted", "stopping"}:
+            return False
+        if step_i == prev:
+            # Drop only when status is unchanged.
+            return status == str((latest.payload or {}).get("status") or "")
+        return (step_i - prev) < min_delta
+
+    def prune_events(
+        self,
+        *,
+        max_rows: int | None = None,
+        max_age_days: int | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, int]:
+        """Delete old training_events by age and row-count cap."""
+        try:
+            from core.config import get_settings
+
+            settings = get_settings()
+            if max_rows is None:
+                max_rows = int(getattr(settings, "training_events_max_rows", 50_000))
+            if max_age_days is None:
+                max_age_days = int(getattr(settings, "training_events_max_age_days", 14))
+        except Exception:
+            max_rows = max_rows or 50_000
+            max_age_days = max_age_days or 14
+
+        moment = now or _utcnow()
+        cutoff = _iso(moment - timedelta(days=max(1, int(max_age_days))))
+        deleted_age = 0
+        deleted_cap = 0
+        with self._pool.get_connection() as conn:
+            deleted_age = conn.execute(
+                "DELETE FROM training_events WHERE ts < ?",
+                (cutoff,),
+            ).rowcount
+            # Keep the newest max_rows by sequence.
+            row = conn.execute("SELECT COUNT(*) AS c FROM training_events").fetchone()
+            count = int(row["c"] if row else 0)
+            excess = max(0, count - max(1, int(max_rows)))
+            if excess > 0:
+                deleted_cap = conn.execute(
+                    """
+                    DELETE FROM training_events WHERE sequence IN (
+                        SELECT sequence FROM training_events
+                        ORDER BY sequence ASC
+                        LIMIT ?
+                    )
+                    """,
+                    (excess,),
+                ).rowcount
+        return {"deleted_by_age": int(deleted_age or 0), "deleted_by_cap": int(deleted_cap or 0)}
 
     @staticmethod
     def _event_from_row(row) -> TrainingEventV2:
@@ -714,7 +915,18 @@ class TrainingEventRepositoryHub:
         self.repository = repository
 
     def publish(self, *, task_id: str, phase: str, kind: str, payload=None) -> TrainingEventV2:
-        return self.repository.append_event(task_id=task_id, phase=phase, kind=kind, payload=payload)
+        event = self.repository.append_event(task_id=task_id, phase=phase, kind=kind, payload=payload)
+        if event is not None:
+            return event
+        # Sampled-out progress: return latest durable event so callers keep a stable contract.
+        latest = self.repository.latest_event(task_id)
+        if latest is not None:
+            return latest
+        forced = self.repository.append_event(
+            task_id=task_id, phase=phase, kind=kind, payload=payload, force=True
+        )
+        assert forced is not None
+        return forced
 
     def list_since(self, sequence: int = 0, task_id: str | None = None) -> list[TrainingEventV2]:
         return self.repository.list_events(after_sequence=sequence, task_id=task_id)
@@ -755,10 +967,12 @@ def reset_training_job_repositories_for_tests() -> None:
 
 __all__ = [
     "ACTIVE_JOB_STATUSES",
+    "JOB_STATUS_TO_RECORD_STATUS",
     "TERMINAL_JOB_STATUSES",
     "TrainingEventRepositoryHub",
     "TrainingJob",
     "TrainingJobRepository",
     "get_training_job_repository",
+    "record_status_for_job_status",
     "reset_training_job_repositories_for_tests",
 ]
