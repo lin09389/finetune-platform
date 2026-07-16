@@ -75,7 +75,10 @@ async def test_context_pack_offloads_editor_context_to_virtual_files():
     assert pack.metadata["strategy"] == "deepagents_kickoff_brief_v1"
     assert pack.metadata["kickoff_brief_chars"] > 0
     assert pack.metadata["kickoff_brief_tokens"] > 0
-    assert pack.metadata["virtual_file_count"] == len(pack.files)
+    # virtual_file_count is the canonical listing (alias paths excluded);
+    # pack.files may still carry aliases for DeepAgents compatibility.
+    assert pack.metadata["virtual_file_count"] == len(pack.metadata["files"])
+    assert pack.metadata["virtual_file_count"] <= len(pack.files)
     assert pack.metadata["virtual_file_tokens"] > 0
 
 

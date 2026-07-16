@@ -391,7 +391,58 @@ class ContextService:
         self.project_indexes[str(project_root)] = index
         self._rebuild_dependency_graph(str(project_root))
         self._sync_project_files(str(project_root))
+        try:
+            self._persist_lightweight_index(str(project_root))
+        except Exception as exc:
+            logger.debug("lightweight index persist failed: %s", exc)
         return index["summary"]
+
+    def _lightweight_index_path(self, project_path: str) -> Path:
+        """Return the on-disk path used to persist a project's lightweight index."""
+        try:
+            from core.config import get_settings
+
+            base = Path(get_settings().base_dir) / "context_cache"
+        except Exception:
+            base = Path.cwd() / "context_cache"
+        import hashlib
+
+        digest = hashlib.sha1(str(Path(project_path).resolve()).encode("utf-8")).hexdigest()[:16]
+        return base / f"project_{digest}.lightweight.json"
+
+    def _persist_lightweight_index(self, project_path: str) -> None:
+        """Write a project's lightweight index to disk so later sessions can reload it."""
+        index = self.project_indexes.get(project_path)
+        if index is None:
+            return
+        path = self._lightweight_index_path(project_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        payload = json.dumps(index, ensure_ascii=False)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        tmp.replace(path)
+
+    def _load_lightweight_index(self, project_path: str) -> bool:
+        """Reload a persisted lightweight index for a project.
+
+        Returns True when an index was loaded into ``self.project_indexes``.
+        """
+        path = self._lightweight_index_path(project_path)
+        if not path.exists():
+            return False
+        try:
+            import json
+
+            index = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug("lightweight index load failed: %s", exc)
+            return False
+        if not isinstance(index, dict):
+            return False
+        self.project_indexes[project_path] = index
+        return True
 
     def _empty_index(self, project_path: str) -> dict[str, Any]:
         return {

@@ -1047,10 +1047,10 @@ def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Pat
     from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
 
     from agent_session.platform_shell import (
-        EXECUTE_MAX_OUTPUT_BYTES,
         EXECUTE_TIMEOUT_SECONDS,
         PlatformShellBackend,
     )
+    from agent_session.tool_result_limits import get_execute_max_output_bytes
 
     backend = build_deepagents_backend(str(tmp_path))
 
@@ -1060,7 +1060,7 @@ def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Pat
     assert isinstance(backend.default, PlatformShellBackend)
     # Verify the execution limits are the tuned values, not the library defaults.
     assert backend.default._default_timeout == EXECUTE_TIMEOUT_SECONDS
-    assert backend.default._max_output_bytes == EXECUTE_MAX_OUTPUT_BYTES
+    assert backend.default._max_output_bytes == get_execute_max_output_bytes()
     assert isinstance(backend.routes[WORKSPACE_BACKEND_ROUTE], LocalShellBackend)
     for route in EPHEMERAL_BACKEND_ROUTES:
         assert isinstance(backend.routes[route], StateBackend)

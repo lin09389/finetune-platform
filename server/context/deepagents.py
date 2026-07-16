@@ -25,6 +25,20 @@ MAX_CONTEXT_FILE_CHARS = 24_000
 MAX_CONTEXT_FILES = 12
 MAX_RETRIEVAL_BRIEF_SOURCES = 8
 MAX_RETRIEVAL_BRIEF_SOURCES_PER_KIND = 3
+# Phase 3: total token budget across all /context virtual files. When exceeded,
+# lowest-priority retrieval files are dropped (task/editor always kept).
+MAX_TOTAL_CONTEXT_FILE_TOKENS = 60_000
+
+# Alias paths historically injected alongside canonical /context/ files.
+# Phase 3 drops them so the file listing is canonical-only (less prompt bloat).
+_ALIAS_PATHS = frozenset({"/task.md", "/active-file.md", "/editor/active-file.md"})
+
+# Drop priority for total-token-budget enforcement (lowest first).
+_BUDGET_DROP_PRIORITY = (
+    f"{CONTEXT_ROOT}/retrieval/",
+    f"{CONTEXT_ROOT}/mentions/",
+    f"{CONTEXT_ROOT}/editor/",
+)
 
 
 @dataclass(frozen=True)
@@ -155,6 +169,34 @@ async def build_deepagents_context_pack(
         if isinstance(metadata["warnings"], list):
             metadata["warnings"].append("knowledge_disabled")
 
+    # Phase 3: secret redaction across all virtual file contents + goal.
+    from context.redaction import REDACTED, count_redactions, redact_secrets
+
+    redaction_count = 0
+    redacted_files: dict[str, str] = {}
+    for path, content in files.items():
+        cleaned = redact_secrets(content)
+        redaction_count += count_redactions(content, cleaned)
+        redacted_files[path] = cleaned
+    files = redacted_files
+    goal = redact_secrets(goal)
+    metadata["secret_redaction"] = {"applied": True, "count": redaction_count}
+
+    # Phase 3: enforce a total token budget across virtual files.
+    files, budget_dropped = _apply_total_token_budget(files)
+    metadata["max_total_context_file_tokens"] = MAX_TOTAL_CONTEXT_FILE_TOKENS
+    if budget_dropped:
+        metadata.setdefault("warnings", [])
+        if isinstance(metadata["warnings"], list):
+            metadata["warnings"].append(
+                f"context_budget_dropped:{len(budget_dropped)}"
+            )
+
+    # Phase 3: inject "Recently modified" from session context_refresh signal.
+    refresh_lines = _context_refresh_brief(session_metadata)
+    if refresh_lines:
+        metadata["context_refresh_injected"] = True
+
     kickoff_brief = _kickoff_brief(
         goal=goal,
         active_context=active_context,
@@ -173,6 +215,8 @@ async def build_deepagents_context_pack(
         "【用户目标】\n" + _limit(goal.strip() or "继续执行当前任务。", MAX_INLINE_PROMPT_CHARS),
         "【启动速览】\n" + kickoff_brief,
     ]
+    if refresh_lines:
+        prompt_sections.append("【Recently modified】\n" + "\n".join(refresh_lines))
     scope_section = format_scope_prompt_section(task_scope if isinstance(task_scope, dict) else None)
     if scope_section:
         prompt_sections.append(scope_section)
@@ -193,14 +237,22 @@ async def build_deepagents_context_pack(
     )
     prompt = "\n\n".join(prompt_sections)
     virtual_file_tokens = sum(estimate_tokens(content) for content in files.values())
+    # Canonical file listing excludes alias paths (kept in pack.files for
+    # DeepAgents compatibility but not advertised to the model/UI).
+    file_listing = [
+        {"path": path, "tokens": estimate_tokens(content), "chars": len(content)}
+        for path, content in files.items()
+        if path not in _ALIAS_PATHS
+    ]
     metadata.update(
         {
             "file_count": len(files),
-            "virtual_file_count": len(files),
+            "virtual_file_count": len(file_listing),
             "virtual_file_tokens": virtual_file_tokens,
+            "injected_file_count": len(files),
             "kickoff_brief_chars": len(kickoff_brief),
             "kickoff_brief_tokens": estimate_tokens(kickoff_brief),
-            "files": [{"path": path, "tokens": estimate_tokens(content), "chars": len(content)} for path, content in files.items()],
+            "files": file_listing,
             "prompt_tokens": estimate_tokens(prompt),
             "source_hash": hashlib.sha256(json.dumps(_metadata_seed(active_context, explicit_context), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
         }
@@ -688,6 +740,71 @@ def _text_preview(text: str, max_chars: int) -> str:
 def _looks_like_file_path(path: str) -> bool:
     name = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
     return "." in name
+
+
+def _context_refresh_brief(session_metadata: dict[str, Any] | None) -> list[str]:
+    """Build a short "Recently modified" section from the context_refresh signal.
+
+    Returns an empty list when there is no refresh signal. The section names
+    recently changed files and recent tool failures so the agent starts from
+    fresh evidence rather than stale assumptions.
+    """
+    if not session_metadata:
+        return []
+    refresh = session_metadata.get("context_refresh")
+    if not isinstance(refresh, dict):
+        return []
+    lines: list[str] = []
+    changed = [str(p) for p in (refresh.get("changed_files") or []) if str(p).strip()]
+    if changed:
+        lines.append("Changed files:")
+        for path in changed[:12]:
+            lines.append(f"- `{path}`")
+    failures = [f for f in (refresh.get("recent_failures") or []) if isinstance(f, dict)]
+    if failures:
+        lines.append("Recent failures:")
+        for failure in failures[:6]:
+            tool = str(failure.get("tool") or "")
+            path = str(failure.get("path") or "")
+            reason = str(failure.get("reason") or "")[:120]
+            lines.append(f"- {tool} `{path}`: {reason}".rstrip())
+    return lines
+
+
+def _apply_total_token_budget(
+    files: dict[str, str],
+    *,
+    max_tokens: int = MAX_TOTAL_CONTEXT_FILE_TOKENS,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Drop lowest-priority files until the total token budget fits.
+
+    Always keeps ``/context/task.md``. Retrieval/mentions/editor files are
+    dropped first (in that order) until the kept set is within budget.
+    Returns ``(kept, dropped)`` as path -> content mappings.
+    """
+    kept = dict(files)
+    if not kept:
+        return {}, {}
+
+    def _total(mapping: dict[str, str]) -> int:
+        return sum(estimate_tokens(content) for content in mapping.values())
+
+    if _total(kept) <= max_tokens:
+        return kept, {}
+
+    dropped: dict[str, str] = {}
+    # Drop by priority prefix; within a prefix, drop the largest first.
+    for prefix in _BUDGET_DROP_PRIORITY:
+        candidates = sorted(
+            (path for path in list(kept.keys()) if path.startswith(prefix)),
+            key=lambda p: estimate_tokens(kept[p]),
+            reverse=True,
+        )
+        for path in candidates:
+            if _total(kept) <= max_tokens:
+                break
+            dropped[path] = kept.pop(path)
+    return kept, dropped
 
 
 def _limit(text: str, max_chars: int) -> str:

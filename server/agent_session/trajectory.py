@@ -377,6 +377,28 @@ def normalize_workspace_path(value: Any) -> str:
     return "/workspace" + (f"/{'/'.join(parts)}" if parts else "")
 
 
+def _workspace_rel_for_refresh(path: str) -> str:
+    """Project-relative path used by active-context refresh signals.
+
+    Strips a leading ``/workspace/`` (or any leading slash) and normalizes
+    separators so refresh metadata can be matched against scope paths.
+    """
+    raw = str(path or "").replace("\\", "/").strip()
+    if raw.startswith("/workspace/"):
+        raw = raw[len("/workspace/") :]
+    raw = raw.lstrip("/")
+    parts: list[str] = []
+    for part in PurePosixPath(raw).parts:
+        if part in {"", ".", "/"}:
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts)
+
+
 class TrajectoryStateStore:
     def __init__(self, repository: Any, notify_event: Callable[[str, dict[str, Any]], None], session_id: str):
         self.repository = repository

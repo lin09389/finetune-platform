@@ -373,6 +373,50 @@ class CodeIndexer:
         """清除缓存"""
         self.index_cache.clear()
 
+    @staticmethod
+    def collection_name_for_project(project_path: str) -> str:
+        """Return a stable, path-derived vector collection name.
+
+        The hash is deterministic for the same resolved path so re-indexing the
+        same project always targets the same collection, even across processes.
+        """
+        digest = hashlib.md5(str(project_path).encode("utf-8")).hexdigest()[:12]
+        return f"project_{digest}"
+
+    def _mtime_manifest_path(self, collection_name: str) -> Path:
+        """Return the on-disk path for a collection's incremental mtime manifest."""
+        try:
+            from core.config import get_settings
+
+            base = Path(get_settings().base_dir) / "context_cache" / "mtime"
+        except Exception:
+            base = Path.cwd() / "context_cache" / "mtime"
+        safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(collection_name))
+        return base / f"{safe}.mtime.json"
+
+    def _save_mtime_manifest(self, collection_name: str, data: dict[str, Any]) -> None:
+        """Persist incremental-reindex mtime tracking for a collection."""
+        import json
+
+        path = self._mtime_manifest_path(collection_name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def _load_mtime_manifest(self, collection_name: str) -> dict[str, Any]:
+        """Load a collection's mtime manifest, or an empty dict when absent."""
+        import json
+
+        path = self._mtime_manifest_path(collection_name)
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug("mtime manifest load failed: %s", exc)
+            return {}
+
 
 _global_indices: dict[str, CodeIndexer] = {}
 
