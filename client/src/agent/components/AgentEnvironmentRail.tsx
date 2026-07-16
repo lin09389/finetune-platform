@@ -19,6 +19,7 @@ import {
 } from '../selectors/sessionProgress';
 import { SESSION_STATUS_LABELS } from '../selectors/sessionStatus';
 import styles from '../workbench/AgentWorkbench.module.css';
+import AgentContextStatus from './AgentContextStatus';
 
 interface AgentEnvironmentRailProps {
   state: AgentRuntimeState;
@@ -184,6 +185,13 @@ export default function AgentEnvironmentRail({
             <strong>{mounts.length || 0}</strong>
           </div>
         </div>
+      </section>
+
+      <section className={styles.environmentCard} aria-label="上下文可观测">
+        <header className={styles.environmentHeader}>
+          <span>上下文</span>
+        </header>
+        <AgentContextStatus metadata={(session?.metadata || {}) as Record<string, unknown>} />
       </section>
 
       {progress.hasSignal ? (

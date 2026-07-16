@@ -103,6 +103,7 @@ verify.ps1
 
 # Runtime state
 data/
+server/context_cache/
 server/data/*.db
 server/data/*.db-*
 server/data/.encryption_key
