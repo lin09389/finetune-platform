@@ -34,7 +34,6 @@ import AgentWorkspaceView from '../components/AgentWorkspaceView';
 import AgentActivityBar from '../components/AgentActivityBar';
 import { SmoothLoader } from '../../components/motion';
 import SubagentModal from '../components/SubagentModal';
-import WorkbenchSettingsDrawer from '../components/WorkbenchSettingsDrawer';
 import {
   persistAgentWorkbenchSettings,
   readAgentWorkbenchSettings,
@@ -78,6 +77,7 @@ const TASK_CENTER_TABS: Array<{ key: AgentTaskCenterTab; label: string }> = [
   { key: 'artifacts', label: '产物' },
   { key: 'environment', label: '环境' },
 ];
+const WorkbenchSettingsDrawer = lazy(() => import('../components/WorkbenchSettingsDrawer'));
 
 function normalizeWorkspacePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
@@ -106,6 +106,7 @@ export default function AgentWorkbenchPage({
   const [mobileTerminalOpen, setMobileTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(panelLayout.terminalOpen);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsMounted, setSettingsMounted] = useState(false);
   const [subagentOpen, setSubagentOpen] = useState(false);
   const [requestedFilePath, setRequestedFilePath] = useState<string | null>(null);
   const [attentionOpenRequest, setAttentionOpenRequest] = useState(0);
@@ -114,6 +115,10 @@ export default function AgentWorkbenchPage({
   const rightDockRef = useRef<HTMLElement | null>(null);
   const workspaceResolutionGenerationRef = useRef(0);
   const resize = usePanelResize({ panelLayout, setPanelLayout, rightDockRef, isDesktop });
+  const openSettings = useCallback(() => {
+    setSettingsMounted(true);
+    setSettingsOpen(true);
+  }, []);
 
   const resolveSelectedWorkspace = useCallback(async (projectPath: string, preferredWorkspaceId: string | null) => {
     const generation = ++workspaceResolutionGenerationRef.current;
@@ -407,7 +412,7 @@ export default function AgentWorkbenchPage({
       state={state}
       connection={state.connection}
       connectionLabel={connectionLabel}
-      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenSettings={openSettings}
     />
   );
   const toolbar = (
@@ -436,7 +441,7 @@ export default function AgentWorkbenchPage({
         <Button
           type="text"
           icon={<SettingOutlined />}
-          onClick={() => setSettingsOpen(true)}
+          onClick={openSettings}
           aria-label="工作台设置"
         />
       </Tooltip>
@@ -560,7 +565,7 @@ export default function AgentWorkbenchPage({
           <AgentTaskContextBar
             workspace={state.selectedWorkspace}
             mode={state.taskMode}
-            onWorkspaceChange={() => setSettingsOpen(true)}
+            onWorkspaceChange={openSettings}
             onModeChange={selectTaskMode}
           />
           <AgentTaskComposer
@@ -620,13 +625,17 @@ export default function AgentWorkbenchPage({
         ) : null}
       </main>
 
-      <WorkbenchSettingsDrawer
-        open={settingsOpen}
-        settings={settings}
-        sessionActive={Boolean(state.session)}
-        onClose={() => setSettingsOpen(false)}
-        onChange={setSettings}
-      />
+      {settingsMounted ? (
+        <Suspense fallback={null}>
+          <WorkbenchSettingsDrawer
+            open={settingsOpen}
+            settings={settings}
+            sessionActive={Boolean(state.session)}
+            onClose={() => setSettingsOpen(false)}
+            onChange={setSettings}
+          />
+        </Suspense>
+      ) : null}
 
       <SubagentModal
         open={subagentOpen}

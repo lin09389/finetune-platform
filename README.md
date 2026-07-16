@@ -73,7 +73,7 @@ Finetune Platform 不是一个只跑 demo 的训练脚本集合，而是一套�
 | 前端 | React 18、TypeScript、Vite、Ant Design、Zustand、Framer Motion |
 | Agent | DeepAgents、LangGraph、SSE、虚拟 workspace、HITL 审批 |
 | RAG | ChromaDB、sentence-transformers、pdfplumber、python-docx、openpyxl |
-| 部署 | Docker Compose、可选 Electron 桌面端、Ollama profile、GPU compose 覆盖 |
+| 部署 | Docker Compose、正式 Electron 桌面端、版本化本地 Python runtime pack、Ollama profile、GPU compose 覆盖 |
 
 ## 快速开始
 
@@ -272,7 +272,7 @@ finetune-platform/
 │       ├── components/     # 通用组件
 │       ├── services/       # API 客户端
 │       └── test/           # Vitest 测试
-├── electron/               # 可选桌面端封装
+├── electron/               # 正式桌面运行时、进程监督、受管 Python 与安全 IPC
 ├── docs/                   # 设计、迁移、部署和能力文档
 ├── scripts/                # 工具脚本
 ├── models/                 # 本地模型目录

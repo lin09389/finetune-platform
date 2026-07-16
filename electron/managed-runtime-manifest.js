@@ -13,7 +13,9 @@ const FIELDS = new Set([
   'platform',
   'arch',
   'python',
+  'archiveFile',
   'archiveSha256',
+  'archiveSize',
   'unpackedSha256',
   'entrypoint',
 ]);
@@ -49,6 +51,14 @@ function validateEntrypoint(entrypoint) {
   return normalized;
 }
 
+function validateArchiveFile(archiveFile) {
+  const normalized = validateEntrypoint(archiveFile);
+  if (!normalized.endsWith('.tar.gz')) {
+    fail('MANAGED_RUNTIME_MANIFEST_ARCHIVE_INVALID', 'archiveFile must name a relative .tar.gz archive.');
+  }
+  return normalized;
+}
+
 function validateTarget(target) {
   if (!target || typeof target !== 'object' || Array.isArray(target)) {
     fail('MANAGED_RUNTIME_MANIFEST_TARGET_INVALID', 'target must describe a runtime platform, architecture, and profile.');
@@ -79,7 +89,9 @@ function validateManagedRuntimeManifest(input, target) {
   const platform = requireString(input.platform, 'platform');
   const arch = requireString(input.arch, 'arch');
   const python = requireString(input.python, 'python');
+  const archiveFile = validateArchiveFile(input.archiveFile);
   const archiveSha256 = requireString(input.archiveSha256, 'archiveSha256').toLowerCase();
+  const archiveSize = input.archiveSize;
   const unpackedSha256 = requireString(input.unpackedSha256, 'unpackedSha256').toLowerCase();
   const entrypoint = validateEntrypoint(input.entrypoint);
 
@@ -101,6 +113,9 @@ function validateManagedRuntimeManifest(input, target) {
   if (!/^[a-f0-9]{64}$/.test(archiveSha256) || !/^[a-f0-9]{64}$/.test(unpackedSha256)) {
     fail('MANAGED_RUNTIME_MANIFEST_DIGEST_INVALID', 'Runtime digests must be lowercase SHA-256 values.');
   }
+  if (!Number.isSafeInteger(archiveSize) || archiveSize <= 0) {
+    fail('MANAGED_RUNTIME_MANIFEST_ARCHIVE_INVALID', 'archiveSize must be a positive safe integer.');
+  }
 
   return Object.freeze({
     schemaVersion: MANAGED_RUNTIME_MANIFEST_VERSION,
@@ -109,7 +124,9 @@ function validateManagedRuntimeManifest(input, target) {
     platform,
     arch,
     python,
+    archiveFile,
     archiveSha256,
+    archiveSize,
     unpackedSha256,
     entrypoint,
   });

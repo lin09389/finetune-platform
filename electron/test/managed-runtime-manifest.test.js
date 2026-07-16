@@ -19,7 +19,9 @@ function validManifest(overrides = {}) {
     platform: 'win32',
     arch: 'x64',
     python: '>=3.11,<3.12',
+    archiveFile: 'base-runtime.tar.gz',
     archiveSha256: DIGEST,
+    archiveSize: 1024,
     unpackedSha256: DIGEST,
     entrypoint: 'python.exe',
     ...overrides,
@@ -67,5 +69,9 @@ test('manifest validation rejects incompatible Python constraints and malformed 
   assert.throws(
     () => validateManagedRuntimeManifest(validManifest({ archiveSha256: 'not-a-digest' }), TARGET),
     (error) => error.code === 'MANAGED_RUNTIME_MANIFEST_DIGEST_INVALID',
+  );
+  assert.throws(
+    () => validateManagedRuntimeManifest(validManifest({ archiveFile: '../runtime.tar.gz' }), TARGET),
+    (error) => error.code === 'MANAGED_RUNTIME_MANIFEST_ENTRYPOINT_UNSAFE',
   );
 });

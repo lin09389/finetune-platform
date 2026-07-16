@@ -46,6 +46,11 @@ const RUNTIME_ERROR_COPY: Record<string, string> = {
   PERMISSION_DENIED: '无法写入运行时目录，请检查权限后重试。',
   ANTIVIRUS_LOCK: '文件正被安全软件占用，请稍后重试。',
   HEALTH_PROBE_FAILED: '运行时验证未通过，上一版本仍会保留。',
+  MANAGED_RUNTIME_ARTIFACT_UNAVAILABLE: '未找到兼容的基础运行时包，请检查本地制品配置。',
+  MANAGED_RUNTIME_ARTIFACT_AMBIGUOUS: '检测到多个兼容运行时包，请只保留一个候选版本。',
+  MANAGED_RUNTIME_ARCHIVE_DIGEST_MISMATCH: '运行时包校验失败，未替换当前可用版本。',
+  MANAGED_RUNTIME_UNPACKED_DIGEST_MISMATCH: '运行时解压内容校验失败，已保留当前可用版本。',
+  MANAGED_RUNTIME_PROBE_INCOMPATIBLE: '运行时不是兼容的 Python 3.11，未执行激活。',
 };
 
 type RuntimeAction = 'prepare' | 'repair' | 'retry' | 'logs' | null;
@@ -62,7 +67,7 @@ const describeRuntime = (runtime: ManagedRuntimeStatus | null): string => {
     return `基础运行时 ${version}${python}`;
   }
   if (runtime.state === 'preparing' && runtime.progress) {
-    return `正在准备基础运行时（${runtime.progress.completed}/${runtime.progress.total}）`;
+    return '正在准备基础运行时';
   }
   if (runtime.state === 'verifying') return '正在验证基础运行时完整性与健康状态';
   if (runtime.state === 'checking') return '正在检查已安装的基础运行时';
@@ -208,6 +213,7 @@ export default function DesktopRuntimeSection() {
           <div>
             <strong>基础运行时</strong>
             <span>{describeRuntime(managedRuntime)}</span>
+            {managedRuntime?.state === 'ready' ? <small>重启应用后，本地服务将使用此运行时。</small> : null}
           </div>
         </div>
         <span className={`${styles.runtimeStatus} ${styles[managedRuntime?.state || 'checking']}`}>
@@ -220,7 +226,7 @@ export default function DesktopRuntimeSection() {
         ) : null}
         <div className={styles.runtimeActions}>
           {renderRuntimeActions()}
-          {(managedRuntime?.state === 'repair_required' || managedRuntime?.state === 'failed') ? (
+          {(managedRuntime?.state !== 'ready' && managedRuntime?.state !== 'unavailable') ? (
             <Button type="text" size="small" disabled={runtimeAction !== null} loading={runtimeAction === 'logs'} aria-label="查看运行时日志" onClick={() => void runRuntimeAction('logs')}>
               查看日志
             </Button>

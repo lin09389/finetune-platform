@@ -12,6 +12,9 @@ function isWithin(parent, candidate) {
 function resolveRuntimePaths({ appPath, resourcesPath, userDataPath, isPackaged, env = process.env }) {
   const projectRoot = path.resolve(isPackaged ? resourcesPath : appPath);
   const dataRoot = path.resolve(env.FINETUNE_USER_DATA_ROOT || path.join(userDataPath, 'runtime'));
+  const managedRuntimeRoot = path.resolve(
+    env.FINETUNE_MANAGED_RUNTIME_ROOT || path.join(path.dirname(dataRoot), 'managed-runtimes'),
+  );
 
   // A packaged application must never create mutable user data below its install resources,
   // even when a manually configured environment variable is incorrect.
@@ -20,11 +23,17 @@ function resolveRuntimePaths({ appPath, resourcesPath, userDataPath, isPackaged,
       code: 'UNSAFE_RUNTIME_DATA_ROOT',
     });
   }
+  if (isPackaged && isWithin(path.resolve(resourcesPath), managedRuntimeRoot)) {
+    throw Object.assign(new Error('FINETUNE_MANAGED_RUNTIME_ROOT must not be inside packaged resources.'), {
+      code: 'UNSAFE_MANAGED_RUNTIME_ROOT',
+    });
+  }
 
   return Object.freeze({
     projectRoot,
     serverRoot: path.join(projectRoot, 'server'),
     dataRoot,
+    managedRuntimeRoot,
     databasePath: path.join(dataRoot, 'data', 'app.db'),
     modelsRoot: path.join(dataRoot, 'models'),
     datasetsRoot: path.join(dataRoot, 'datasets'),
@@ -50,6 +59,7 @@ function ensureRuntimeDirectories(paths, fsApi = fs) {
     paths.workspacesRoot,
     paths.cacheRoot,
     paths.runtimeRoot,
+    paths.managedRuntimeRoot,
   ]) {
     fsApi.mkdirSync(directory, { recursive: true });
   }

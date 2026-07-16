@@ -44,16 +44,13 @@ test('runtime pack policy accepts a deterministic base Python 3.11 layout', asyn
     profile: 'base',
     version: '2026.07.16',
     platform: 'win32',
-    architecture: 'x64',
-    python: { requires: '>=3.11,<3.12', version: '3.11.9' },
-    archive: {
-      file: 'base-2026.07.16-win32-x64.tar.gz',
-      sha256: crypto.createHash('sha256').update('archive').digest('hex'),
-      size: 7,
-    },
+    arch: 'x64',
+    python: '>=3.11,<3.12',
+    archiveFile: 'base-2026.07.16-win32-x64.tar.gz',
+    archiveSha256: crypto.createHash('sha256').update('archive').digest('hex'),
+    archiveSize: 7,
     unpackedSha256: inspected.unpackedSha256,
     entrypoint: 'python.exe',
-    completedMarker: '.finetune-runtime-complete',
   });
 });
 
@@ -105,6 +102,6 @@ test('runtime pack builder produces byte-identical archives from the same prepar
   const second = await buildRuntimePack({ ...options, outputDir: path.join(temporaryRoot, 'second') });
 
   assert.deepEqual(await fs.readFile(first.archivePath), await fs.readFile(second.archivePath));
-  assert.equal(first.manifest.archive.sha256, second.manifest.archive.sha256);
+  assert.equal(first.manifest.archiveSha256, second.manifest.archiveSha256);
   assert.equal(first.manifest.unpackedSha256, second.manifest.unpackedSha256);
 });

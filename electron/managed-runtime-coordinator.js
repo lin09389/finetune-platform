@@ -33,26 +33,31 @@ async function sha256File(filePath) {
 
 async function digestRuntimeDirectory(root) {
   const hash = crypto.createHash('sha256');
+  const files = [];
   async function visit(directory, relative = '') {
     const entries = await fs.promises.readdir(directory, { withFileTypes: true });
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of entries.sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)))) {
       const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
       const entryPath = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) {
         throw coordinatorError('MANAGED_RUNTIME_UNPACKED_CONTENT_INVALID', 'Runtime content must not contain symbolic links.');
       }
       if (entry.isDirectory()) {
-        hash.update(`d:${entryRelative}\0`);
         await visit(entryPath, entryRelative);
       } else if (entry.isFile()) {
-        const stats = await fs.promises.stat(entryPath);
-        hash.update(`f:${entryRelative}\0${stats.size}\0${await sha256File(entryPath)}\0`);
+        files.push({ entryRelative, entryPath });
       } else {
         throw coordinatorError('MANAGED_RUNTIME_UNPACKED_CONTENT_INVALID', 'Runtime content must contain only regular files and directories.');
       }
     }
   }
   await visit(root);
+  files.sort((left, right) => Buffer.compare(Buffer.from(left.entryRelative), Buffer.from(right.entryRelative)));
+  for (const file of files) {
+    hash.update(file.entryRelative, 'utf8');
+    hash.update('\0');
+    hash.update(Buffer.from(await sha256File(file.entryPath), 'hex'));
+  }
   return hash.digest('hex');
 }
 
@@ -67,7 +72,7 @@ function normalizePythonVersion(result) {
 function freezeSnapshot(snapshot) {
   return Object.freeze({
     ...snapshot,
-    progress: Object.freeze({ ...snapshot.progress }),
+    progress: snapshot.progress ? Object.freeze({ ...snapshot.progress }) : null,
   });
 }
 
@@ -98,7 +103,7 @@ class ManagedRuntimeCoordinator {
     profile = this.target.profile,
     runtimeVersion = null,
     pythonVersion = null,
-    progress = { current: 0, total: 0, stage: null },
+    progress = null,
     recoverable = false,
     lastErrorCode = null,
   }) {
@@ -109,7 +114,7 @@ class ManagedRuntimeCoordinator {
       profile,
       runtimeVersion,
       pythonVersion,
-      source: 'managed-runtime',
+      source: 'managed',
       progress,
       recoverable,
       lastErrorCode,
@@ -131,6 +136,17 @@ class ManagedRuntimeCoordinator {
     return () => this.listeners.delete(listener);
   }
 
+  on(event, listener) {
+    if (event !== 'status') throw new TypeError('Managed runtime only emits status events.');
+    this.listeners.add(listener);
+    return this;
+  }
+
+  off(event, listener) {
+    if (event === 'status') this.listeners.delete(listener);
+    return this;
+  }
+
   async check() {
     this.publish(this.createSnapshot({ state: 'checking', profile: this.target.profile }));
     const active = await this.store.readActive(this.target.profile);
@@ -146,6 +162,37 @@ class ManagedRuntimeCoordinator {
   prepare(manifestInput) { return this.start('prepare', manifestInput); }
 
   repair(manifestInput) { return this.start('repair', manifestInput); }
+
+  async loadManifest() {
+    if (typeof this.artifactAdapter.getManifest !== 'function') {
+      throw coordinatorError('MANAGED_RUNTIME_ARTIFACT_UNAVAILABLE', 'No managed runtime manifest source is configured.');
+    }
+    return this.artifactAdapter.getManifest({ target: this.target });
+  }
+
+  async invokePackagedAction(kind) {
+    if (this.shutdownRequested) {
+      throw coordinatorError('MANAGED_RUNTIME_CANCELLED', 'Managed runtime is shutting down.');
+    }
+    try {
+      const manifest = await this.loadManifest();
+      this.lastAction = kind;
+      this.lastManifest = manifest;
+      return kind === 'repair' ? this.repair(manifest) : this.prepare(manifest);
+    } catch (error) {
+      const normalized = normalizeError(error);
+      this.publish(this.createSnapshot({
+        state: 'repair_required', profile: this.target.profile, recoverable: true, lastErrorCode: normalized.code,
+      }));
+      throw normalized;
+    }
+  }
+
+  prepareBaseRuntime() { return this.invokePackagedAction('prepare'); }
+
+  repairBaseRuntime() { return this.invokePackagedAction('repair'); }
+
+  retryRuntimeOperation() { return this.invokePackagedAction(this.lastAction || 'prepare'); }
 
   start(kind, manifestInput) {
     if (this.operation) return this.operation;
@@ -186,7 +233,7 @@ class ManagedRuntimeCoordinator {
       this.publish(this.createSnapshot({
         state: 'preparing', operationId, profile: manifest.profile,
         runtimeVersion: previous?.version || null, pythonVersion: previous?.health.pythonVersion || null,
-        progress: { current: 1, total: 4, stage: kind === 'repair' ? 'repairing' : 'staging' }, recoverable: Boolean(previous),
+        progress: { completed: 1, total: 4 }, recoverable: Boolean(previous),
       }));
       stagingPath = await this.store.createStaging(operationId);
       const artifact = await this.artifactAdapter.acquire({ manifest, stagingPath, signal: controller.signal });
@@ -202,7 +249,7 @@ class ManagedRuntimeCoordinator {
       this.publish(this.createSnapshot({
         state: 'verifying', operationId, profile: manifest.profile,
         runtimeVersion: manifest.version,
-        progress: { current: 2, total: 4, stage: 'unpacked-digest' }, recoverable: Boolean(previous),
+        progress: { completed: 2, total: 4 }, recoverable: Boolean(previous),
       }));
       if (await digestRuntimeDirectory(stagingPath) !== manifest.unpackedSha256) {
         throw coordinatorError('MANAGED_RUNTIME_UNPACKED_DIGEST_MISMATCH', 'Unpacked runtime content does not match its manifest.');
@@ -211,7 +258,7 @@ class ManagedRuntimeCoordinator {
       await fs.promises.access(executablePath, fs.constants.X_OK);
       this.publish(this.createSnapshot({
         state: 'verifying', operationId, profile: manifest.profile, runtimeVersion: manifest.version,
-        progress: { current: 3, total: 4, stage: 'health-probe' }, recoverable: Boolean(previous),
+        progress: { completed: 3, total: 4 }, recoverable: Boolean(previous),
       }));
       const probeResult = await this.probeAdapter.probe({ executablePath, manifest, signal: controller.signal });
       const pythonVersion = normalizePythonVersion(probeResult);
@@ -223,7 +270,7 @@ class ManagedRuntimeCoordinator {
       await this.store.activate(manifest, { pythonVersion, checkedAt: this.clock().toISOString() });
       return this.publish(this.createSnapshot({
         state: 'ready', profile: manifest.profile, runtimeVersion: manifest.version, pythonVersion,
-        progress: { current: 4, total: 4, stage: 'activated' },
+        progress: { completed: 4, total: 4 },
       }));
     } catch (error) {
       const normalized = controller.signal.aborted ? coordinatorError('MANAGED_RUNTIME_CANCELLED', 'Managed runtime operation was cancelled.') : normalizeError(error);

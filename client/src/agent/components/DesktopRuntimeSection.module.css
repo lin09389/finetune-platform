@@ -109,6 +109,12 @@
   white-space: nowrap;
 }
 
+.managedRuntimeCopy small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .runtimeStatus {
   align-self: start;
   font-size: 10px;

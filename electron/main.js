@@ -11,11 +11,14 @@ const {
   getOrCreateRuntimeSecrets,
   buildServiceEnvironment,
 } = require('./runtime-paths');
-const { resolvePython } = require('./python-resolver');
+const { resolvePython, defaultProbe } = require('./python-resolver');
 const { ProcessSupervisor, probeHttp, createTrainingWorkerProbe } = require('./process-supervisor');
 const { IpcPathAuthorizer } = require('./ipc-path-authorizer');
 const { registerDesktopIpc } = require('./desktop-ipc');
 const { resolveRendererAsset } = require('./renderer-protocol');
+const { ManagedRuntimeStore } = require('./managed-runtime-store');
+const { ManagedRuntimeCoordinator } = require('./managed-runtime-coordinator');
+const { LocalRuntimeArtifactAdapter } = require('./local-runtime-artifact');
 
 const DEV_FRONTEND_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5173';
 const isDev = !app.isPackaged;
@@ -153,15 +156,43 @@ async function initializeDesktopRuntime() {
   // App-owned workspace storage is registered internally; renderer input can never grant itself access.
   await authorizer.registerWorkspace(paths.workspacesRoot);
 
+  const managedRuntimeTarget = Object.freeze({
+    platform: process.platform,
+    arch: process.arch,
+    profile: 'base',
+  });
+  const managedRuntimeStore = new ManagedRuntimeStore({ root: paths.managedRuntimeRoot });
+  const runtimePackDirectory = process.env.FINETUNE_RUNTIME_PACK_DIR
+    || (app.isPackaged
+      ? path.join(process.resourcesPath, 'runtime-packs')
+      : path.join(paths.projectRoot, 'artifacts', 'runtime-packs'));
+  const runtimeArtifactAdapter = new LocalRuntimeArtifactAdapter({
+    manifestPath: process.env.FINETUNE_RUNTIME_MANIFEST || null,
+    manifestDirectory: runtimePackDirectory,
+    target: managedRuntimeTarget,
+  });
+  managedRuntimeCoordinator = new ManagedRuntimeCoordinator({
+    store: managedRuntimeStore,
+    target: managedRuntimeTarget,
+    artifactAdapter: runtimeArtifactAdapter,
+    probeAdapter: {
+      probe: ({ executablePath }) => defaultProbe({
+        source: 'managed-runtime',
+        command: executablePath,
+        prefixArgs: [],
+      }),
+    },
+  });
+  await managedRuntimeCoordinator.check();
+  const activeManagedRuntime = await managedRuntimeStore.readActive('base');
+
   let python = null;
   let pythonError = null;
   try {
     python = await resolvePython({
       explicitPython: process.env.FINETUNE_PYTHON,
       projectRoot: paths.projectRoot,
-      managedRuntimeRoot: app.isPackaged
-        ? path.join(process.resourcesPath, 'python')
-        : path.join(paths.runtimeRoot, 'python'),
+      managedRuntime: activeManagedRuntime,
       platform: process.platform,
     });
   } catch (error) {
@@ -213,10 +244,7 @@ async function initializeDesktopRuntime() {
 
   createWindow();
   if (pythonError) {
-    dialog.showErrorBox(
-      '需要 Python 3.11',
-      '未找到兼容的 Python 3.11 运行时。服务保持失败状态；请设置 FINETUNE_PYTHON 或安装 Python 3.11。',
-    );
+    console.warn('[desktop] Services are unavailable until the base runtime is prepared.');
   } else {
     await supervisor.startAll();
   }

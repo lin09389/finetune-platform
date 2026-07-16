@@ -16,7 +16,9 @@ function manifest(version = '3.11.9-base.1') {
     platform: 'win32',
     arch: 'x64',
     python: '>=3.11,<3.12',
+    archiveFile: 'base-runtime.tar.gz',
     archiveSha256: 'a'.repeat(64),
+    archiveSize: 1024,
     unpackedSha256: 'b'.repeat(64),
     entrypoint: 'python.exe',
   };

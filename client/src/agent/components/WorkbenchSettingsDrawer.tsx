@@ -1,4 +1,5 @@
 import { Drawer, Form, Select, Typography } from 'antd';
+import { lazy, Suspense } from 'react';
 import {
   FolderOpenOutlined,
   SafetyCertificateOutlined,
@@ -7,8 +8,9 @@ import {
 import WorkspacePathPicker from '../../components/workspace/WorkspacePathPicker';
 import type { AgentWorkbenchSettings } from '../config/workbenchSettings';
 import AgentCapabilityScorecard from './AgentCapabilityScorecard';
-import DesktopRuntimeSection from './DesktopRuntimeSection';
 import styles from './WorkbenchSettingsDrawer.module.css';
+
+const DesktopRuntimeSection = lazy(() => import('./DesktopRuntimeSection'));
 
 interface WorkbenchSettingsDrawerProps {
   open: boolean;
@@ -62,7 +64,11 @@ export default function WorkbenchSettingsDrawer({
       className={styles.drawer}
     >
       <div className={styles.body}>
-        <DesktopRuntimeSection />
+        {open ? (
+          <Suspense fallback={null}>
+            <DesktopRuntimeSection />
+          </Suspense>
+        ) : null}
 
         <AgentCapabilityScorecard />
 

@@ -18,7 +18,7 @@ function temporary(context) {
 
 async function fixture(context, version = '3.11.9-base.1') {
   const root = temporary(context);
-  const archivePath = path.join(root, 'runtime.pack');
+  const archivePath = path.join(root, 'runtime.tar.gz');
   const sourcePath = path.join(root, 'source');
   await fs.promises.mkdir(sourcePath);
   await fs.promises.writeFile(path.join(sourcePath, 'python.exe'), 'synthetic-python');
@@ -34,7 +34,9 @@ async function fixture(context, version = '3.11.9-base.1') {
       platform: 'win32',
       arch: 'x64',
       python: '>=3.11,<3.12',
+      archiveFile: path.basename(archivePath),
       archiveSha256: crypto.createHash('sha256').update(await fs.promises.readFile(archivePath)).digest('hex'),
+      archiveSize: (await fs.promises.stat(archivePath)).size,
       unpackedSha256: await digestRuntimeDirectory(sourcePath),
       entrypoint: 'python.exe',
     },
@@ -44,6 +46,7 @@ async function fixture(context, version = '3.11.9-base.1') {
 function adapters(fixtureData, probe = async () => ({ major: 3, minor: 11, patch: 9 })) {
   return {
     artifact: {
+      getManifest: async () => fixtureData.manifest,
       acquire: async () => ({ archivePath: fixtureData.archivePath }),
       extract: async ({ destination }) => fs.promises.cp(fixtureData.sourcePath, destination, { recursive: true }),
     },
@@ -71,7 +74,22 @@ test('prepares, verifies, activates and exposes a ready immutable runtime snapsh
   assert.equal(result.state, 'ready');
   assert.equal(result.runtimeVersion, data.manifest.version);
   assert.equal(result.pythonVersion, '3.11.9');
+  assert.equal(result.source, 'managed');
+  assert.deepEqual(result.progress, { completed: 4, total: 4 });
   assert.equal((await store.readActive('base')).version, data.manifest.version);
+});
+
+test('renderer-safe no-argument actions load the trusted manifest and support retry', async (context) => {
+  const data = await fixture(context);
+  const store = new ManagedRuntimeStore({ root: path.join(data.root, 'managed') });
+  const lifecycle = coordinator(store, data);
+  const statuses = [];
+  lifecycle.on('status', (status) => statuses.push(status));
+
+  await lifecycle.prepareBaseRuntime();
+  assert.equal(lifecycle.getSnapshot().state, 'ready');
+  assert.ok(statuses.some((status) => status.state === 'preparing'));
+  lifecycle.off('status', () => undefined);
 });
 
 test('checksum mismatch never activates staging and enters deterministic repair state', async (context) => {

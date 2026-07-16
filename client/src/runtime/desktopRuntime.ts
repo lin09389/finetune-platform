@@ -76,10 +76,12 @@ export const normalizeManagedRuntimeStatus = (input: unknown): ManagedRuntimeSta
     invalidManagedRuntimeStatus();
   }
 
-  const nullableString = (field: 'operationId' | 'runtimeVersion' | 'pythonVersion' | 'lastErrorCode') => {
+  const nullableString = (
+    field: 'operationId' | 'runtimeVersion' | 'pythonVersion' | 'lastErrorCode',
+  ): string | null => {
     const fieldValue = value[field];
     if (fieldValue === null) return null;
-    if (typeof fieldValue !== 'string' || !fieldValue.trim()) invalidManagedRuntimeStatus();
+    if (typeof fieldValue !== 'string' || !fieldValue.trim()) return invalidManagedRuntimeStatus();
     return fieldValue;
   };
   const operationId = nullableString('operationId');

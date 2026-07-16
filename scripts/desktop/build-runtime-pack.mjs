@@ -77,10 +77,10 @@ function tarHeader(file) {
   header[156] = '0'.charCodeAt(0);
   writeString(header, 257, 6, 'ustar');
   writeString(header, 263, 2, '00');
-  writeString(header, 329, 8, 'root');
-  writeString(header, 337, 8, 'root');
-  writeString(header, 345, 8, '0000000');
-  writeString(header, 353, 8, '0000000');
+  writeString(header, 265, 32, 'root');
+  writeString(header, 297, 32, 'root');
+  writeString(header, 329, 8, '0000000');
+  writeString(header, 337, 8, '0000000');
   writeString(header, 345, 155, prefix);
   let checksum = 0;
   for (const byte of header) checksum += byte;
@@ -121,8 +121,9 @@ export async function buildRuntimePack(options) {
   });
   await fs.mkdir(outputDir, { recursive: true });
   await fs.writeFile(path.join(outputDir, archiveName), archive, { flag: 'w' });
-  await fs.writeFile(path.join(outputDir, `${archiveName}.manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', flag: 'w' });
-  return Object.freeze({ archivePath: path.join(outputDir, archiveName), manifestPath: path.join(outputDir, `${archiveName}.manifest.json`), manifest });
+  const manifestName = `${archiveName}.manifest.json`;
+  await fs.writeFile(path.join(outputDir, manifestName), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', flag: 'w' });
+  return Object.freeze({ archivePath: path.join(outputDir, archiveName), manifestPath: path.join(outputDir, manifestName), manifest });
 }
 
 async function main() {

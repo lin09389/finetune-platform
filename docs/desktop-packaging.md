@@ -24,8 +24,14 @@ npm run build:runtime-pack -- `
 
 The output directory receives a deterministic `.tar.gz` archive and adjacent JSON manifest. The manifest
 contains the schema version, target platform/architecture, `>=3.11,<3.12` compatibility, profile,
-entrypoint, archive digest, unpacked digest, and completed-marker name. `artifacts/runtime-packs/` is
+entrypoint, archive filename/size/digest, and unpacked digest. `artifacts/runtime-packs/` is
 ignored by Git deliberately: packs are release artifacts, never source inputs.
+
+For local acceptance, set `FINETUNE_RUNTIME_MANIFEST` to the generated manifest. Alternatively set
+`FINETUNE_RUNTIME_PACK_DIR` to a directory containing exactly one compatible manifest/archive pair.
+Packaged releases discover the same pair under `resources/runtime-packs`. The renderer never receives
+these paths. After preparing a new runtime from the Workbench settings card, restart the application so
+newly supervised services use the activated Python executable.
 
 The builder rejects unprepared or unsafe inputs, including symlinks, databases, secrets, mutable user
 data, models, datasets, outputs, workspaces, caches, logs, developer environments, and GPU/training

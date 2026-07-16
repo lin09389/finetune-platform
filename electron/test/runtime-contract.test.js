@@ -82,6 +82,8 @@ test('runtime data, databases, models and secrets stay under userData', () => {
       env: {},
     });
     ensureRuntimeDirectories(paths);
+    assert.equal(paths.managedRuntimeRoot, path.join(temporary, 'profile', 'managed-runtimes'));
+    assert.equal(fs.existsSync(paths.managedRuntimeRoot), true);
     const first = getOrCreateRuntimeSecrets(paths);
     const second = getOrCreateRuntimeSecrets(paths);
     assert.deepEqual(first, second);
@@ -119,5 +121,19 @@ test('a packaged app rejects a user-data override inside installation resources'
       env: { FINETUNE_USER_DATA_ROOT: path.join(resourcesPath, 'server', 'data') },
     }),
     (error) => error.code === 'UNSAFE_RUNTIME_DATA_ROOT',
+  );
+});
+
+test('a packaged app rejects a managed-runtime override inside installation resources', () => {
+  const resourcesPath = path.resolve('C:\\Program Files\\Finetune Platform\\resources');
+  assert.throws(
+    () => resolveRuntimePaths({
+      appPath: path.join(resourcesPath, 'app.asar'),
+      resourcesPath,
+      userDataPath: path.resolve('C:\\Users\\student\\AppData\\Roaming\\Finetune Platform'),
+      isPackaged: true,
+      env: { FINETUNE_MANAGED_RUNTIME_ROOT: path.join(resourcesPath, 'runtime-packs') },
+    }),
+    (error) => error.code === 'UNSAFE_MANAGED_RUNTIME_ROOT',
   );
 });

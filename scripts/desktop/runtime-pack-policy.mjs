@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 
 export const RUNTIME_PACK_MANIFEST_VERSION = 1;
-export const COMPLETED_MARKER = '.finetune-runtime-complete';
 export const BASE_RUNTIME_PROFILES = Object.freeze(['base', 'training-gpu']);
 
 const MUTABLE_SEGMENTS = new Set([
@@ -128,11 +127,12 @@ export function createRuntimeManifest({
     profile,
     version,
     platform,
-    architecture,
-    python: Object.freeze({ requires: '>=3.11,<3.12', version: pythonVersion }),
-    archive: Object.freeze({ file: archiveFile, sha256: archiveSha256, size: archiveSize }),
+    arch: architecture,
+    python: '>=3.11,<3.12',
+    archiveFile,
+    archiveSha256,
+    archiveSize,
     unpackedSha256,
     entrypoint: expectedEntrypoint(platform),
-    completedMarker: COMPLETED_MARKER,
   });
 }
