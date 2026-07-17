@@ -1,100 +1,138 @@
-# Finetune Platform 2.1
+# Finetune Platform
 
 [English](README_EN.md) | 简体中文
 
-面向独立开发者和小团队的本地大模型微调工作台：在消费级显卡上完成数据集管理、LoRA/QLoRA 微调、评估、推理、部署打包，并把 Agent 工作台、项目上下文、记忆和知识库放在同一个产品里。
+**本地优先的个人 AI Engineer：在同一个桌面工作台里编写软件，也训练模型。**
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688)
-![React](https://img.shields.io/badge/React-18-61DAFB)
-![Vite](https://img.shields.io/badge/Vite-5-646CFF)
-![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6-orange)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Electron](https://img.shields.io/badge/Desktop-Electron-47848F)
+![DeepAgents](https://img.shields.io/badge/Agent-DeepAgents-orange)
+![Local First](https://img.shields.io/badge/Data-Local--first-2E8B57)
+![Windows First](https://img.shields.io/badge/Release-Windows--first-0078D4)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-## 项目定位
+Finetune Platform 正在从“大模型微调平台”演进为一个面向独立开发者的个人 AI Engineer App。你可以像使用 Coding Agent 一样输入任务，让它理解代码、修改项目、运行验证和展示证据；也可以让同一个 Agent 检查数据与硬件、提出训练方案、启动微调、追踪进度并评估模型。
 
-Finetune Platform 不是一个只跑 demo 的训练脚本集合，而是一套可落地的本地 AI 工作台。它围绕“拿到数据、训练小模型、评估效果、部署使用、让 Agent 辅助项目开发”这条链路组织功能，尽量降低个人设备上的微调和实验成本。
+代码、模型、数据集、会话、执行轨迹和训练产物默认保留在自己的电脑上。SQLite、本地文件和本地 GPU 是第一公民；PostgreSQL、Redis 和远程 Worker 只属于未来可选的团队版，不是个人版的运行前提。
 
-适合你在这些场景里使用：
+> **当前阶段：活跃开发 / 源码预览。** Electron 已成为正式桌面运行时边界，并具备本地服务监督和受管 Python Runtime 基础；真实发行用 Runtime Pack、签名安装器、自动更新和干净机器验收仍在路线图中。目前不要把仓库构建等同于稳定桌面发行版。
 
-- 用 4GB+ 显存的消费级 NVIDIA 显卡做 LoRA/QLoRA 实验。
-- 管理本地模型、数据集、训练历史、评估记录和部署产物。
-- 在一个 Web UI 里完成推理测试、知识库问答、模型中心下载和工作区管理。
-- 使用 Agent 工作台读取项目上下文、执行任务、查看计划、审批敏感操作。
-- 研究本地 AI 平台、RAG、Agent Session、MCP、CUA 等工程集成方式。
+## 产品承诺
 
-## 能力分层
+> 在自己的电脑、自己的项目和自己的模型上，让一个 Agent 同时完成软件工程与模型工程任务；每次操作都可理解、可审批、可恢复、可评测。
 
-后端 `/api/info` 会暴露当前能力分层，README 以该接口为准。
+这不是把训练后台和聊天窗口简单放在一起。产品围绕一个统一工作流组织：
 
-| 分层 | 能力 | 稳定性 |
-| --- | --- | --- |
-| GA | device、models、datasets、training、inference、chat_sessions、knowledge_base | 主流程能力，适合日常使用和回归测试 |
-| Beta | project_context、memory、model_center、workspace | 已可用，但接口和 UI 仍可能调整 |
-| Experimental | cua、heartbeat、mcp、gateway、ocr_fallbacks、action_recorder | 实验能力，适合探索和二次开发 |
+```mermaid
+flowchart LR
+    U["任务输入"] --> W["Agent Workbench"]
+    W --> S["Agent Session"]
+    S --> D["DeepAgents 执行引擎"]
+    D --> P["工具策略与运行环境"]
+    P --> C["Coding：文件 · 终端 · Git · 测试"]
+    P --> T["Training：数据 · 模型 · 训练 · 评估"]
+    S --> E["持久化事件与证据"]
+    E --> UI["时间线 · Diff · 审批 · 诊断"]
+    E -. "路线图" .-> TT["Trace-to-Train 数据飞轮"]
+```
 
-## 核心功能
+同一个任务可以是：
 
-### 微调与推理
+- **Build：** 阅读仓库、实现功能、修复缺陷、运行测试并交付 Diff。
+- **Train：** 检查数据和显存、提出配置、经审批启动训练并跟踪结果。
+- **Hybrid：** 修改训练代码、验证预处理、启动小规模训练并比较评测。
 
-- 模型管理：本地模型列表、下载、删除、导出和 ModelScope/HuggingFace 集成。
-- 数据集管理：上传、解析、预处理和训练数据准备。
-- LoRA/QLoRA 训练：面向低显存设备优化，支持任务状态、训练历史和检查点恢复。
-- 实时训练进度：基于 SSE 的训练事件流，前端可实时展示 loss、step、状态和日志。
-- 评估与对比：支持模型评估、人工评分、历史对比和部署前检查。
-- 多后端推理：HuggingFace、Ollama、llama.cpp、vLLM 等后端可按环境切换。
-- 部署打包：导出适配器、推理样例、Ollama Modelfile、环境模板等部署材料。
+## 为什么它不只是另一个 Coding Agent
 
-### Agent 与工作台
+| 普通 Coding Agent | Finetune Platform 的方向 |
+|---|---|
+| 修改代码并运行命令 | 同样具备 Coding 闭环，并把训练、评测和本地推理作为受控工具 |
+| 依赖云端模型或远程沙箱 | 模型无关，本地模型、本地 GPU 和本地数据是正式路径 |
+| 会话结束即交付 | 持久化计划、事件、Diff、审批、验证与工件，可刷新和恢复 |
+| 只消费模型能力 | 目标是让高质量 Agent 轨迹经过评测和治理后反哺本地模型训练 |
 
-- `/agent` 是默认入口，提供沉浸式 Agent Workbench。
-- Agent Session 通过 FastAPI + SSE 管理会话生命周期、事件、状态和输出 parts。
-- 新建任务会先确认工作区，再选择 `Build`、`Train` 或 `Hybrid` 模式；已确认的工作区 ID 与校验后的项目路径会随会话持久化。
-- Build/Train/Hybrid 任务未确认工作区时不会在 Workbench 中提交。文件、命令和训练相关副作用都以该会话绑定的工作区为根；时间线只显示工作区名称，不显示绝对路径。
-- 旧版 `POST /agent-sessions` 调用仍可只传 `project_path`，已有会话无需迁移即可读取。
-- DeepAgents 作为执行引擎，项目目录以虚拟 `/workspace/` 挂载。
-- 支持人类审批门控：文件写入、工具调用或敏感动作可进入等待审批状态，再从后台恢复执行。
-- 内置 Build、Explore、Review Agent manifest，可扩展自己的 Agent 定义。
-- 工作区视图、终端事件、执行计划、Diff、子 Agent 状态和产物预览统一展示。
+核心差异不是堆叠更多页面，而是形成这条闭环：
 
-### 知识、上下文与记忆
+```text
+Coding / Training Task
+        → 结构化执行轨迹
+        → 自动评测与用户反馈
+        → 版本化候选数据集
+        → LoRA / QLoRA
+        → 固定 Agent Eval
+        → 本地模型重新部署
+```
 
-- RAG 知识库：ChromaDB + sentence-transformers，支持文档解析、切片、检索和问答。
-- 项目上下文：扫描本地项目结构，提取代码符号，构建上下文包。
-- 记忆系统：短期、中期、长期记忆分层，为聊天和 Agent 任务提供背景。
-- 文件解析：支持 PDF、DOCX、XLSX、OCR 等常见输入。
+其中 Trace-to-Train 仍是后续阶段，不是当前已发布能力。
 
-## 技术栈
+## 当前已经具备什么
 
-| 层 | 技术 |
-| --- | --- |
-| 后端 | FastAPI、Python 3.11、Pydantic、SQLite、PyTorch、Transformers、PEFT |
-| 前端 | React 18、TypeScript、Vite、Ant Design、Zustand、Framer Motion |
-| Agent | DeepAgents、LangGraph、SSE、虚拟 workspace、HITL 审批 |
-| RAG | ChromaDB、sentence-transformers、pdfplumber、python-docx、openpyxl |
-| 部署 | Docker Compose、正式 Electron 桌面端、版本化本地 Python runtime pack、Ollama profile、GPU compose 覆盖 |
+### Coding Agent 工作台
+
+- `/agent` 是默认产品入口，提供任务输入、对话、计划、时间线和上下文面板。
+- Workspace 是长期工作边界；Build、Train、Hybrid 任务会持久化工作区与任务模式。
+- `AgentSessionService` 是唯一 Agent 生命周期所有者，DeepAgents 是唯一生产工具执行循环。
+- 支持执行计划、文件操作、终端活动、持久化 Diff、验证证据和任务恢复。
+- 支持 HITL interrupt/resume，敏感动作可以等待用户审批后在后台继续。
+- 内置 Build、Explore、Review Agent manifest，并支持异步子 Agent 与状态投影。
+- Agent Eval v1 提供版本化场景、确定性回归和显式 opt-in 的真实模型评测入口。
+
+### 模型训练助手
+
+- 管理本地模型、数据集、训练记录、评估与部署工件。
+- 支持 LoRA/QLoRA、低显存配置、训练队列、独立 Training Worker 和检查点恢复。
+- Agent 可生成只读训练提案，完成模型/数据解析、配置校验与显存预估。
+- 启动训练必须经过现有审批边界；重复提交、越权关联和陈旧提案会被拒绝。
+- 训练进度通过持久化事件同步到 Workbench，API 重启或页面刷新后可以恢复。
+- 推理服务独立运行，支持本地后端与 OpenAI-compatible 接口边界。
+
+### 本地知识与桌面运行时
+
+- RAG 知识库、项目上下文、代码符号索引、记忆和常见文档解析。
+- Electron 负责本地 API、Training Worker 和 Inference Service 的启动、健康、重启与退出顺序。
+- Renderer 通过版本化窄 IPC 获取状态，不持有内部服务密钥或任意宿主路径能力。
+- 受管 Python 3.11 Runtime 支持严格 manifest、SHA-256、staging、健康探针、原子激活与修复基础。
+- 用户数据库、模型、输出、日志、Workspace 和密钥与应用安装资源分离。
+
+## 能力成熟度
+
+运行时权威来自后端 `GET /api/info`；README 只做产品级摘要。
+
+| 分层 | 能力 | 含义 |
+|---|---|---|
+| GA | device、models、datasets、training、inference、chat_sessions、knowledge_base | 主流程能力，需要兼容性和回归保障 |
+| Beta | project_context、memory、model_center、workspace、agent_eval、cloud_chat | 已接入产品，但协议或交互仍可能演进 |
+| Experimental | cua、heartbeat、mcp、gateway、ocr_fallbacks、action_recorder | 默认隔离的探索能力，不代表稳定产品承诺 |
+
+仍在路线图中的关键能力包括可信沙箱、任务级 Git Worktree、修改账本与安全回退、复杂项目上下文、Trace-to-Train、受权限约束的扩展系统和正式桌面发行链路。
+
+## 架构原则
+
+- **单一 Agent Loop：** DeepAgents 负责模型循环、工具决策、Planner、子 Agent 和 interrupt；平台不再创建第二套 ReAct/Planner。
+- **强 Session、薄宿主：** 平台负责跨 Turn 生命周期、Workspace 绑定、持久化、审批、恢复、事件与诊断。
+- **确定性 Workflow：** 应用状态机协调任务、训练、工件和幂等，但不与模型争夺“下一步工具”决策。
+- **事件驱动扩展：** UI、评测、诊断、自动化和未来 Trace Collector 消费同一版本化事件事实。
+- **本地安全优先：** 文件、命令、网络、密钥和 GPU 权限必须绑定明确的 Workspace、Session 与 Runtime。
+- **团队版可替换：** 业务语义不直接依赖 SQLite、Redis 或 PostgreSQL；未来通过适配器迁移。
+
+完整决策见：
+
+- [Phase 11+ 总体路线图](docs/plans/2026-07-13-trusted-local-ai-engineer-roadmap.md)
+- [ADR-0001：Agent Session 是唯一 Agent Runtime](docs/adr/0001-agent-session-as-primary-agent-runtime.md)
+- [ADR-0011：DeepAgents 保持唯一 Agent Loop](docs/adr/0011-keep-deepagents-as-the-only-agent-loop.md)
 
 ## 快速开始
 
 ### 环境要求
 
-- Python 3.11.x
+- Windows 10/11（当前桌面发行主目标；Linux/macOS 仍以开发环境为主）
+- Python `>=3.11,<3.12`
 - Node.js 18+
 - Git
-- NVIDIA GPU + CUDA 环境，推荐用于训练和本地推理
-- Docker Desktop，可选
+- NVIDIA GPU + CUDA：训练和本地 GPU 推理时推荐；控制面与部分测试可以 CPU 运行
+- `uv`：推荐的 Python 依赖管理器
 
-显存参考：
-
-| 显存 | 适合模型 | 建议方式 |
-| --- | --- | --- |
-| 4GB | 0.5B-1.5B INT4 | QLoRA，小 batch，短序列 |
-| 6GB | 1.5B-3B INT4 | QLoRA |
-| 8GB | 3B-7B INT4 | QLoRA 或轻量 LoRA |
-| 12GB+ | 7B/13B | LoRA/QLoRA 更从容 |
-
-### Windows 一键启动
+### Windows 源码快速启动
 
 在仓库根目录执行：
 
@@ -102,223 +140,138 @@ Finetune Platform 不是一个只跑 demo 的训练脚本集合，而是一套�
 start.bat
 ```
 
-脚本会检查 Python/Node 环境，安装必要依赖，并分别启动：
-
-- 前端：http://127.0.0.1:5173
-- 后端：http://127.0.0.1:8010
-- Swagger：http://127.0.0.1:8010/docs
-- 健康检查：http://127.0.0.1:8010/health
-
-如果你需要先验证环境：
+该路径启动本地开发栈。先检查环境可运行：
 
 ```bat
 verify.bat
 ```
 
-如果你使用 NVIDIA 显卡并希望安装 GPU 版 PyTorch（根目录 `install-pytorch-gpu.bat` 会转发到 `server\install-gpu.bat`）：
+### 完整手动开发环境
 
-```bat
-install-pytorch-gpu.bat
-```
-
-### 手动启动
-
-推荐使用 `uv` 管理后端依赖：
-
-```bash
+```powershell
 git clone https://github.com/lin09389/finetune-platform.git
-cd finetune-platform
-cp .env.example .env
+Set-Location finetune-platform
 
-uv sync
-```
-
-启动后端：
-
-```bash
-cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
-```
-
-启动前端：
-
-```bash
-cd client
+uv sync --frozen --extra all --extra dev
 npm install
-npm run dev
-```
-
-前端开发服务器默认固定在 `5173`，并直接访问 `http://127.0.0.1:8010`，不依赖 Vite proxy。
-
-### Docker 启动
-
-根据你的场景选择合适的启动方式：
-
-| 场景 | 命令 | 说明 |
-|------|------|------|
-| 仅 API（CPU） | `docker compose up -d api` | 最小部署，不含训练 worker / 推理服务 / 前端 |
-| 完整开发栈（含前端） | `docker compose --profile dev up -d` | API + 前端 + 推理 + 训练 worker |
-| GPU 训练 | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build` | 启用 GPU 覆盖配置 |
-| 仅 Ollama | `docker compose --profile ollama up -d` | 单独启动 Ollama 服务 |
-
-> 依赖 profile 与 Dockerfile 选型详见 [`docs/dependency-profiles.md`](docs/dependency-profiles.md)。
-
-查看日志：
-
-```bash
-docker compose logs -f api
-```
-
-## 常用命令
-
-### 后端
-
-```bash
-cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
-python -m pytest
-python -m pytest -m "not integration and not e2e"
-python -m pytest -m integration
-python -m pytest --cov=server --cov-report=html
-```
-
-### 前端
-
-```bash
-cd client
-npm run dev
+Set-Location client
+npm install
 npm run build
-npm run typecheck
-npm run lint
-npm run test:smoke
-npm run test:runtime
+Set-Location ..
 ```
 
-注意：`npm test` 是 Vitest watch 模式；CI 或一次性验证建议使用 `npx vitest run` 或上面的专项脚本。
+启动 Electron 开发运行时：
 
-### 依赖管理
+```powershell
+npm run start
+```
+
+开发模式要求可用的 Python 3.11 环境与对应依赖。可通过 `FINETUNE_PYTHON` 指定解释器，或通过 `FINETUNE_RUNTIME_MANIFEST` / `FINETUNE_RUNTIME_PACK_DIR` 测试本地 Runtime Pack。
+
+### 分进程调试
+
+```powershell
+uv run --extra all python -m server.inference_server
+uv run --extra all python -m server.training_worker
+uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+```
+
+另开终端启动 Renderer：
+
+```powershell
+Set-Location client
+npm run dev
+```
+
+前端开发服务器使用 `127.0.0.1:5173`，默认直连 `127.0.0.1:8010`，不依赖 Vite proxy。
+
+### Docker（可选）
 
 ```bash
-uv sync --extra all --extra dev
-uv lock
-uv export --extra all --no-dev --no-hashes --format requirements-txt -o server/requirements.txt
-uv export --extra agent --extra rag --extra cua --extra modelhub --extra model-ops --no-dev --no-hashes --format requirements-txt -o server/requirements-api.txt
-uv export --extra training --extra gpu --no-dev --no-hashes --format requirements-txt -o server/requirements-training.txt
-uv export --extra inference --no-dev --no-hashes --format requirements-txt -o server/requirements-inference.txt
+docker compose up -d api
+docker compose --profile dev up -d
+docker compose --profile ollama up -d
 ```
 
-`server/requirements*.txt` 由 `uv export` 生成，不建议手工编辑。依赖分组与镜像拆分见
-`docs/dependency-profiles.md`。
+个人桌面版不要求 Docker。依赖 profile 与镜像说明见 [docs/dependency-profiles.md](docs/dependency-profiles.md)。
 
-## 主要页面
+## 常用验证命令
 
-| 路由 | 页面 |
-| --- | --- |
-| `/agent` | Agent 工作台，默认入口 |
-| `/dashboard` | 平台概览 |
-| `/device` | 设备与显存监控 |
-| `/models` | 模型运行中心（本地列表 / 下载 / 运行时就绪） |
-| `/datasets` | 数据集管理 |
-| `/training` | 训练任务 |
-| `/chat` | 纯聊天界面 |
-| `/knowledge` | 知识库 |
-| `/inference` | 推理测试 |
-| `/evaluation` | 模型评估 |
-| `/deployment` | 部署包 |
-| `/workspace` | 工作区管理 |
-| `/memory` | 记忆系统 |
-| `/modelhub` | 兼容重定向 → `/models` |
-| `/project-context` | 项目上下文 |
-| `/mcp`、`/gateway`、`/heartbeat`、`/cua-control` | 实验能力 |
+```powershell
+# 后端
+python -m pytest server/tests -m "not integration and not e2e" -q
 
-## 关键 API
+# 前端
+Set-Location client
+npm run typecheck
+npm run build
+npm run test:smoke
 
-| API | 说明 |
-| --- | --- |
-| `GET /health` | 服务健康检查 |
-| `GET /api/info` | API 元信息和能力分层 |
-| `GET /device` | 设备信息 |
-| `GET /models` | 模型管理 |
-| `GET /datasets` | 数据集管理 |
-| `POST /training/start` | 启动训练 |
-| `GET /training/progress/stream` | 训练进度 SSE |
-| `POST /inference/*` | 推理服务 |
-| `GET /chat/sessions` | 聊天会话 |
-| `POST /agent-sessions` | 创建 Agent Session；新任务可选传 `workspace_id` 与 `task_mode`（`build` / `train` / `hybrid`） |
-| `POST /agent-sessions/{id}/prompt` | 向 Agent Session 发送任务 |
-| `GET /agent-sessions/{id}/events/stream` | Agent 事件 SSE |
-| `POST /agent-permissions/{permission_id}/approve` | 审批 Agent 权限请求 |
-| `POST /agent-permissions/{permission_id}/reject` | 拒绝 Agent 权限请求 |
+# Electron / Runtime Pack
+Set-Location ..
+npm run test:desktop
+npm run test:runtime-pack
+npm run test:package-policy
+```
+
+`npm test` 是 Vitest watch 模式；一次性验证请使用 `npx vitest run` 或专项脚本。
 
 ## 项目结构
 
 ```text
 finetune-platform/
-├── server/                 # FastAPI 后端
-│   ├── api/                # 路由层
-│   ├── agent_session/      # Agent Session 与 DeepAgents 运行时
-│   ├── core/               # 配置、存储、训练状态、事件总线
-│   ├── training_engine/    # 微调管线
-│   ├── inference_service/  # 推理服务层
-│   ├── rag/                # RAG 知识库
-│   ├── memory/             # 记忆系统
-│   ├── context/            # 项目上下文
-│   ├── workspace/          # 文件和任务 API
-│   └── tests/              # 后端正式测试
-├── client/                 # React 前端
-│   └── src/
-│       ├── agent/          # Agent Workbench
-│       ├── pages/          # 页面
-│       ├── components/     # 通用组件
-│       ├── services/       # API 客户端
-│       └── test/           # Vitest 测试
-├── electron/               # 正式桌面运行时、进程监督、受管 Python 与安全 IPC
-├── docs/                   # 设计、迁移、部署和能力文档
-├── scripts/                # 工具脚本
-├── models/                 # 本地模型目录
-├── datasets/               # 数据集目录
-├── outputs/                # 训练输出
-└── workspaces/             # 运行时工作区数据
+├── electron/                 # 正式桌面宿主、服务监督、安全 IPC、受管 Python
+├── client/src/agent/         # 默认 Agent Workbench
+├── server/
+│   ├── agent_session/        # 唯一 Agent 生命周期与 DeepAgents 适配
+│   ├── agent_eval/           # 版本化 Agent 能力评测
+│   ├── training_worker/      # 持久化训练队列与 GPU Worker
+│   ├── training_engine/      # LoRA/QLoRA 训练管线
+│   ├── inference_server/     # 独立本地推理服务
+│   ├── apps/                 # combined / agent / finetune 应用装配
+│   ├── workspace/            # Workspace 领域能力
+│   ├── context/              # 项目上下文与索引
+│   ├── rag/                  # 知识库
+│   └── memory/               # 记忆系统
+├── docs/                     # ADR、设计、运行与验收文档
+├── scripts/desktop/          # Runtime Pack 与安装包策略工具
+├── pyproject.toml            # Python 依赖事实源
+└── uv.lock                   # 唯一 Python lockfile
 ```
 
-## 配置说明
+`models/`、`datasets/`、`outputs/`、`workspaces/`、`logs/` 等是运行时数据，不是源码架构的一部分，也不应被打入桌面安装资源。
 
-复制 `.env.example` 到 `.env` 后按需修改。常见配置包括：
+## 路线图
 
-| 变量 | 用途 |
-| --- | --- |
-| `HOST`、`PORT` | 后端监听地址和端口 |
-| `ALLOWED_ORIGINS` | CORS 白名单 |
-| `INFERENCE_ENGINE` | 推理后端选择 |
-| `OLLAMA_BASE_URL` | Ollama 服务地址 |
-| `HF_MIRROR` | HuggingFace 镜像源 |
-| `MAX_CONCURRENT_TRAINING` | 最大并发训练数 |
-| `MAX_UPLOAD_SIZE` | 上传文件大小限制 |
-| `ENABLE_AUTH`、`JWT_SECRET_KEY` | 可选认证配置 |
-| `LOG_LEVEL`、`LOG_FORMAT` | 日志级别和格式 |
+| 阶段 | 目标 |
+|---|---|
+| Phase 11 | 薄 AgentSession Host、Runtime Binding、Steering/Follow-up、结构化 Compaction、统一事件脊柱 |
+| Phase 12–14 | 可信执行沙箱、隔离 Worktree、修改账本、检查点与安全回退 |
+| Phase 15 | 面向复杂、多文件、长任务的 Coding Agent 能力 |
+| Phase 16 | Integrated Training Copilot 与受治理的 Trace-to-Train 闭环 |
+| Phase 17 | Hooks、个人自动化和权限化扩展 |
+| Phase 18 | 真实 Runtime Pack、签名安装器、升级/回滚和干净机器发布验收 |
+| Phase 19 | 按真实需求启用 PostgreSQL、Redis、对象存储与团队治理 |
+
+Phase 16 是 Coding Agent 与训练助手核心闭环的大致完成点；Phase 18 是个人桌面产品达到可对外分发成熟度的目标。团队版不是个人版完成条件。
+
+## 当前限制
+
+- 真实 Python 3.11 基础 Runtime Pack 和签名 Windows 安装器尚未完成正式发布验收。
+- 当前安全执行仍需继续演进为可验证、fail-closed 的 Execution Environment Provider。
+- 并行 Coding 任务尚未默认拥有独立 Git Worktree，合并与回退体验仍在路线图中。
+- Trace-to-Train、公开扩展生态和团队版适配器尚未完成。
+- CUA、MCP、Gateway、Heartbeat 等仍是 Experimental，不应视为稳定默认能力。
 
 ## 文档入口
 
-- [AGENTS.md](AGENTS.md)：当前项目结构、开发命令和能力边界。
-- [docs/agent_system_design.md](docs/agent_system_design.md)：Agent 系统设计。
-- [docs/agent_session_migration.md](docs/agent_session_migration.md)：Agent Session 迁移记录。
-- [docs/capability-truth-table.md](docs/capability-truth-table.md)：能力成熟度和依赖说明。
-- [docs/local-inference-deployment.md](docs/local-inference-deployment.md)：本地推理部署说明。
-- [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md)：MCP 集成说明。
-- [docs/CUA_USAGE.md](docs/CUA_USAGE.md)：CUA 使用说明。
+- [能力成熟度与依赖](docs/capability-truth-table.md)
+- [Coding Agent 工程闭环](docs/coding-agent-engineering-loop.md)
+- [Agent Training Foundation](docs/agent-training-foundation.md)
+- [Workspace 可移植性 ADR](docs/adr/0009-use-versioned-reference-manifests-for-workspace-portability.md)
+- [桌面打包与数据边界](docs/desktop-packaging.md)
+- [Phase 10 执行记录](docs/phase10-execution-2026-07-16.md)
 
-## 开发约定
+## 许可证与致谢
 
-- 后端依赖事实源是根目录 `pyproject.toml` 和 `uv.lock`。
-- 前端 API 地址默认是 `http://127.0.0.1:8010`。
-- 正式后端测试主要位于 `server/tests/`，根目录零散脚本多为调试用途。
-- 改动 GA 能力时应补充或更新回归测试。
-- Experimental 能力可以快速迭代，但 README 和 `/api/info` 应保持诚实一致。
-
-## 当前状态
-
-项目处于活跃开发阶段。训练、推理、模型/数据集管理、知识库、聊天和 Agent Session 已形成主流程；CUA、MCP、Gateway、Heartbeat 等模块仍是实验区，更适合研究、扩展和二次开发。
-
-## 致谢
-
-本项目建立在 FastAPI、React、Ant Design、PyTorch、Transformers、PEFT、DeepAgents、LangGraph、ChromaDB、Ollama 等开源生态之上。
+本项目采用 [MIT License](LICENSE)。它建立在 FastAPI、React、Electron、PyTorch、Transformers、PEFT、DeepAgents、LangGraph、ChromaDB、Ollama 与更广泛的开源 AI 生态之上。

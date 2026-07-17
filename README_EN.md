@@ -1,333 +1,275 @@
-# Finetune Platform 2.1
+# Finetune Platform
 
 English | [简体中文](README.md)
 
-A local LLM fine-tuning workbench for independent developers and small teams. It brings dataset management, LoRA/QLoRA training, evaluation, inference, deployment packaging, Agent Workbench, project context, memory, and knowledge base features into one product optimized for consumer GPUs.
+**A local-first personal AI Engineer that builds software and trains models from one desktop workbench.**
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688)
-![React](https://img.shields.io/badge/React-18-61DAFB)
-![Vite](https://img.shields.io/badge/Vite-5-646CFF)
-![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6-orange)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Electron](https://img.shields.io/badge/Desktop-Electron-47848F)
+![DeepAgents](https://img.shields.io/badge/Agent-DeepAgents-orange)
+![Local First](https://img.shields.io/badge/Data-Local--first-2E8B57)
+![Windows First](https://img.shields.io/badge/Release-Windows--first-0078D4)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-## What It Is
+Finetune Platform is evolving from an LLM fine-tuning console into a personal AI Engineer application for independent developers. You can give it a coding task and let it understand a repository, edit files, run verification, and present evidence. The same Agent can inspect data and hardware, propose a training plan, launch an approved fine-tuning job, follow its progress, and evaluate the resulting model.
 
-Finetune Platform is not just a collection of training scripts. It is a practical local AI workbench built around the full loop: prepare data, fine-tune a compact model, evaluate results, package deployment artifacts, and let an Agent help with project work.
+Code, models, datasets, sessions, execution traces, and training artifacts stay on your machine by default. SQLite, local files, and local GPUs are first-class. PostgreSQL, Redis, and remote workers belong to a future optional team edition, not the personal runtime.
 
-It is useful when you want to:
+> **Current stage: active development / source preview.** Electron is the formal desktop runtime boundary and the managed Python foundation is implemented. Production runtime packs, a signed installer, automatic updates, and clean-machine release acceptance are still roadmap work. A repository build is not yet a stable desktop release.
 
-- Run LoRA/QLoRA experiments on consumer NVIDIA GPUs with 4GB+ VRAM.
-- Manage local models, datasets, training history, evaluation records, and deployment outputs.
-- Use one Web UI for inference testing, knowledge base Q&A, model downloads, and workspace management.
-- Work with an Agent Workbench that can read project context, plan tasks, execute work, and request approval for sensitive operations.
-- Study engineering patterns for local AI platforms, RAG, Agent Session, MCP, CUA, and related integrations.
+## Product Promise
 
-## Capability Tiers
+> On your own computer, projects, and models, one Agent can perform both software and model engineering while every action remains understandable, approvable, recoverable, and measurable.
 
-The backend `GET /api/info` endpoint is the source of truth for capability tiers.
+```mermaid
+flowchart LR
+    U["Task input"] --> W["Agent Workbench"]
+    W --> S["Agent Session"]
+    S --> D["DeepAgents execution harness"]
+    D --> P["Tool policy and runtime"]
+    P --> C["Coding: files · terminal · Git · tests"]
+    P --> T["Training: data · models · jobs · evaluation"]
+    S --> E["Durable events and evidence"]
+    E --> UI["Timeline · diffs · approvals · diagnostics"]
+    E -. "roadmap" .-> TT["Trace-to-Train flywheel"]
+```
 
-| Tier | Capabilities | Stability |
-| --- | --- | --- |
-| GA | device, models, datasets, training, inference, chat_sessions, knowledge_base | Core flows intended for daily use and regression coverage |
-| Beta | project_context, memory, model_center, workspace | Usable, but APIs and UI may still evolve |
-| Experimental | cua, heartbeat, mcp, gateway, ocr_fallbacks, action_recorder | Exploration area for research and extension work |
+One task can run in four modes:
 
-## Core Features
+- **Build:** understand a repository, implement or repair code, run tests, and deliver a diff.
+- **Train:** inspect data and VRAM, propose a configuration, launch an approved job, and track results.
+- **Hybrid:** change training code, verify preprocessing, run a small experiment, and compare evaluations.
 
-### Fine-Tuning and Inference
+## Why It Is More Than Another Coding Agent
 
-- Model management: local model listing, download, deletion, export, and ModelScope/HuggingFace integration.
-- Dataset management: upload, parsing, preprocessing, and training data preparation.
-- LoRA/QLoRA training: optimized for low-VRAM machines, with task state, training history, and checkpoint resume.
-- Real-time training progress: SSE-based event stream for loss, step, status, and logs.
-- Evaluation and comparison: model evaluation, human scoring, history comparison, and pre-deployment checks.
-- Multiple inference backends: HuggingFace, Ollama, llama.cpp, vLLM, and environment-based backend switching.
-- Deployment packaging: adapters, inference examples, Ollama Modelfile, environment templates, and related artifacts.
+| Typical Coding Agent | Finetune Platform direction |
+|---|---|
+| Edits code and runs commands | Adds controlled dataset, training, evaluation, and local inference tools to the coding loop |
+| Often assumes cloud models or remote sandboxes | Treats local models, GPUs, and user-owned data as formal product paths |
+| Delivers when a chat ends | Persists plans, events, diffs, approvals, verification, and artifacts across refresh and restart |
+| Only consumes model capability | Aims to turn reviewed Agent trajectories into governed local fine-tuning data |
 
-### Agent and Workbench
+The long-term loop is:
 
-- `/agent` is the default entry and opens the immersive Agent Workbench.
-- Agent Session manages lifecycle, events, status, and output parts through FastAPI and SSE.
-- New tasks first confirm a Workspace, then select `Build`, `Train`, or `Hybrid`; the Workspace ID and validated project path are persisted with the session.
-- The Workbench does not submit a Build/Train/Hybrid task until its Workspace is confirmed. File, command, and training side effects are rooted in that session Workspace, while the timeline shows only its label rather than an absolute path.
-- Existing `POST /agent-sessions` clients may still send only `project_path`, and stored sessions remain readable without migration.
-- DeepAgents powers execution, with the project mounted as a virtual `/workspace/`.
-- Human-in-the-loop approval is supported for sensitive writes, tool calls, and actions before background resume.
-- Built-in Build, Explore, and Review Agent manifests can be extended with custom definitions.
-- Workspace view, terminal events, execution plan, diffs, sub-agent status, and artifacts are presented in one interface.
+```text
+Coding / Training Task
+        → structured execution trajectory
+        → evaluation and user feedback
+        → versioned candidate dataset
+        → LoRA / QLoRA
+        → fixed Agent evaluation
+        → local model deployment
+```
 
-### Knowledge, Context, and Memory
+Trace-to-Train is roadmap work, not a currently released feature.
 
-- RAG knowledge base: ChromaDB + sentence-transformers, with document parsing, chunking, retrieval, and Q&A.
-- Project context: scans local projects, extracts code symbols, and builds context packs.
-- Memory system: short-term, mid-term, and long-term memory for chat and Agent tasks.
-- File parsing: PDF, DOCX, XLSX, OCR, and other common inputs.
+## What Exists Today
 
-## Tech Stack
+### Coding Agent Workbench
 
-| Layer | Technologies |
-| --- | --- |
-| Backend | FastAPI, Python 3.11, Pydantic, SQLite, PyTorch, Transformers, PEFT |
-| Frontend | React 18, TypeScript, Vite, Ant Design, Zustand, Framer Motion |
-| Agent | DeepAgents, LangGraph, SSE, virtual workspace, HITL approval |
-| RAG | ChromaDB, sentence-transformers, pdfplumber, python-docx, openpyxl |
-| Deployment | Docker Compose, optional Electron desktop wrapper, Ollama profile, GPU compose override |
+- `/agent` is the default entry, combining task input, conversation, plan, timeline, and context.
+- Workspace is the long-lived boundary; Build, Train, and Hybrid sessions persist their workspace and mode.
+- `AgentSessionService` is the only Agent lifecycle owner, and DeepAgents is the only production tool loop.
+- Execution plans, file operations, terminal activity, durable diffs, verification evidence, and recovery are integrated.
+- HITL interrupt/resume allows sensitive work to wait for approval and continue in the background.
+- Built-in Build, Explore, and Review manifests support async subagents and durable status projections.
+- Agent Eval v1 provides versioned scenarios, deterministic regression, and an explicit opt-in real-model path.
+
+### Model Training Assistant
+
+- Local model, dataset, training, evaluation, and deployment-artifact management.
+- LoRA/QLoRA, low-VRAM profiles, a durable queue, an isolated Training Worker, and checkpoint recovery.
+- Read-only Agent training proposals with model/dataset resolution, validation, and VRAM estimation.
+- Training submission passes through existing approval boundaries; duplicate, stale, or cross-owner requests fail closed.
+- Durable training events project into Workbench and recover after refresh or API restart.
+- An isolated inference service supports local backends behind an OpenAI-compatible boundary.
+
+### Local Knowledge and Desktop Runtime
+
+- RAG knowledge base, project context, code-symbol indexing, memory, and common document parsing.
+- Electron supervises the local API, Training Worker, and Inference Service lifecycle.
+- The renderer consumes versioned narrow IPC and receives neither internal service secrets nor arbitrary host paths.
+- Managed Python 3.11 foundations include strict manifests, SHA-256, staging, health probes, atomic activation, and repair.
+- User databases, models, outputs, logs, workspaces, and secrets are separated from replaceable application resources.
+
+## Capability Maturity
+
+The runtime source of truth is `GET /api/info`.
+
+| Tier | Capabilities | Meaning |
+|---|---|---|
+| GA | device, models, datasets, training, inference, chat_sessions, knowledge_base | Compatibility and regression protected core flows |
+| Beta | project_context, memory, model_center, workspace, agent_eval, cloud_chat | Product-integrated, but protocols or UX may evolve |
+| Experimental | cua, heartbeat, mcp, gateway, ocr_fallbacks, action_recorder | Isolated exploration surfaces, not stable product promises |
+
+Trusted sandboxing, task-scoped Git worktrees, mutation rewind, complex-project context, Trace-to-Train, permissioned extensions, and the production desktop release pipeline remain on the roadmap.
+
+## Architecture Principles
+
+- **One Agent loop:** DeepAgents owns model iteration, tool choice, planning, subagents, and interrupts. The platform does not add a second ReAct loop.
+- **Strong session, thin host:** the platform owns cross-turn lifecycle, workspace binding, persistence, approvals, recovery, events, and diagnostics.
+- **Deterministic workflow:** application state machines coordinate jobs, artifacts, and idempotency without deciding the next model tool call.
+- **Event-driven projections:** UI, evaluation, diagnostics, automation, and the future Trace Collector consume versioned event facts.
+- **Local safety:** file, process, network, secret, and GPU permissions bind to an explicit Workspace, Session, and Runtime.
+- **Team-ready interfaces:** domain behavior does not directly depend on SQLite, Redis, or PostgreSQL implementations.
+
+Architecture references:
+
+- [Phase 11+ roadmap](docs/plans/2026-07-13-trusted-local-ai-engineer-roadmap.md)
+- [ADR-0001: Agent Session is the primary Agent runtime](docs/adr/0001-agent-session-as-primary-agent-runtime.md)
+- [ADR-0011: Keep DeepAgents as the only Agent loop](docs/adr/0011-keep-deepagents-as-the-only-agent-loop.md)
 
 ## Quick Start
 
 ### Requirements
 
-- Python 3.11.x
+- Windows 10/11 for the current desktop release target; Linux and macOS remain development-oriented
+- Python `>=3.11,<3.12`
 - Node.js 18+
 - Git
-- NVIDIA GPU + CUDA environment, recommended for training and local inference
-- Docker Desktop, optional
+- NVIDIA GPU + CUDA recommended for training and local GPU inference
+- `uv` as the recommended Python dependency manager
 
-VRAM guidance:
+### Windows Source Start
 
-| VRAM | Suitable Models | Suggested Mode |
-| --- | --- | --- |
-| 4GB | 0.5B-1.5B INT4 | QLoRA, small batch, short sequence |
-| 6GB | 1.5B-3B INT4 | QLoRA |
-| 8GB | 3B-7B INT4 | QLoRA or lightweight LoRA |
-| 12GB+ | 7B/13B | More comfortable LoRA/QLoRA |
-
-### Windows One-Click Start
-
-Run from the repository root:
+From the repository root:
 
 ```bat
 start.bat
 ```
 
-The script checks the Python/Node environment, installs required dependencies, and starts:
-
-- Frontend: http://127.0.0.1:5173
-- Backend: http://127.0.0.1:8010
-- Swagger: http://127.0.0.1:8010/docs
-- Health check: http://127.0.0.1:8010/health
-
-To verify the environment first:
+Check the environment first with:
 
 ```bat
 verify.bat
 ```
 
-To install the GPU PyTorch stack for NVIDIA GPUs (the root-level `install-pytorch-gpu.bat` forwards to `server\install-gpu.bat`):
+### Full Development Environment
 
-```bat
-install-pytorch-gpu.bat
-```
-
-### Manual Start
-
-Backend dependencies are best managed with `uv`:
-
-```bash
+```powershell
 git clone https://github.com/lin09389/finetune-platform.git
-cd finetune-platform
-cp .env.example .env
+Set-Location finetune-platform
 
-uv sync
-```
-
-Start the backend:
-
-```bash
-cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
-```
-
-Start the frontend:
-
-```bash
-cd client
+uv sync --frozen --extra all --extra dev
 npm install
+Set-Location client
+npm install
+npm run build
+Set-Location ..
+```
+
+Start Electron:
+
+```powershell
+npm run start
+```
+
+Development requires a compatible Python 3.11 environment and dependencies. Use `FINETUNE_PYTHON` to select an interpreter or `FINETUNE_RUNTIME_MANIFEST` / `FINETUNE_RUNTIME_PACK_DIR` to exercise a local runtime pack.
+
+### Process-by-Process Debugging
+
+```powershell
+uv run --extra all python -m server.inference_server
+uv run --extra all python -m server.training_worker
+uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+```
+
+In another terminal:
+
+```powershell
+Set-Location client
 npm run dev
 ```
 
-The frontend dev server uses port `5173` and talks directly to `http://127.0.0.1:8010`; it does not rely on a Vite proxy.
+The renderer uses `127.0.0.1:5173` and talks directly to `127.0.0.1:8010` without a Vite proxy.
 
-### Docker
-
-Start only the API:
+### Optional Docker Profiles
 
 ```bash
 docker compose up -d api
-```
-
-Start the development stack:
-
-```bash
 docker compose --profile dev up -d
-```
-
-Start Ollama:
-
-```bash
 docker compose --profile ollama up -d
 ```
 
-Start with the GPU override:
+The personal desktop path does not require Docker. See [dependency profiles](docs/dependency-profiles.md).
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-```
+## Common Verification
 
-View logs:
+```powershell
+# Backend
+python -m pytest server/tests -m "not integration and not e2e" -q
 
-```bash
-docker compose logs -f api
-```
-
-## Common Commands
-
-### Backend
-
-```bash
-cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
-python -m pytest
-python -m pytest -m "not integration and not e2e"
-python -m pytest -m integration
-python -m pytest --cov=server --cov-report=html
-```
-
-### Frontend
-
-```bash
-cd client
-npm run dev
-npm run build
+# Frontend
+Set-Location client
 npm run typecheck
-npm run lint
+npm run build
 npm run test:smoke
-npm run test:runtime
+
+# Electron / runtime pack
+Set-Location ..
+npm run test:desktop
+npm run test:runtime-pack
+npm run test:package-policy
 ```
 
-Note: `npm test` runs Vitest in watch mode. For CI or one-off checks, use `npx vitest run` or the targeted scripts above.
+`npm test` is Vitest watch mode. Use `npx vitest run` or a targeted script for one-off checks.
 
-### Dependency Management
-
-```bash
-uv sync
-uv lock
-uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.txt
-```
-
-`server/requirements.txt` is generated by `uv export`; avoid editing it manually.
-
-## Main Pages
-
-| Route | Page |
-| --- | --- |
-| `/agent` | Agent Workbench, default entry |
-| `/dashboard` | Platform overview |
-| `/device` | Device and VRAM monitoring |
-| `/models` | Model runtime center (list / download / readiness) |
-| `/datasets` | Dataset management |
-| `/training` | Training tasks |
-| `/chat` | Chat-only interface |
-| `/knowledge` | Knowledge base |
-| `/inference` | Inference testing |
-| `/evaluation` | Model evaluation |
-| `/deployment` | Deployment packages |
-| `/workspace` | Workspace management |
-| `/memory` | Memory system |
-| `/modelhub` | Legacy redirect → `/models` |
-| `/project-context` | Project context |
-| `/mcp`, `/gateway`, `/heartbeat`, `/cua-control` | Experimental capabilities |
-
-## Key APIs
-
-| API | Description |
-| --- | --- |
-| `GET /health` | Service health check |
-| `GET /api/info` | API metadata and capability tiers |
-| `GET /device` | Device information |
-| `GET /models` | Model management |
-| `GET /datasets` | Dataset management |
-| `POST /training/start` | Start training |
-| `GET /training/progress/stream` | Training progress SSE |
-| `POST /inference/*` | Inference service |
-| `GET /chat/sessions` | Chat sessions |
-| `POST /agent-sessions` | Create an Agent Session; new tasks may include `workspace_id` and `task_mode` (`build` / `train` / `hybrid`) |
-| `POST /agent-sessions/{id}/prompt` | Send a task to an Agent Session |
-| `GET /agent-sessions/{id}/events/stream` | Agent event SSE |
-| `POST /agent-permissions/{permission_id}/approve` | Approve an Agent permission request |
-| `POST /agent-permissions/{permission_id}/reject` | Reject an Agent permission request |
-
-## Project Structure
+## Repository Map
 
 ```text
 finetune-platform/
-├── server/                 # FastAPI backend
-│   ├── api/                # Route layer
-│   ├── agent_session/      # Agent Session and DeepAgents runtime
-│   ├── core/               # Config, storage, training state, event bus
-│   ├── training_engine/    # Fine-tuning pipeline
-│   ├── inference_service/  # Inference service layer
-│   ├── rag/                # RAG knowledge base
-│   ├── memory/             # Memory system
-│   ├── context/            # Project context
-│   ├── workspace/          # File and task APIs
-│   └── tests/              # Backend test suite
-├── client/                 # React frontend
-│   └── src/
-│       ├── agent/          # Agent Workbench
-│       ├── pages/          # Pages
-│       ├── components/     # Shared components
-│       ├── services/       # API clients
-│       └── test/           # Vitest tests
-├── electron/               # Optional desktop wrapper
-├── docs/                   # Design, migration, deployment, and capability docs
-├── scripts/                # Utility scripts
-├── models/                 # Local model directory
-├── datasets/               # Dataset directory
-├── outputs/                # Training outputs
-└── workspaces/             # Runtime workspace data
+├── electron/                 # Desktop host, supervision, secure IPC, managed Python
+├── client/src/agent/         # Default Agent Workbench
+├── server/
+│   ├── agent_session/        # Single Agent lifecycle and DeepAgents adapter
+│   ├── agent_eval/           # Versioned Agent capability evaluation
+│   ├── training_worker/      # Durable queue and GPU worker
+│   ├── training_engine/      # LoRA/QLoRA pipeline
+│   ├── inference_server/     # Isolated local inference service
+│   ├── apps/                 # combined / agent / finetune assembly
+│   ├── workspace/            # Workspace domain
+│   ├── context/              # Project context and indexing
+│   ├── rag/                  # Knowledge base
+│   └── memory/               # Memory system
+├── docs/                     # ADRs, design, operations, and acceptance
+├── scripts/desktop/          # Runtime-pack and package policy tools
+├── pyproject.toml            # Python dependency source of truth
+└── uv.lock                   # Single Python lockfile
 ```
 
-## Configuration
+`models/`, `datasets/`, `outputs/`, `workspaces/`, and `logs/` are runtime data. They are not source architecture and must not be bundled as replaceable application resources.
 
-Copy `.env.example` to `.env` and adjust as needed. Common variables:
+## Roadmap
 
-| Variable | Purpose |
-| --- | --- |
-| `HOST`, `PORT` | Backend bind address and port |
-| `ALLOWED_ORIGINS` | CORS allowlist |
-| `INFERENCE_ENGINE` | Inference backend selection |
-| `OLLAMA_BASE_URL` | Ollama service URL |
-| `HF_MIRROR` | HuggingFace mirror |
-| `MAX_CONCURRENT_TRAINING` | Maximum concurrent training jobs |
-| `MAX_UPLOAD_SIZE` | Upload size limit |
-| `ENABLE_AUTH`, `JWT_SECRET_KEY` | Optional authentication settings |
-| `LOG_LEVEL`, `LOG_FORMAT` | Logging level and format |
+| Phase | Outcome |
+|---|---|
+| 11 | Thin AgentSession host, runtime binding, steering/follow-up, structured compaction, and event spine |
+| 12–14 | Trusted execution sandbox, isolated worktrees, mutation ledger, checkpoints, and safe rewind |
+| 15 | Complex, multi-file, long-running Coding Agent capability |
+| 16 | Integrated Training Copilot and governed Trace-to-Train loop |
+| 17 | Hooks, personal automation, and permissioned extensions |
+| 18 | Production runtime packs, signed installer, update/rollback, and clean-machine acceptance |
+| 19 | Optional PostgreSQL, Redis, object storage, and team governance |
+
+Phase 16 is the approximate completion point for the Coding Agent + training-assistant core loop. Phase 18 is the target for a distributable personal desktop product. The team edition is not a personal-edition completion requirement.
+
+## Current Limitations
+
+- Production Python 3.11 base runtime packs and a signed Windows installer have not completed release acceptance.
+- Execution isolation still needs an enforceable, fail-closed Execution Environment Provider.
+- Parallel Coding tasks do not yet receive isolated Git worktrees by default.
+- Trace-to-Train, public extensions, and team-edition adapters are not complete.
+- CUA, MCP, Gateway, and Heartbeat remain Experimental.
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md): current project structure, development commands, and capability boundaries.
-- [docs/agent_system_design.md](docs/agent_system_design.md): Agent system design.
-- [docs/agent_session_migration.md](docs/agent_session_migration.md): Agent Session migration notes.
-- [docs/capability-truth-table.md](docs/capability-truth-table.md): capability maturity and dependencies.
-- [docs/local-inference-deployment.md](docs/local-inference-deployment.md): local inference deployment notes.
-- [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md): MCP integration.
-- [docs/CUA_USAGE.md](docs/CUA_USAGE.md): CUA usage.
+- [Capability maturity and dependencies](docs/capability-truth-table.md)
+- [Coding Agent engineering loop](docs/coding-agent-engineering-loop.md)
+- [Agent Training Foundation](docs/agent-training-foundation.md)
+- [Workspace portability ADR](docs/adr/0009-use-versioned-reference-manifests-for-workspace-portability.md)
+- [Desktop packaging and data boundaries](docs/desktop-packaging.md)
+- [Phase 10 execution record](docs/phase10-execution-2026-07-16.md)
 
-## Development Notes
+## License and Acknowledgements
 
-- Backend dependency truth source: root `pyproject.toml` and `uv.lock`.
-- Frontend API base URL defaults to `http://127.0.0.1:8010`.
-- Formal backend tests mainly live under `server/tests/`; scattered root scripts are mostly debugging helpers.
-- Changes to GA capabilities should include or update regression tests.
-- Experimental capabilities can move quickly, but README and `/api/info` should stay honest and aligned.
-
-## Current Status
-
-The project is under active development. Training, inference, model/dataset management, knowledge base, chat, and Agent Session have formed the main usable flow. CUA, MCP, Gateway, Heartbeat, and related modules are still experimental and are best treated as research and extension areas.
-
-## Acknowledgements
-
-This project builds on FastAPI, React, Ant Design, PyTorch, Transformers, PEFT, DeepAgents, LangGraph, ChromaDB, Ollama, and the broader open-source AI ecosystem.
+Finetune Platform is available under the [MIT License](LICENSE). It builds on FastAPI, React, Electron, PyTorch, Transformers, PEFT, DeepAgents, LangGraph, ChromaDB, Ollama, and the broader open-source AI ecosystem.
