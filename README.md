@@ -15,7 +15,7 @@ Finetune Platform 正在从“大模型微调平台”演进为一个面向独�
 
 代码、模型、数据集、会话、执行轨迹和训练产物默认保留在自己的电脑上。SQLite、本地文件和本地 GPU 是第一公民；PostgreSQL、Redis 和远程 Worker 只属于未来可选的团队版，不是个人版的运行前提。
 
-> **当前阶段：活跃开发 / 源码预览。** Electron 已成为正式桌面运行时边界，并具备本地服务监督和受管 Python Runtime 基础；真实发行用 Runtime Pack、签名安装器、自动更新和干净机器验收仍在路线图中。目前不要把仓库构建等同于稳定桌面发行版。
+> **当前阶段：活跃开发 / 源码预览。** Electron 已成为正式桌面运行时边界，并具备本地服务监督和受管 Python Runtime 基础。项目正在从 DeepAgents 迁移到自有 Native Agent Loop；迁移期间 Agent Workbench 只开放 Build，Train/Hybrid Agent 暂时禁用，独立训练页面、API 和 Training Worker 不受影响。真实发行用 Runtime Pack、签名安装器、自动更新和干净机器验收仍在路线图中。
 
 ## 产品承诺
 
@@ -27,7 +27,7 @@ Finetune Platform 正在从“大模型微调平台”演进为一个面向独�
 flowchart LR
     U["任务输入"] --> W["Agent Workbench"]
     W --> S["Agent Session"]
-    S --> D["DeepAgents 执行引擎"]
+    S --> D["Agent Runtime（当前 DeepAgents，目标 Native）"]
     D --> P["工具策略与运行环境"]
     P --> C["Coding：文件 · 终端 · Git · 测试"]
     P --> T["Training：数据 · 模型 · 训练 · 评估"]
@@ -36,11 +36,11 @@ flowchart LR
     E -. "路线图" .-> TT["Trace-to-Train 数据飞轮"]
 ```
 
-同一个任务可以是：
+目标任务模式包括：
 
 - **Build：** 阅读仓库、实现功能、修复缺陷、运行测试并交付 Diff。
-- **Train：** 检查数据和显存、提出配置、经审批启动训练并跟踪结果。
-- **Hybrid：** 修改训练代码、验证预处理、启动小规模训练并比较评测。
+- **Train（迁移期禁用）：** 检查数据和显存、提出配置、经审批启动训练并跟踪结果。
+- **Hybrid（迁移期禁用）：** 修改训练代码、验证预处理、启动小规模训练并比较评测。
 
 ## 为什么它不只是另一个 Coding Agent
 
@@ -70,8 +70,8 @@ Coding / Training Task
 ### Coding Agent 工作台
 
 - `/agent` 是默认产品入口，提供任务输入、对话、计划、时间线和上下文面板。
-- Workspace 是长期工作边界；Build、Train、Hybrid 任务会持久化工作区与任务模式。
-- `AgentSessionService` 是唯一 Agent 生命周期所有者，DeepAgents 是唯一生产工具执行循环。
+- Workspace 是长期工作边界；当前新建 Agent Session 统一使用 Build 模式。
+- `AgentSessionService` 是唯一 Agent 生命周期所有者；迁移期间 DeepAgents 暂时承载生产 Build Loop，Native Loop 达到门禁后将替代它。
 - 支持执行计划、文件操作、终端活动、持久化 Diff、验证证据和任务恢复。
 - 支持 HITL interrupt/resume，敏感动作可以等待用户审批后在后台继续。
 - 内置 Build、Explore、Review Agent manifest，并支持异步子 Agent 与状态投影。
@@ -81,9 +81,8 @@ Coding / Training Task
 
 - 管理本地模型、数据集、训练记录、评估与部署工件。
 - 支持 LoRA/QLoRA、低显存配置、训练队列、独立 Training Worker 和检查点恢复。
-- Agent 可生成只读训练提案，完成模型/数据解析、配置校验与显存预估。
-- 启动训练必须经过现有审批边界；重复提交、越权关联和陈旧提案会被拒绝。
-- 训练进度通过持久化事件同步到 Workbench，API 重启或页面刷新后可以恢复。
+- 既有 Agent 训练提案、审批和 Workbench 投影在 Native 迁移期间暂停开放。
+- 独立训练页面、API、队列与 Worker 继续可用；Agent Train/Hybrid 会在 Native 契约稳定后重新接入。
 - 推理服务独立运行，支持本地后端与 OpenAI-compatible 接口边界。
 
 ### 本地知识与桌面运行时
@@ -108,7 +107,7 @@ Coding / Training Task
 
 ## 架构原则
 
-- **单一 Agent Loop：** DeepAgents 负责模型循环、工具决策、Planner、子 Agent 和 interrupt；平台不再创建第二套 ReAct/Planner。
+- **单 Session 单 Loop：** 迁移期间同一 Session 只能选择 DeepAgents 或 Native Runtime，禁止嵌套双循环；最终由 Native Agent Loop 完全替代 DeepAgents。
 - **强 Session、薄宿主：** 平台负责跨 Turn 生命周期、Workspace 绑定、持久化、审批、恢复、事件与诊断。
 - **确定性 Workflow：** 应用状态机协调任务、训练、工件和幂等，但不与模型争夺“下一步工具”决策。
 - **事件驱动扩展：** UI、评测、诊断、自动化和未来 Trace Collector 消费同一版本化事件事实。
@@ -117,9 +116,10 @@ Coding / Training Task
 
 完整决策见：
 
-- [Phase 11+ 总体路线图](docs/plans/2026-07-13-trusted-local-ai-engineer-roadmap.md)
+- [Native Agent Loop 设计](docs/plans/2026-07-17-native-agent-loop-design.md)
+- [Native Agent Loop 迁移计划](docs/plans/2026-07-17-native-agent-loop-migration.md)
 - [ADR-0001：Agent Session 是唯一 Agent Runtime](docs/adr/0001-agent-session-as-primary-agent-runtime.md)
-- [ADR-0011：DeepAgents 保持唯一 Agent Loop](docs/adr/0011-keep-deepagents-as-the-only-agent-loop.md)
+- [ADR-0012：采用 Native Agent Loop 并退出 DeepAgents](docs/adr/0012-adopt-native-agent-loop-and-retire-deepagents.md)
 
 ## 快速开始
 
@@ -243,22 +243,23 @@ finetune-platform/
 
 ## 路线图
 
-| 阶段 | 目标 |
+| 波次 | 目标 |
 |---|---|
-| Phase 11 | 薄 AgentSession Host、Runtime Binding、Steering/Follow-up、结构化 Compaction、统一事件脊柱 |
-| Phase 12–14 | 可信执行沙箱、隔离 Worktree、修改账本、检查点与安全回退 |
-| Phase 15 | 面向复杂、多文件、长任务的 Coding Agent 能力 |
-| Phase 16 | Integrated Training Copilot 与受治理的 Trace-to-Train 闭环 |
-| Phase 17 | Hooks、个人自动化和权限化扩展 |
-| Phase 18 | 真实 Runtime Pack、签名安装器、升级/回滚和干净机器发布验收 |
-| Phase 19 | 按真实需求启用 PostgreSQL、Redis、对象存储与团队治理 |
+| Wave 0 | Build-only 迁移门禁、Native v2 命令/事件契约和非破坏性持久化基线 |
+| Wave 1 | Native Session Host、双向 WebSocket、FIFO Follow-up Queue 与安全边界 Steering |
+| Wave 2 | Native Sampling Loop、模型适配、Tool Runtime、审批策略与 Execution Environment 接口 |
+| Wave 3 | 追加事件日志、周期快照、Goal 工作流、Compaction、修改账本与安全 Rewind |
+| Wave 4 | 重写 Workbench v2，并完成真实 Build 项目和故障恢复验收 |
+| Wave 5 | Native 默认切换、受控清理旧会话与 DeepAgents checkpoint，最终移除 DeepAgents |
+| Wave 6 | 在 Native 契约上恢复 Train/Hybrid，并接入人工筛选的 Trace-to-Train |
 
-Phase 16 是 Coding Agent 与训练助手核心闭环的大致完成点；Phase 18 是个人桌面产品达到可对外分发成熟度的目标。团队版不是个人版完成条件。
+Wave 5 是 Native Coding Agent 迁移完成点；Wave 6 恢复 Coding 与训练助手的一体化闭环。团队版仍不是个人版完成条件。
 
 ## 当前限制
 
 - 真实 Python 3.11 基础 Runtime Pack 和签名 Windows 安装器尚未完成正式发布验收。
 - 当前安全执行仍需继续演进为可验证、fail-closed 的 Execution Environment Provider。
+- Agent Workbench 在 Native 迁移期间仅开放 Build；Train/Hybrid Agent 暂时禁用。
 - 并行 Coding 任务尚未默认拥有独立 Git Worktree，合并与回退体验仍在路线图中。
 - Trace-to-Train、公开扩展生态和团队版适配器尚未完成。
 - CUA、MCP、Gateway、Heartbeat 等仍是 Experimental，不应视为稳定默认能力。

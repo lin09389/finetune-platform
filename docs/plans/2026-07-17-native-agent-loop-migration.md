@@ -13,6 +13,10 @@ file mutation ledger/rewind, and a rewritten desktop Workbench.
 **Stack:** Python 3.11, FastAPI/Starlette WebSocket, SQLite, Pydantic, existing model providers, React 18,
 TypeScript, Zustand or reducer-based normalized store, Vite, Electron, Vitest, pytest.
 
+**Execution status (2026-07-17):** The contract catalog, architecture guards, non-destructive migration 017,
+and temporary Build-only Agent gate are integrated. Legacy session deletion is intentionally deferred to the
+Native cutover wave.
+
 ## 0. Delivery Rules
 
 - No production code imports `grok-build`; it is a design reference only.
@@ -102,15 +106,14 @@ Build manifests and runtime catalogs. UI must show a deliberate migration state,
 
 Create v2 session, event, command-idempotency, snapshot, pending-interaction, mutation, and trace-candidate tables.
 Use foreign keys, unique `(session_id, sequence)`, unique `(session_id, command_id)`, schema versions, timestamps,
-and indexes for replay and recovery.
-
-The migration must clear only legacy Agent Session rows and related DeepAgents checkpoint/derived rows. Write an
-explicit allowlist of affected tables; never use broad name patterns.
+and indexes for replay and recovery. Migration 017 must not create, modify, or delete any legacy Agent or
+LangGraph checkpoint data because DeepAgents Build remains active during the migration.
 
 **Create tests:** `server/tests/test_native_agent_migration.py`
 
-Seed both Agent and non-Agent product data, run migration, and prove that Workspace, chat, models, datasets,
-training jobs, inference records, settings, and user data survive byte-for-byte/logically unchanged.
+Seed both Agent and non-Agent product data, run migration, and prove that legacy Agent sessions/parts/events,
+both checkpoint tables, Workspace, chat, models, datasets, training jobs, inference records, settings, and user
+data survive byte-for-byte/logically unchanged.
 
 ### Task 1.2: Implement append-only repository
 
@@ -460,6 +463,14 @@ baseline. Record failures; do not loosen validators to obtain a pass.
 
 After all gates pass, change the internal default to Native for new Build sessions. Keep DeepAgents code dormant
 for a bounded soak/recovery period only. Track crash, replay, approval, rewind, tool failure, and completion rates.
+
+### Task 7.6: Execute scoped legacy reset
+
+After the soak period and immediately before legacy endpoint removal, run a separately versioned cutover reset.
+Use an explicit allowlist for legacy Agent Session tables and clean only `agent_session:*:deepagents` rows from
+the dedicated LangGraph checkpoint database. Prove that Workspace, ordinary chat, models, datasets, training,
+inference, settings, desktop data, and non-Agent checkpoint rows remain unchanged. The reset must be idempotent
+and backed up before execution.
 
 **Commit:** `feat(native-agent): make native build runtime default`
 

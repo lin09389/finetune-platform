@@ -225,10 +225,13 @@ discarded and replay falls back to the previous valid snapshot or event zero.
 
 ### 7.3 Scoped reset
 
-The migration deletes only legacy Agent Session events, parts, DeepAgents checkpoints, approvals tied solely to
+Migration 017 only introduces the Native v2 schema and preserves all legacy data while DeepAgents Build remains
+active. A separate cutover migration, executed only after Native Build passes its gates and becomes the active
+protocol/runtime, deletes legacy Agent Session events, parts, DeepAgents checkpoints, approvals tied solely to
 those sessions, async subagent state, and derived Agent diagnostics. It preserves Workspace registrations,
 project files, chat data outside Agent Session, models, datasets, training jobs, inference state, settings, and
-desktop user data.
+desktop user data. The dedicated LangGraph checkpoint database must be cleaned by the cutover coordinator rather
+than an app-database-only SQL migration.
 
 ## 8. Goal Workflow
 

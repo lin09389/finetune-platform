@@ -185,25 +185,25 @@ def test_agent_session_persists_validated_workspace_task_context(tmp_path: Path,
         AgentSessionCreate(
             title="workspace task",
             workspace_id="ws_saved",
-            task_mode="hybrid",
+            task_mode="build",
             project_path=str(tmp_path / "untrusted-client-path"),
         )
     )
 
     assert session.project_path == str(saved_workspace.resolve())
     assert session.workspace_id == "ws_saved"
-    assert session.task_mode == "hybrid"
+    assert session.task_mode == "build"
     assert session.metadata["workspace"] == {"id": "ws_saved", "path": str(saved_workspace.resolve())}
-    assert session.metadata["task_mode"] == "hybrid"
+    assert session.metadata["task_mode"] == "build"
 
     context_event = next(event for event in service.list_events(session.id) if event["event_type"] == "task_context_initialized")
     assert context_event["payload"]["workspace_id"] == "ws_saved"
     assert context_event["payload"]["workspace_label"] == "saved"
-    assert context_event["payload"]["task_mode"] == "hybrid"
+    assert context_event["payload"]["task_mode"] == "build"
 
     restored = service.get_session(session.id)
     assert restored.workspace_id == "ws_saved"
-    assert restored.task_mode == "hybrid"
+    assert restored.task_mode == "build"
 
 
 def test_agent_session_rejects_unknown_workspace_before_persistence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -414,7 +414,7 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
     assert captured["middleware"][0].__class__.__name__ == "TrajectoryGuardMiddleware"
 
 
-def test_deepagents_runtime_registers_training_tools_only_for_train_or_hybrid_build_sessions(monkeypatch, tmp_path: Path):
+def test_deepagents_runtime_does_not_register_training_tools_during_native_migration(monkeypatch, tmp_path: Path):
     captured: dict[str, object] = {}
 
     def fake_build_runtime(config):
@@ -444,16 +444,14 @@ def test_deepagents_runtime_registers_training_tools_only_for_train_or_hybrid_bu
     )
 
     train_tools = {tool.name for tool in captured["tools"]}
-    assert {
+    assert not {
         "propose_training",
         "submit_training",
         "resume_training",
         "cancel_training",
         "get_training_summary",
-    }.issubset(train_tools)
-    assert captured["interrupt_on"]["submit_training"] is True
-    assert captured["interrupt_on"]["resume_training"] is True
-    assert captured["interrupt_on"]["cancel_training"] is True
+    } & train_tools
+    assert captured["interrupt_on"] is None
 
     asyncio.run(
         runner._build_graph(
