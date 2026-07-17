@@ -14,6 +14,7 @@ from agent_session.models import (
 )
 from agent_session.services.utils import ensure_failed_metadata
 from agent_session.state import ensure_session_state
+from agent_session.task_modes import require_available_agent_session_mode
 from agent_session.status import EXECUTOR_BOUND_SESSION_STATUSES, WAITING_SESSION_STATUSES
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ class RecoveryService:
         session = repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
+        require_available_agent_session_mode(session)
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         plan = metadata.get("execution_plan")
         if not isinstance(plan, dict):

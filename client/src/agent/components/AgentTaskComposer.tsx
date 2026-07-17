@@ -3,6 +3,7 @@ import { Button, Input, Select, Tooltip } from 'antd';
 import { InteractiveButton } from '../../components/motion';
 import { useEffect, useRef, useState } from 'react';
 import type { AgentInfo, AgentSession } from '../../services/api';
+import { isMigratingAgentTaskMode } from '../taskModes';
 import styles from '../workbench/AgentWorkbench.module.css';
 
 const { TextArea } = Input;
@@ -39,7 +40,11 @@ export default function AgentTaskComposer({
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing', 'waiting_permission', 'waiting_approval'].includes(session.status));
   const isWaitingApproval = Boolean(session && ['waiting_permission', 'waiting_approval'].includes(session.status));
   const activeModeLabel = session?.task_mode ? TASK_MODE_LABELS[session.task_mode] : null;
-  const taskContextBlocked = Boolean(submissionBlockedReason && !session);
+  const migrationBlocked = isMigratingAgentTaskMode(session?.task_mode);
+  const migrationMessage = migrationBlocked
+    ? `${activeModeLabel} Agent 正在迁移到 Native Agent Loop；暂时不能提交。普通训练 API 与任务不受影响。`
+    : undefined;
+  const taskContextBlocked = Boolean((submissionBlockedReason && !session) || migrationBlocked);
   const composerState = taskContextBlocked
     ? 'blocked'
     : isWaitingApproval
@@ -50,7 +55,7 @@ export default function AgentTaskComposer({
           ? 'terminal'
           : 'ready';
   const composerStatus = taskContextBlocked
-    ? '下一步：选择并确认工作区后，即可发送任务。'
+    ? migrationMessage || '下一步：选择并确认工作区后，即可发送任务。'
     : isWaitingApproval
       ? 'Agent 暂停，等待你审批工具执行'
       : busy
@@ -126,7 +131,7 @@ export default function AgentTaskComposer({
         }}
         placeholder={session
           ? (isRunning ? '补充说明或追加要求，Agent 会结合当前上下文处理' : '继续描述任务或补充要求')
-          : taskContextBlocked ? '先确认工作区，然后输入任务目标' : '输入任务目标'}
+          : taskContextBlocked ? migrationMessage || '先确认工作区，然后输入任务目标' : '输入任务目标'}
         autoSize={{ minRows: 3, maxRows: 8 }}
         aria-label="任务目标"
         aria-describedby="agent-task-composer-status"
@@ -173,7 +178,7 @@ export default function AgentTaskComposer({
             />
           </Tooltip>
         ) : null}
-        <Tooltip title={submissionBlockedReason && !session ? submissionBlockedReason : (isRunning ? '追加消息到当前任务' : '提交任务')}>
+        <Tooltip title={migrationMessage || (submissionBlockedReason && !session ? submissionBlockedReason : (isRunning ? '追加消息到当前任务' : '提交任务'))}>
           <InteractiveButton
             type="button"
             variant="primary"

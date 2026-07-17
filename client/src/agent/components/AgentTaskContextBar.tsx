@@ -1,10 +1,11 @@
 import type { TaskMode, SelectedWorkspace } from '../runtime/agentRuntime';
+import { BUILD_AGENT_TASK_MODE, isMigratingAgentTaskMode } from '../taskModes';
 import styles from './AgentTaskContextBar.module.css';
 
-const MODE_OPTIONS: Array<{ value: TaskMode; label: string }> = [
+const MODE_OPTIONS: Array<{ value: TaskMode; label: string; disabled?: boolean }> = [
   { value: 'build', label: 'Build' },
-  { value: 'train', label: 'Train' },
-  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'train', label: 'Train（迁移中）', disabled: true },
+  { value: 'hybrid', label: 'Hybrid（迁移中）', disabled: true },
 ];
 
 export interface AgentTaskContextBarProps {
@@ -42,11 +43,21 @@ export default function AgentTaskContextBar({
       </div>
       <label className={styles.modeControl}>
         <span className={styles.caption}>任务模式</span>
-        <select aria-label="任务模式" value={mode} onChange={(event) => onModeChange(event.target.value as TaskMode)}>
+        <select
+          aria-label="任务模式"
+          value={isMigratingAgentTaskMode(mode) ? BUILD_AGENT_TASK_MODE : mode}
+          onChange={(event) => {
+            const nextMode = event.target.value as TaskMode;
+            if (!isMigratingAgentTaskMode(nextMode)) onModeChange(nextMode);
+          }}
+        >
           {MODE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
           ))}
         </select>
+        <p className={styles.migrationNotice} role="status">
+          Train 和 Hybrid Agent 正在迁移到 Native Agent Loop；当前仅 Build 可用。普通训练 API 与任务不受影响。
+        </p>
       </label>
     </section>
   );

@@ -1285,7 +1285,28 @@ describe('Agent Workbench orchestration', () => {
     );
 
     expect(screen.getByLabelText('当前任务模式：Hybrid，任务创建后不可更改')).toBeInTheDocument();
+    expect(screen.getByText(/Hybrid Agent 正在迁移到 Native Agent Loop/)).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '选择 Agent' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '追加消息' })).toBeDisabled();
+  });
+
+  it('shows the temporary migration notice and keeps Train and Hybrid unselectable', async () => {
+    const AgentTaskContextBar = (await import('../agent/components/AgentTaskContextBar')).default;
+    const onModeChange = vi.fn();
+    render(
+      <AgentTaskContextBar
+        workspace={null}
+        mode="build"
+        onWorkspaceChange={vi.fn()}
+        onModeChange={onModeChange}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Train 和 Hybrid Agent 正在迁移到 Native Agent Loop');
+    expect(screen.getByRole('option', { name: 'Train（迁移中）' })).toBeDisabled();
+    expect(screen.getByRole('option', { name: 'Hybrid（迁移中）' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('combobox', { name: '任务模式' }), { target: { value: 'hybrid' } });
+    expect(onModeChange).not.toHaveBeenCalled();
   });
 
   it('does not submit while an input method composition is active', async () => {
