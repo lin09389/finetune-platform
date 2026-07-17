@@ -8,6 +8,9 @@ from typing import Any
 
 BUILD_TASK_MODE = "build"
 MIGRATING_TASK_MODES = frozenset({"train", "hybrid"})
+# The Native migration keeps ordinary training APIs available, but temporarily
+# removes every legacy Agent training tool from all Agent modes.
+LEGACY_AGENT_TRAINING_TOOLS_AVAILABLE = False
 
 
 class AgentCapabilityMigratingError(ValueError):
@@ -36,3 +39,14 @@ def require_available_agent_session_mode(session: Mapping[str, Any]) -> None:
     metadata = session.get("metadata")
     metadata = metadata if isinstance(metadata, Mapping) else {}
     require_available_agent_task_mode(metadata.get("task_mode"))
+
+
+def legacy_agent_training_tools_available(task_mode: str | None) -> bool:
+    """Return whether a legacy Agent session may expose training tools.
+
+    This is deliberately false for Build as well as Train/Hybrid. Build remains
+    the only launchable Agent mode, but its native migration does not retain
+    the legacy training-tool surface.
+    """
+    _ = task_mode
+    return LEGACY_AGENT_TRAINING_TOOLS_AVAILABLE

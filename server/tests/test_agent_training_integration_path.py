@@ -36,6 +36,11 @@ from agent_training.store import TrainingProposalStore
 from core.training_state import TrainingRecord
 
 
+pytestmark = pytest.mark.skip(
+    reason="Legacy Agent training tools are disabled while Train/Hybrid migrate to the Native Agent Loop.",
+)
+
+
 class _Settings:
     training_execution_mode = "worker"
 

@@ -10,6 +10,7 @@ from agent_session.approval import permission_decisions
 from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentSessionResponse
 from agent_session.permission import apply_hitl_approve_session_trust, validate_hitl_decisions
+from agent_session.task_modes import require_available_agent_session_mode
 from agent_session.training_tools import grant_approved_training_actions
 from core.db_manager import run_sync
 
@@ -25,6 +26,7 @@ class ApprovalService:
         part = self.service.repository.get_part(part_id)
         if not part:
             raise ValueError("Agent part not found")
+        require_available_agent_session_mode(self.service.repository.get_session(part["session_id"]) or {})
         return AgentSessionResponse(**self.service.event_service._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
 
     async def approve_permission_async(
@@ -44,6 +46,7 @@ class ApprovalService:
         if not part:
             raise ValueError("Agent part not found")
         session = self.service.repository.get_session(part["session_id"]) or {}
+        require_available_agent_session_mode(session)
         from agent_session.state import ensure_session_state
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         if metadata.get("runtime") != "deepagents":
@@ -75,6 +78,7 @@ class ApprovalService:
         return self.service.deepagents_runner.model_call is not None or bool(response.provider)
 
     async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
+        require_available_agent_session_mode(self.service.repository.get_session(session_id) or {})
         loop = asyncio.get_running_loop()
         current_task = asyncio.current_task()
         if current_task is not None:
@@ -123,6 +127,7 @@ class ApprovalService:
         if not session_id:
             raise ValueError("Agent part session not found")
         session = self.service.repository.get_session(session_id) or {}
+        require_available_agent_session_mode(session)
         from agent_session.state import ensure_session_state
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         next_status = "blocked" if not approved else "approved"
@@ -166,6 +171,7 @@ class ApprovalService:
         if not session_id:
             raise ValueError("Agent part session not found")
         session = self.service.repository.get_session(session_id) or {}
+        require_available_agent_session_mode(session)
         from agent_session.state import ensure_session_state
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         payload = dict(part.get("payload") or {})

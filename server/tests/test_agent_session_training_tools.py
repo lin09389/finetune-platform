@@ -8,6 +8,8 @@ import shutil
 import uuid
 from pathlib import Path
 
+import pytest
+
 from agent_session.training_tools import (
     build_training_tools,
     consume_training_submission_grant,
@@ -19,6 +21,11 @@ from agent_training.models import (
     TrainingRunSummary,
     TrainingSubmission,
     training_activity_from_tool_result,
+)
+
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy Agent training tools are disabled while Train/Hybrid migrate to the Native Agent Loop.",
 )
 
 

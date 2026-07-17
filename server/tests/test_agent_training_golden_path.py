@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent_session.training_tools import (  # noqa: E402
@@ -17,6 +19,11 @@ from agent_session.training_tools import (  # noqa: E402
     training_tools_enabled_for_session,
 )
 from agent_training.models import TrainingProposal, TrainingRunSummary, TrainingSubmission  # noqa: E402
+
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy Agent training tools are disabled while Train/Hybrid migrate to the Native Agent Loop.",
+)
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "agent_training_golden_path.json"
