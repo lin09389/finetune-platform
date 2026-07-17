@@ -1,11 +1,17 @@
-# Trusted Local AI Engineer Roadmap（修订版）
+# Trusted Local AI Engineer Roadmap（历史版本）
 
-**状态：** Active blueprint
+**状态：** Superseded on 2026-07-17
 
 **首次制定：** 2026-07-13
 
 **修订日期：** 2026-07-16
 **修订原因：** 对齐 Phase 9–10 的实际交付，并吸收 Pi Agent 的薄宿主思想，同时保持 DeepAgents 为唯一执行引擎。
+
+> **取代说明：** 本文保留为 Phase 0–10 之后第一次架构收敛的历史记录，但不再是当前执行蓝图。
+> 项目已经决定逐步用自有 Native Agent Loop 完全替代 DeepAgents，并直接切换到 WebSocket v2 与
+> Workbench v2。当前目标设计与执行顺序以
+> `2026-07-17-native-agent-loop-design.md`、`2026-07-17-native-agent-loop-migration.md` 和 ADR-0012 为准。
+> 本文后续关于“DeepAgents 永久作为唯一 Loop”、Phase 11–19 编号和事件投影兼容的内容不得用于新实施。
 
 > 实施时一次只推进一个阶段。任何并行轨道必须先冻结共享契约和文件所有权，由主线程负责集成、回归与验收。
 

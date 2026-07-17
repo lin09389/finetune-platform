@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-0012 on 2026-07-17.
+
+This ADR remains an accurate record of the Phase 0-10 architecture, but it is no longer the target architecture.
+The replacement decision is documented in `0012-adopt-native-agent-loop-and-retire-deepagents.md`.
 
 ## Context
 
