@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from .errors import UnknownCommandError
 
@@ -48,7 +48,14 @@ class ApprovalResolveCommand(_Command):
 
 class RewindRequestCommand(_Command):
     kind: Literal["rewind.request"]
-    branch_id: UUID | None = None
+    target_sequence: int | None = Field(default=None, ge=0)
+    checkpoint_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_exactly_one_target(self) -> RewindRequestCommand:
+        if (self.target_sequence is None) == (self.checkpoint_id is None):
+            raise ValueError("rewind requires exactly one target sequence or checkpoint_id")
+        return self
 
 
 class SubscribeCommand(_Command):
