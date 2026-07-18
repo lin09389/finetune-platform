@@ -1,0 +1,204 @@
+"""Immutable, wire-safe contracts for the canonical tool platform."""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from types import MappingProxyType
+from typing import Annotated, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator, model_validator
+
+from .taxonomy import ExecutionLocation, SideEffect, ToolKind, ToolRisk
+
+_SENSITIVE_KEY_PARTS = ("authorization", "credential", "password", "secret", "token", "api_key", "apikey")
+_BEARER_PATTERN = re.compile(r"(?i)(bearer\s+)[^\s,;]+")
+
+
+def _freeze_json(value: JsonValue) -> JsonValue:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})  # type: ignore[return-value]
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)  # type: ignore[return-value]
+    return value
+
+
+def _freeze_object(value: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
+    return _freeze_json(dict(value))  # type: ignore[return-value]
+
+
+def _thaw_json(value: JsonValue) -> JsonValue:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
+FrozenJsonObject = Annotated[Mapping[str, JsonValue], AfterValidator(_freeze_object)]
+
+
+def _redact_diagnostic(value: JsonValue) -> JsonValue:
+    if isinstance(value, Mapping):
+        return {key: "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else _redact_diagnostic(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_diagnostic(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_diagnostic(item) for item in value)
+    if isinstance(value, str):
+        redacted = _BEARER_PATTERN.sub(r"\1[REDACTED]", value)
+        try:
+            parsed = urlsplit(redacted)
+            if parsed.scheme and parsed.netloc and parsed.query:
+                query = [(key, "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else item) for key, item in parse_qsl(parsed.query, keep_blank_values=True)]
+                redacted = urlunsplit(parsed._replace(query=urlencode(query)))
+        except ValueError:
+            pass
+        if redacted[:1] in {"{", "["}:
+            try:
+                return json.dumps(_redact_diagnostic(json.loads(redacted)), separators=(",", ":"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return redacted
+    return value
+
+
+class _CanonicalModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, validate_default=True)
+
+    def diagnostic_dump(self) -> dict[str, JsonValue]:
+        return _redact_diagnostic(self.model_dump(mode="json"))  # type: ignore[return-value]
+
+
+class CanonicalToolMeta(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    canonical_name: Annotated[str, Field(min_length=1, max_length=200)]
+    kind: ToolKind
+    side_effects: frozenset[SideEffect]
+    risk: ToolRisk
+    execution_location: ExecutionLocation
+    display_name: Annotated[str, Field(min_length=1, max_length=200)]
+    description: Annotated[str, Field(min_length=1, max_length=10_000)]
+    tags: tuple[Annotated[str, Field(min_length=1, max_length=100)], ...] = ()
+    timeout_seconds: int = Field(default=30, ge=1, le=3600)
+    idempotent: bool = False
+    cacheable: bool = False
+
+    @field_validator("side_effects")
+    @classmethod
+    def validate_side_effects(cls, value: frozenset[SideEffect]) -> frozenset[SideEffect]:
+        if not value:
+            raise ValueError("at least one side effect classification is required")
+        if SideEffect.NONE in value and len(value) != 1:
+            raise ValueError("none cannot be combined with another side effect")
+        return value
+
+    @property
+    def is_data_read_only(self) -> bool:
+        return self.side_effects.isdisjoint({SideEffect.WORKSPACE_WRITE, SideEffect.EXTERNAL_WRITE, SideEffect.DESTRUCTIVE})
+
+    @property
+    def is_read_only(self) -> bool:
+        return self.is_data_read_only
+
+
+class ToolInvocation(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    invocation_id: Annotated[str, Field(min_length=1, max_length=200)]
+    tool_name: Annotated[str, Field(min_length=1, max_length=200)]
+    arguments: FrozenJsonObject = Field(default_factory=dict, repr=False)
+    session_id: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    user_id: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    idempotency_key: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    requested_at: datetime | None = None
+
+    @field_serializer("arguments")
+    def serialize_arguments(self, value: FrozenJsonObject) -> JsonValue:
+        return _thaw_json(value)  # type: ignore[arg-type]
+
+
+ToolErrorType = Literal["transport", "validation", "policy_denied", "handler", "timeout", "cancelled", "worker_lost"]
+
+
+class ToolError(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    error_type: ToolErrorType
+    code: Annotated[str, Field(min_length=1, max_length=200)]
+    message: Annotated[str, Field(min_length=1, max_length=10_000)]
+    diagnostic: FrozenJsonObject | None = Field(default=None, repr=False)
+    retryable: bool = False
+    retry_after_seconds: float | None = Field(default=None, ge=0)
+    origin: ExecutionLocation | None = None
+
+    @field_validator("diagnostic")
+    @classmethod
+    def redact_diagnostic(cls, value: FrozenJsonObject | None) -> FrozenJsonObject | None:
+        return _freeze_object(_redact_diagnostic(value)) if value is not None else None  # type: ignore[arg-type]
+
+    @field_serializer("diagnostic")
+    def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
+        return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
+
+
+class ToolResult(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    invocation_id: Annotated[str, Field(min_length=1, max_length=200)]
+    status: Literal["success", "error", "cancelled"]
+    output: FrozenJsonObject | None = Field(default=None, repr=False)
+    error: ToolError | None = None
+
+    @field_serializer("output")
+    def serialize_output(self, value: FrozenJsonObject | None) -> JsonValue:
+        return _thaw_json(value) if value is not None else None  # type: ignore[arg-type]
+
+    @model_validator(mode="after")
+    def validate_terminal_payload(self) -> ToolResult:
+        if self.status == "success" and self.error is not None:
+            raise ValueError("successful tool results cannot contain an error")
+        if self.status != "success" and self.error is None:
+            raise ValueError("non-successful tool results require an error")
+        if self.status == "cancelled" and self.error is not None and self.error.error_type != "cancelled":
+            raise ValueError("cancelled tool results require a cancelled error type")
+        return self
+
+
+class ToolEvent(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    event_id: Annotated[str, Field(min_length=1, max_length=200)]
+    invocation_id: Annotated[str, Field(min_length=1, max_length=200)]
+    sequence: int = Field(ge=0)
+    attempt: int = Field(default=1, ge=1)
+    event_type: Annotated[str, Field(min_length=1, max_length=100)]
+    occurred_at: datetime
+    payload: FrozenJsonObject = Field(default_factory=dict, repr=False)
+
+    @field_serializer("payload")
+    def serialize_payload(self, value: FrozenJsonObject) -> JsonValue:
+        return _thaw_json(value)  # type: ignore[arg-type]
+
+    @field_validator("occurred_at")
+    @classmethod
+    def require_utc_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must be timezone-aware")
+        return value.astimezone(UTC)
+
+
+class ToolAvailability(_CanonicalModel):
+    schema_version: Literal[1] = 1
+    canonical_name: Annotated[str, Field(min_length=1, max_length=200)]
+    available: bool
+    reason_code: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    diagnostic: FrozenJsonObject | None = Field(default=None, repr=False)
+
+    @field_validator("diagnostic")
+    @classmethod
+    def redact_diagnostic(cls, value: FrozenJsonObject | None) -> FrozenJsonObject | None:
+        return _freeze_object(_redact_diagnostic(value)) if value is not None else None  # type: ignore[arg-type]
+
+    @field_serializer("diagnostic")
+    def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
+        return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
