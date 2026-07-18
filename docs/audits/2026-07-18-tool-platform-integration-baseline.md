@@ -1,8 +1,8 @@
 # Tool Platform Selective Integration Baseline
 
-**Audit date:** 2026-07-18  
-**Compared range:** `master...codex/tool-platform`  
-**Reference tip:** `87cf8032` (`fix(tools): harden registry projections`)  
+**Audit date:** 2026-07-18
+**Compared range:** `master...codex/tool-platform`
+**Reference tip:** `87cf8032` (`fix(tools): harden registry projections`)
 **Merge base:** `64ff8cd05ae467dc86b996713445e4ffa1975c65`
 
 ## Immutable Git facts
