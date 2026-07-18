@@ -17,6 +17,8 @@ OutputT = TypeVar("OutputT", bound=BaseModel)
 
 
 class ToolHandler(Protocol[InputT, OutputT]):
+    """v1 handlers are asynchronous and return a typed output model."""
+
     async def __call__(self, request: InputT) -> OutputT: ...
 
 
@@ -35,6 +37,12 @@ def _is_async_callable(callback: object) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class ToolDefinition(Generic[InputT, OutputT]):
+    """The executable implementation behind immutable canonical metadata.
+
+    ``definition_version`` tracks implementation compatibility.  It is
+    intentionally separate from the stable wire ``meta.schema_version``.
+    """
+
     meta: CanonicalToolMeta
     input_model: type[InputT]
     output_model: type[OutputT]
@@ -52,7 +60,11 @@ class ToolDefinition(Generic[InputT, OutputT]):
     def __post_init__(self) -> None:
         if not isinstance(self.meta, CanonicalToolMeta):
             raise TypeError("meta must be CanonicalToolMeta")
-        if isinstance(self.definition_version, bool) or not isinstance(self.definition_version, int) or self.definition_version < 1:
+        if (
+            isinstance(self.definition_version, bool)
+            or not isinstance(self.definition_version, int)
+            or self.definition_version < 1
+        ):
             raise ValueError("definition_version must be at least 1")
         if isinstance(self.aliases, str):
             raise TypeError("aliases must be a sequence of names, not a string")
@@ -84,14 +96,22 @@ class ToolDefinition(Generic[InputT, OutputT]):
             raise TypeError("handler must be an async callable")
         if self.availability_probe is not None and not _is_async_callable(self.availability_probe):
             raise TypeError("availability_probe must be an async callable")
-        for field_name in ("required_provider_facts", "required_model_facts", "required_platform_facts"):
+        for field_name in (
+            "required_provider_facts",
+            "required_model_facts",
+            "required_platform_facts",
+        ):
             value = _FACTS_ADAPTER.validate_python(dict(getattr(self, field_name)), strict=True)
             object.__setattr__(self, field_name, _freeze_mapping(value))
 
     def validate_input(self, payload: object) -> InputT:
+        """Validate an untrusted handler payload without type coercion."""
+
         return self.input_model.model_validate(payload, strict=True)
 
     def validate_output(self, payload: object) -> OutputT:
+        """Validate an implementation result before protocol projection."""
+
         return self.output_model.model_validate(payload, strict=True)
 
 
@@ -102,4 +122,5 @@ def _freeze_mapping(value: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
         if isinstance(item, list):
             return tuple(freeze(child) for child in item)  # type: ignore[return-value]
         return item
+
     return MappingProxyType({key: freeze(item) for key, item in value.items()})
