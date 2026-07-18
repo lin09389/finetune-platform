@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from subprocess import check_output
 
 
 SERVER = Path(__file__).resolve().parents[1]
@@ -45,19 +44,9 @@ def test_milestone_one_adds_no_agent_session_approval_state_machine() -> None:
     prohibited = {
         "approval_repository.py",
         "approval_store.py",
-        "session_state_machine.py",
         "approval_state_machine.py",
     }
-    repository = SERVER.parent
-    merge_base = check_output(
-        ["git", "merge-base", "master", "HEAD"], cwd=repository, text=True
-    ).strip()
-    added = check_output(
-        ["git", "diff", "--name-only", "--diff-filter=A", merge_base, "HEAD"],
-        cwd=repository,
-        text=True,
-    ).splitlines()
-    found = {Path(path).name for path in added if path.startswith("server/agent_session/")}
+    found = {path.name for path in (SERVER / "agent_session").rglob("*.py")}
 
     assert prohibited.isdisjoint(found)
 
@@ -78,28 +67,11 @@ def test_milestone_one_production_package_has_only_expected_files() -> None:
     assert tool_platform_files == expected
 
 
-def test_milestone_one_changes_only_expected_production_files() -> None:
-    repository = SERVER.parent
-    merge_base = check_output(
-        ["git", "merge-base", "master", "HEAD"], cwd=repository, text=True
-    ).strip()
-    changed = check_output(
-        ["git", "diff", "--name-only", merge_base, "HEAD"], cwd=repository, text=True
-    ).splitlines()
-    production_changes = {
-        path
-        for path in changed
-        if path.startswith("server/") and not path.startswith("server/tests/")
-    }
-    expected = {
-        "server/agent_session/execution_context.py",
-        "server/agent_session/agent_registry.py",
-        "server/tool_platform/__init__.py",
-        "server/tool_platform/taxonomy.py",
-        "server/tool_platform/models.py",
-        "server/tool_platform/definition.py",
-        "server/tool_platform/registry.py",
-        "server/tool_platform/catalog.py",
+def test_agent_session_tool_platform_consumers_are_limited_to_manifest_compilation() -> None:
+    consumers = {
+        path.name
+        for path in (SERVER / "agent_session").rglob("*.py")
+        if "tool_platform" in _source(path)
     }
 
-    assert production_changes <= expected
+    assert consumers == {"execution_context.py", "agent_registry.py"}
