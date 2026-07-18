@@ -16,7 +16,6 @@ from agent_session.model_capabilities import agent_model_tool_calling_status
 from agent_session.permission import default_deepagents_permission_metadata, normalize_autonomy_mode
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.state import ensure_session_state
-from agent_session.task_modes import require_available_agent_task_mode
 from core.config import settings
 from security.encryption import secure_storage
 from cloud_models import CloudProviderRepository
@@ -44,7 +43,6 @@ class SessionLifecycleService:
         return self.validate_project_path(project_path)
 
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
-        require_available_agent_task_mode(request.task_mode)
         project_path, workspace_id = resolve_agent_workspace(
             request.workspace_id,
             request.project_path,

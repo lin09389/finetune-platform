@@ -31,7 +31,6 @@ from agent_session.models import (
     AgentWorkspaceResponse,
 )
 from agent_session.service import AgentSessionService
-from agent_session.task_modes import AgentCapabilityMigratingError, require_available_agent_session_mode
 from api.workspace import AgentWorkspaceNotFoundError
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
@@ -45,20 +44,6 @@ from security.jwt_auth import Role, TokenPayload
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 _AGENT_SESSION_SERVICE: AgentSessionService | None = None
 _AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY: AgentFrontendDiagnosticsRepository | None = None
-
-
-def _capability_migrating_http_error(exc: AgentCapabilityMigratingError) -> HTTPException:
-    return HTTPException(
-        status_code=409,
-        detail={
-            "error": "capability_migrating",
-            "status": "capability_migrating",
-            "failure_kind": exc.failure_kind,
-            "task_mode": exc.task_mode,
-            "next_action": exc.next_action,
-            "message": str(exc),
-        },
-    )
 
 
 def _session_status(session: Any) -> str | None:
@@ -119,19 +104,6 @@ async def _require_accessible_part_session(
     if not part:
         raise HTTPException(status_code=404, detail="Agent part not found")
     return await _require_accessible_session(service, str(part.get("session_id") or ""), current_user)
-
-
-async def _require_available_part_session(
-    service: AgentSessionService,
-    part_id: str,
-    current_user: TokenPayload,
-) -> AgentSessionResponse:
-    session = await _require_accessible_part_session(service, part_id, current_user)
-    try:
-        require_available_agent_session_mode(session.model_dump())
-    except AgentCapabilityMigratingError as exc:
-        raise _capability_migrating_http_error(exc) from exc
-    return session
 
 
 def _resolve_artifact_project_path(project_root: Path, artifact_path: str) -> Path:
@@ -226,8 +198,6 @@ async def create_agent_session(
         )
     try:
         return await run_sync(service.create_session, request, current_user.user_id)
-    except AgentCapabilityMigratingError as exc:
-        raise _capability_migrating_http_error(exc) from exc
     except AgentWorkspaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -328,12 +298,9 @@ async def prompt_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    session = await _require_accessible_session(service, session_id, current_user)
+    await _require_accessible_session(service, session_id, current_user)
     try:
-        require_available_agent_session_mode(session.model_dump())
         return await service.start_prompt_detached(session_id, request)
-    except AgentCapabilityMigratingError as exc:
-        raise _capability_migrating_http_error(exc) from exc
     except AgentConfigurationError as exc:
         raise HTTPException(
             status_code=400,
@@ -376,12 +343,9 @@ async def recover_agent_execution_plan_node(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    session = await _require_accessible_session(service, session_id, current_user)
+    await _require_accessible_session(service, session_id, current_user)
     try:
-        require_available_agent_session_mode(session.model_dump())
         return await service.recover_execution_node(session_id, node_id, request, background_tasks)
-    except AgentCapabilityMigratingError as exc:
-        raise _capability_migrating_http_error(exc) from exc
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 422
@@ -395,11 +359,7 @@ async def start_async_agent_task(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    session = await _require_accessible_session(service, session_id, current_user)
-    try:
-        require_available_agent_session_mode(session.model_dump())
-    except AgentCapabilityMigratingError as exc:
-        raise _capability_migrating_http_error(exc) from exc
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await service.start_async_subtask(session_id, request.subagent_type, request.description)
     except ValueError as exc:
@@ -712,7 +672,7 @@ async def approve_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    await _require_available_part_session(service, permission_id, current_user)
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         session = await run_sync(
             service.start_permission_resume_background,
@@ -744,7 +704,7 @@ async def reject_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    await _require_available_part_session(service, permission_id, current_user)
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         session = await run_sync(
             service.start_permission_resume_background,
@@ -777,7 +737,7 @@ async def decide_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    await _require_available_part_session(service, permission_id, current_user)
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         decisions = [decision.model_dump(exclude_none=True) for decision in request.decisions]
         session = await run_sync(

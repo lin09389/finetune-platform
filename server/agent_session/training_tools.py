@@ -11,7 +11,6 @@ from typing import Any, Literal
 from agent_training.errors import AgentTrainingError
 from agent_training.models import ApprovedTrainingAction, TrainingProposalRequest, training_activity_for
 from agent_training.service import AgentTrainingService
-from agent_session.task_modes import legacy_agent_training_tools_available
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from training_engine.schemas import TrainingConfigInput
@@ -58,11 +57,11 @@ class GetTrainingSummaryInput(BaseModel):
 
 
 def training_tools_enabled_for_session(session: dict[str, Any]) -> bool:
-    """Return whether a session may expose legacy Agent training tools."""
+    """Return whether the session is explicitly allowed to access training tools."""
 
     metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
     task_mode = session.get("task_mode") or metadata.get("task_mode")
-    return legacy_agent_training_tools_available(task_mode)
+    return str(session.get("agent_id") or "build") == "build" and task_mode in {"train", "hybrid"}
 
 
 def training_submission_interrupt_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:

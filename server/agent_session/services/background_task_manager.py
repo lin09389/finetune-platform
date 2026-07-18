@@ -16,7 +16,6 @@ from agent_session.models import AgentPromptRequest, AgentSessionResponse
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.services.utils import ensure_failed_metadata
 from agent_session.state import ensure_session_state
-from agent_session.task_modes import require_available_agent_session_mode
 from context.deepagents import build_deepagents_context_pack
 from core.db_manager import run_sync
 
@@ -58,7 +57,6 @@ class BackgroundTaskManagerService:
             session = repository.get_session(session_id)
             if not session:
                 raise ValueError("Agent session not found")
-            require_available_agent_session_mode(session)
 
             if str(session.get("status") or "") in self.service.ACTIVE_STATUSES or self._has_running_prompt_task(session_id):
                 repository.add_event(
@@ -192,7 +190,6 @@ class BackgroundTaskManagerService:
         session = repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
-        require_available_agent_session_mode(session)
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         if session.get("status") == "interrupted" or metadata.get("interrupt_requested"):
             return self.service.lifecycle.get_session(session_id)

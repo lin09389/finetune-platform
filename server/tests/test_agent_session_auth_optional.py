@@ -76,69 +76,6 @@ def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path
         app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize("task_mode", ["train", "hybrid"])
-def test_agent_sessions_reject_migrating_task_modes_but_allow_build(tmp_path: Path, task_mode: str):
-    client, service = _client_with_service(tmp_path)
-    workspace = _workspace_root()
-    try:
-        allowed = client.post(
-            "/agent-sessions",
-            json={"title": "Build remains available", "agent_id": "build", "project_path": str(workspace), "task_mode": "build"},
-        )
-        assert allowed.status_code == 200
-        assert allowed.json()["task_mode"] == "build"
-
-        denied = client.post(
-            "/agent-sessions",
-            json={"title": "Migrating mode", "agent_id": "build", "project_path": str(workspace), "task_mode": task_mode},
-        )
-        assert denied.status_code == 409
-        assert denied.json() == {
-            "error": "capability_migrating",
-            "status": "capability_migrating",
-            "failure_kind": "capability_migrating",
-            "task_mode": task_mode,
-            "next_action": "use_build_agent",
-            "message": (
-                f"Agent {task_mode.title()} mode is temporarily unavailable while it migrates to the Native Agent Loop. "
-                "Use Build for Agent work; ordinary training APIs and jobs remain available."
-            ),
-        }
-
-        legacy = service.repository.create_session(
-            {
-                "agent_id": "build",
-                "title": "legacy migrating session",
-                "project_path": str(workspace),
-                "metadata": {"task_mode": task_mode, "user_id": "desktop-local-user"},
-            }
-        )
-        hidden_launch = client.post(f"/agent-sessions/{legacy['id']}/prompt", json={"content": "start tools"})
-        assert hidden_launch.status_code == 409
-        assert hidden_launch.json()["status"] == "capability_migrating"
-        assert service.repository.list_parts(legacy["id"]) == []
-
-        hidden_subagent = client.post(
-            f"/agent-sessions/{legacy['id']}/async-tasks",
-            json={"subagent_type": "explore", "description": "inspect code"},
-        )
-        assert hidden_subagent.status_code == 409
-        assert hidden_subagent.json()["status"] == "capability_migrating"
-
-        permission = service.repository.add_part(
-            legacy["id"],
-            "permission",
-            status="pending",
-            title="legacy permission",
-            payload={"official_hitl": True, "actions": [{"name": "edit_file"}]},
-        )
-        hidden_resume = client.post(f"/agent-permissions/{permission['id']}/approve")
-        assert hidden_resume.status_code == 409
-        assert hidden_resume.json()["status"] == "capability_migrating"
-    finally:
-        app.dependency_overrides.clear()
-
-
 def test_agent_session_project_path_only_sets_deprecation_header(tmp_path: Path):
     """POST /agent-sessions 仅传 project_path 时应返回 X-Deprecated header 引导迁移到 workspace_id。"""
     client, _ = _client_with_service(tmp_path)

@@ -8,8 +8,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent_session.training_tools import (  # noqa: E402
@@ -19,11 +17,6 @@ from agent_session.training_tools import (  # noqa: E402
     training_tools_enabled_for_session,
 )
 from agent_training.models import TrainingProposal, TrainingRunSummary, TrainingSubmission  # noqa: E402
-
-
-pytestmark = pytest.mark.skip(
-    reason="Legacy Agent training tools are disabled while Train/Hybrid migrate to the Native Agent Loop.",
-)
 
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "agent_training_golden_path.json"
@@ -156,7 +149,7 @@ def test_refresh_recovery_keeps_the_same_session_scoped_training_identity():
     before_refresh = _tools(repository.session, repository, service)
     after_refresh = _tools(dict(repository.session), repository, service)
 
-    assert list(before_refresh) == list(after_refresh) == ["propose_training", "submit_training", "get_training_summary"]
+    assert set(before_refresh) == set(after_refresh) == TRAINING_TOOL_NAMES
     assert repository.session["id"] == "session-golden-001"
     assert json.loads(asyncio.run(after_refresh["get_training_summary"].ainvoke({"task_id": "task-train-001"})))["task_id"] == "task-train-001"
 

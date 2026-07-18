@@ -15,7 +15,7 @@ Finetune Platform is evolving from an LLM fine-tuning console into a personal AI
 
 Code, models, datasets, sessions, execution traces, and training artifacts stay on your machine by default. SQLite, local files, and local GPUs are first-class. PostgreSQL, Redis, and remote workers belong to a future optional team edition, not the personal runtime.
 
-> **Current stage: active development / source preview.** Electron is the formal desktop runtime boundary and the managed Python foundation is implemented. The project is migrating from DeepAgents to a self-owned Native Agent Loop. During migration, Agent Workbench is Build-only; Train/Hybrid Agent modes are temporarily disabled, while the standalone training UI, APIs, and Training Worker remain available. Production runtime packs, a signed installer, automatic updates, and clean-machine acceptance are still roadmap work.
+> **Current stage: active development / source preview.** Electron is the formal desktop runtime boundary and the managed Python foundation is implemented. Production runtime packs, a signed installer, automatic updates, and clean-machine release acceptance are still roadmap work. A repository build is not yet a stable desktop release.
 
 ## Product Promise
 
@@ -25,7 +25,7 @@ Code, models, datasets, sessions, execution traces, and training artifacts stay 
 flowchart LR
     U["Task input"] --> W["Agent Workbench"]
     W --> S["Agent Session"]
-    S --> D["Agent Runtime (DeepAgents today, Native target)"]
+    S --> D["DeepAgents execution harness"]
     D --> P["Tool policy and runtime"]
     P --> C["Coding: files · terminal · Git · tests"]
     P --> T["Training: data · models · jobs · evaluation"]
@@ -34,11 +34,11 @@ flowchart LR
     E -. "roadmap" .-> TT["Trace-to-Train flywheel"]
 ```
 
-The target task modes are:
+One task can run in four modes:
 
 - **Build:** understand a repository, implement or repair code, run tests, and deliver a diff.
-- **Train (disabled during migration):** inspect data and VRAM, propose a configuration, launch an approved job, and track results.
-- **Hybrid (disabled during migration):** change training code, verify preprocessing, run a small experiment, and compare evaluations.
+- **Train:** inspect data and VRAM, propose a configuration, launch an approved job, and track results.
+- **Hybrid:** change training code, verify preprocessing, run a small experiment, and compare evaluations.
 
 ## Why It Is More Than Another Coding Agent
 
@@ -68,8 +68,8 @@ Trace-to-Train is roadmap work, not a currently released feature.
 ### Coding Agent Workbench
 
 - `/agent` is the default entry, combining task input, conversation, plan, timeline, and context.
-- Workspace is the long-lived boundary; newly created Agent sessions currently use Build mode.
-- `AgentSessionService` remains the only Agent lifecycle owner. DeepAgents temporarily runs production Build sessions until the Native Loop passes its cutover gates.
+- Workspace is the long-lived boundary; Build, Train, and Hybrid sessions persist their workspace and mode.
+- `AgentSessionService` is the only Agent lifecycle owner, and DeepAgents is the only production tool loop.
 - Execution plans, file operations, terminal activity, durable diffs, verification evidence, and recovery are integrated.
 - HITL interrupt/resume allows sensitive work to wait for approval and continue in the background.
 - Built-in Build, Explore, and Review manifests support async subagents and durable status projections.
@@ -79,8 +79,9 @@ Trace-to-Train is roadmap work, not a currently released feature.
 
 - Local model, dataset, training, evaluation, and deployment-artifact management.
 - LoRA/QLoRA, low-VRAM profiles, a durable queue, an isolated Training Worker, and checkpoint recovery.
-- Existing Agent training proposals, approval flows, and Workbench projections are paused during the Native migration.
-- The standalone training UI, APIs, queue, and Worker remain available; Agent Train/Hybrid will return on the Native contracts.
+- Read-only Agent training proposals with model/dataset resolution, validation, and VRAM estimation.
+- Training submission passes through existing approval boundaries; duplicate, stale, or cross-owner requests fail closed.
+- Durable training events project into Workbench and recover after refresh or API restart.
 - An isolated inference service supports local backends behind an OpenAI-compatible boundary.
 
 ### Local Knowledge and Desktop Runtime
@@ -105,7 +106,7 @@ Trusted sandboxing, task-scoped Git worktrees, mutation rewind, complex-project 
 
 ## Architecture Principles
 
-- **One loop per session:** during migration, a session selects either the DeepAgents or Native runtime and never nests both. The Native Agent Loop will ultimately replace DeepAgents.
+- **One Agent loop:** DeepAgents owns model iteration, tool choice, planning, subagents, and interrupts. The platform does not add a second ReAct loop.
 - **Strong session, thin host:** the platform owns cross-turn lifecycle, workspace binding, persistence, approvals, recovery, events, and diagnostics.
 - **Deterministic workflow:** application state machines coordinate jobs, artifacts, and idempotency without deciding the next model tool call.
 - **Event-driven projections:** UI, evaluation, diagnostics, automation, and the future Trace Collector consume versioned event facts.
@@ -114,10 +115,9 @@ Trusted sandboxing, task-scoped Git worktrees, mutation rewind, complex-project 
 
 Architecture references:
 
-- [Native Agent Loop design](docs/plans/2026-07-17-native-agent-loop-design.md)
-- [Native Agent Loop migration plan](docs/plans/2026-07-17-native-agent-loop-migration.md)
+- [Phase 11+ roadmap](docs/plans/2026-07-13-trusted-local-ai-engineer-roadmap.md)
 - [ADR-0001: Agent Session is the primary Agent runtime](docs/adr/0001-agent-session-as-primary-agent-runtime.md)
-- [ADR-0012: Adopt the Native Agent Loop and retire DeepAgents](docs/adr/0012-adopt-native-agent-loop-and-retire-deepagents.md)
+- [ADR-0011: Keep DeepAgents as the only Agent loop](docs/adr/0011-keep-deepagents-as-the-only-agent-loop.md)
 
 ## Quick Start
 
@@ -241,23 +241,22 @@ finetune-platform/
 
 ## Roadmap
 
-| Wave | Outcome |
+| Phase | Outcome |
 |---|---|
-| 0 | Build-only migration gates, Native v2 command/event contracts, and a non-destructive persistence baseline |
-| 1 | Native Session Host, bidirectional WebSocket, FIFO follow-up queue, and safe-boundary steering |
-| 2 | Native sampling loop, model adapter, Tool Runtime, approval policy, and Execution Environment interface |
-| 3 | Append-only events, periodic snapshots, goal workflow, compaction, mutation ledger, and safe rewind |
-| 4 | Rewritten Workbench v2 plus real Build-project and recovery acceptance |
-| 5 | Native default cutover, scoped legacy-session/checkpoint cleanup, and final DeepAgents removal |
-| 6 | Restore Train/Hybrid on Native contracts and add manually curated Trace-to-Train |
+| 11 | Thin AgentSession host, runtime binding, steering/follow-up, structured compaction, and event spine |
+| 12–14 | Trusted execution sandbox, isolated worktrees, mutation ledger, checkpoints, and safe rewind |
+| 15 | Complex, multi-file, long-running Coding Agent capability |
+| 16 | Integrated Training Copilot and governed Trace-to-Train loop |
+| 17 | Hooks, personal automation, and permissioned extensions |
+| 18 | Production runtime packs, signed installer, update/rollback, and clean-machine acceptance |
+| 19 | Optional PostgreSQL, Redis, object storage, and team governance |
 
-Wave 5 completes the Native Coding Agent migration. Wave 6 restores the integrated Coding + training-assistant loop. The team edition remains optional.
+Phase 16 is the approximate completion point for the Coding Agent + training-assistant core loop. Phase 18 is the target for a distributable personal desktop product. The team edition is not a personal-edition completion requirement.
 
 ## Current Limitations
 
 - Production Python 3.11 base runtime packs and a signed Windows installer have not completed release acceptance.
 - Execution isolation still needs an enforceable, fail-closed Execution Environment Provider.
-- Agent Workbench is Build-only during the Native migration; Train/Hybrid Agent modes are temporarily disabled.
 - Parallel Coding tasks do not yet receive isolated Git worktrees by default.
 - Trace-to-Train, public extensions, and team-edition adapters are not complete.
 - CUA, MCP, Gateway, and Heartbeat remain Experimental.

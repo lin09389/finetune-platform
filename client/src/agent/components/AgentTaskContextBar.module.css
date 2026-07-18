@@ -75,14 +75,6 @@
   font-size: 12px;
 }
 
-.migrationNotice {
-  max-width: 300px;
-  margin: 0;
-  color: var(--text-tertiary);
-  font-size: 10px;
-  line-height: 1.45;
-}
-
 @media (max-width: 640px) {
   .contextBar {
     align-items: stretch;

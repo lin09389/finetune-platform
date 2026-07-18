@@ -64,7 +64,6 @@ import { buildPanelSurfaceStyle, usePanelResize } from './usePanelResize';
 import styles from './AgentWorkbench.module.css';
 import type { AgentTransport } from '../transport/agentTransport';
 import { routeAgentNextAction } from '../commands/nextActionRouting';
-import { isMigratingAgentTaskMode } from '../taskModes';
 
 const AgentRunTimeline = lazy(() => import('../components/AgentRunTimeline'));
 
@@ -164,7 +163,6 @@ export default function AgentWorkbenchPage({
   }, [resolveSelectedWorkspace, settings.projectPath, settings.workspaceId]);
 
   const selectTaskMode = useCallback((taskMode: TaskMode) => {
-    if (isMigratingAgentTaskMode(taskMode)) return;
     setSettings((current) => ({ ...current, taskMode }));
     setTaskContext(state.selectedWorkspace, taskMode);
   }, [setTaskContext, state.selectedWorkspace]);
