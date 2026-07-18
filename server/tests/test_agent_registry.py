@@ -5,6 +5,7 @@ import pytest
 from agent_session.agent_registry import AgentRegistry
 from agent_session.runtime_contract import agent_system_prompt
 from agent_session.runtime_policy import build_agent_definition_policy
+from tool_platform.taxonomy import ToolKind, ToolRisk
 
 
 def test_builtin_agents_load_and_primary_filter():
@@ -330,5 +331,97 @@ SystemPrompt:
     )
 
     with pytest.raises(ValueError, match="must also be declared in handoff_targets"):
+        AgentRegistry(tmp_path)
+
+
+def test_manifest_tool_projection_preserves_allowed_presence_and_facts(tmp_path: Path):
+    (tmp_path / "undeclared.agent.yaml").write_text(
+        """
+schema_version: 2
+id: undeclared
+mode: all
+SystemPrompt:
+  identity: Undeclared tools.
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "empty.agent.yaml").write_text(
+        """
+schema_version: 2
+id: empty
+mode: all
+tools:
+  allowed: []
+SystemPrompt:
+  identity: Explicitly empty tools.
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "selector.agent.yaml").write_text(
+        """
+schema_version: 2
+id: selector
+mode: all
+tools:
+  allowed: [read_file, read_alias]
+  kinds: [search, read]
+  denied: [execute]
+  risk_ceiling: high
+SystemPrompt:
+  identity: Selector tools.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry(tmp_path)
+    assert registry.tool_projection_context("undeclared").allowed_names is None
+    assert registry.tool_projection_context("empty").allowed_names == frozenset()
+
+    agent = registry.require("selector")
+    assert agent.tool_policy["enforcement_status"] == "legacy_runtime"
+    context = registry.tool_projection_context(
+        "selector",
+        runtime_kind="agent_session",
+        enabled_capabilities=frozenset({"workspace"}),
+        provider_facts={"tool_calling": True},
+        model_facts={"family": "gpt"},
+        platform_facts={"sandbox": "local"},
+    )
+    assert context.allowed_names == frozenset({"read_file", "read_alias"})
+    assert context.denied_names == frozenset({"execute"})
+    assert context.allowed_kinds == frozenset({ToolKind.SEARCH, ToolKind.READ})
+    assert context.risk_ceiling is ToolRisk.HIGH
+    assert context.runtime_kind == "agent_session"
+    assert context.enabled_capabilities == frozenset({"workspace"})
+    assert context.provider_facts == {"tool_calling": True}
+    assert context.model_facts == {"family": "gpt"}
+    assert context.platform_facts == {"sandbox": "local"}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("kinds", "read", "tools.kinds must be a list"),
+        ("kinds", "[unknown_kind]", "Unknown tool kind 'unknown_kind'"),
+        ("risk_ceiling", "unknown_risk", "Unknown tool risk ceiling 'unknown_risk'"),
+    ],
+)
+def test_manifest_tool_projection_rejects_invalid_selectors(
+    tmp_path: Path, field: str, value: str, message: str
+):
+    (tmp_path / "bad.agent.yaml").write_text(
+        f"""
+schema_version: 2
+id: bad
+mode: all
+tools:
+  {field}: {value}
+SystemPrompt:
+  identity: Bad tools.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
         AgentRegistry(tmp_path)
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import yaml
+from tool_platform.registry import ToolProjectionContext
+from tool_platform.taxonomy import ToolKind, ToolRisk
 
 from .execution_context import AgentDefinition, AgentManifestV2
 
@@ -45,6 +48,70 @@ class AgentRegistry:
         if agent is None:
             raise KeyError(f"Unknown agent id: {agent_id}")
         return agent
+
+    def validate_tool_selectors(
+        self,
+        *,
+        known_tool_names: Iterable[str] | None = None,
+        known_tool_kinds: Iterable[ToolKind] | None = None,
+    ) -> None:
+        """Optionally validate selectors after a typed tool registry exists."""
+        names = None if known_tool_names is None else {str(name) for name in known_tool_names}
+        kinds = set(ToolKind) if known_tool_kinds is None else set(known_tool_kinds)
+        for agent in self._agents.values():
+            policy = agent.tool_policy
+            if names is not None:
+                for selector_name in (*policy["allowed"], *policy["denied"]):
+                    if selector_name not in names:
+                        selector_type = "allowed" if selector_name in policy["allowed"] else "denied"
+                        known = ", ".join(sorted(names)) or "(none)"
+                        raise ValueError(
+                            f"Unknown {selector_type} tool selector {selector_name!r} for agent "
+                            f"{agent.id!r}. Known canonical names/aliases: {known}"
+                        )
+            for kind_value in policy["kinds"]:
+                kind = ToolKind(kind_value)
+                if kind not in kinds:
+                    known = ", ".join(sorted(item.value for item in kinds)) or "(none)"
+                    raise ValueError(
+                        f"Unknown tool kind selector {kind.value!r} for agent {agent.id!r}. "
+                        f"Known tool kinds: {known}"
+                    )
+
+    def tool_projection_context(
+        self,
+        agent_id: str,
+        *,
+        runtime_kind: str | None = None,
+        enabled_capabilities: frozenset[str] | None = None,
+        provider_facts: dict[str, Any] | None = None,
+        model_facts: dict[str, Any] | None = None,
+        platform_facts: dict[str, Any] | None = None,
+    ) -> ToolProjectionContext:
+        """Compile manifest selectors into immutable registry projection data.
+
+        The legacy runtime remains the authority for DeepAgents tools and HITL.
+        """
+        policy = self.require(agent_id).tool_policy
+        allowed_names = frozenset(policy["allowed"]) if policy.get("allowed_explicit") else None
+        allowed_kinds = (
+            frozenset(ToolKind(value) for value in policy["kinds"])
+            if policy["kinds"]
+            else None
+        )
+        risk_value = policy.get("risk_ceiling")
+        return ToolProjectionContext(
+            agent_id=agent_id,
+            allowed_names=allowed_names,
+            denied_names=frozenset(policy["denied"]),
+            allowed_kinds=allowed_kinds,
+            risk_ceiling=ToolRisk(risk_value) if risk_value else None,
+            runtime_kind=runtime_kind,
+            enabled_capabilities=enabled_capabilities,
+            provider_facts=provider_facts or {},
+            model_facts=model_facts or {},
+            platform_facts=platform_facts or {},
+        )
 
     def _iter_agent_files(self) -> list[Path]:
         legacy_files = sorted(path for path in self.agents_dir.glob("*.md") if path.is_file())
@@ -140,7 +207,10 @@ class AgentRegistry:
             few_shot_examples=[example.model_dump() for example in manifest.few_shot_examples],
             trajectory_policy=manifest.trajectory_policy.model_dump(),
             reflection_rules=manifest.reflection_rules.model_dump(),
-            tool_policy=manifest.tools.model_dump(),
+            tool_policy={
+                **manifest.tools.stable_dump(),
+                "enforcement_status": "legacy_runtime",
+            },
             handoff_policy=manifest.handoff.model_dump(),
             metadata=metadata,
         )

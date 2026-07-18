@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from tool_platform.taxonomy import ToolKind, ToolRisk
 
 AgentMode = Literal["primary", "subagent", "all"]
 AgentDefinitionFormat = Literal["agent_manifest_v2", "runtime"]
@@ -69,8 +70,50 @@ class AgentRuntimeDefaults(BaseModel):
 
 class AgentToolPolicy(BaseModel):
     allowed: list[str] = Field(default_factory=list)
+    allowed_explicit: bool = False
+    kinds: list[ToolKind] = Field(default_factory=list)
     denied: list[str] = Field(default_factory=list)
+    risk_ceiling: ToolRisk | None = None
     notes: str = ""
+
+    def model_post_init(self, __context: Any) -> None:
+        """Retain whether ``allowed`` appeared without changing legacy tools."""
+        self.allowed_explicit = "allowed" in self.model_fields_set
+
+    @field_validator("kinds", mode="before")
+    @classmethod
+    def _validate_kinds(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("tools.kinds must be a list of canonical tool kinds")
+        valid = ", ".join(kind.value for kind in ToolKind)
+        for item in value:
+            if isinstance(item, ToolKind):
+                continue
+            if not isinstance(item, str) or item not in ToolKind._value2member_map_:
+                raise ValueError(f"Unknown tool kind {item!r}. Expected one of: {valid}")
+        return value
+
+    @field_validator("risk_ceiling", mode="before")
+    @classmethod
+    def _validate_risk_ceiling(cls, value: Any) -> Any:
+        if value is None or isinstance(value, ToolRisk):
+            return value
+        valid = ", ".join(risk.value for risk in ToolRisk)
+        if not isinstance(value, str) or value not in ToolRisk._value2member_map_:
+            raise ValueError(f"Unknown tool risk ceiling {value!r}. Expected one of: {valid}")
+        return value
+
+    def stable_dump(self) -> dict[str, Any]:
+        return {
+            "allowed": list(self.allowed),
+            "allowed_explicit": self.allowed_explicit,
+            "kinds": [kind.value for kind in self.kinds],
+            "denied": list(self.denied),
+            "risk_ceiling": self.risk_ceiling.value if self.risk_ceiling else None,
+            "notes": self.notes,
+        }
 
 
 class AgentHandoffPolicy(BaseModel):
