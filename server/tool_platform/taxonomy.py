@@ -1,4 +1,8 @@
-"""The canonical, fail-closed semantic taxonomy for Agent tools."""
+"""The canonical, fail-closed semantic taxonomy for Agent tools.
+
+Tool names are transport-facing labels.  ``ToolKind`` is the authoritative
+semantic classification used by registry and policy layers.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,8 @@ from typing import Final
 
 
 class ToolKind(str, Enum):
+    """Stable semantic kinds for every registered tool."""
+
     READ = "read"
     WRITE = "write"
     EDIT = "edit"
@@ -33,6 +39,8 @@ class ToolKind(str, Enum):
 
 
 class SideEffect(str, Enum):
+    """The strongest externally observable effect a tool can have."""
+
     NONE = "none"
     WORKSPACE_WRITE = "workspace_write"
     PROCESS = "process"
@@ -43,6 +51,8 @@ class SideEffect(str, Enum):
 
 
 class ToolRisk(str, Enum):
+    """Policy sensitivity used as the safe baseline for a tool kind."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -50,6 +60,8 @@ class ToolRisk(str, Enum):
 
 
 class ExecutionLocation(str, Enum):
+    """Where a tool is normally executed."""
+
     CONTROL_PLANE = "control_plane"
     WORKER = "worker"
     EXTERNAL = "external"
@@ -57,19 +69,28 @@ class ExecutionLocation(str, Enum):
 
 @dataclass(frozen=True)
 class ToolKindDefaults:
+    """Default semantics required for each canonical :class:`ToolKind`."""
+
     side_effects: frozenset[SideEffect]
     risk: ToolRisk
     execution_location: ExecutionLocation
 
     @property
     def is_data_read_only(self) -> bool:
-        return self.side_effects.isdisjoint(
-            {SideEffect.WORKSPACE_WRITE, SideEffect.EXTERNAL_WRITE, SideEffect.DESTRUCTIVE}
-        )
+        """Whether this kind avoids workspace, external, or destructive mutation."""
+
+        mutating = {
+            SideEffect.WORKSPACE_WRITE,
+            SideEffect.EXTERNAL_WRITE,
+            SideEffect.DESTRUCTIVE,
+        }
+        return self.side_effects.isdisjoint(mutating)
 
 
 def _defaults(
-    side_effect: SideEffect | frozenset[SideEffect], risk: ToolRisk, execution_location: ExecutionLocation
+    side_effect: SideEffect | frozenset[SideEffect],
+    risk: ToolRisk,
+    execution_location: ExecutionLocation,
 ) -> ToolKindDefaults:
     effects = side_effect if isinstance(side_effect, frozenset) else frozenset({side_effect})
     return ToolKindDefaults(effects, risk, execution_location)
@@ -78,30 +99,62 @@ def _defaults(
 TOOL_KIND_DEFAULTS: Final[Mapping[ToolKind, ToolKindDefaults]] = MappingProxyType(
     {
         ToolKind.READ: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.CONTROL_PLANE),
-        ToolKind.WRITE: _defaults(SideEffect.WORKSPACE_WRITE, ToolRisk.MEDIUM, ExecutionLocation.WORKER),
-        ToolKind.EDIT: _defaults(SideEffect.WORKSPACE_WRITE, ToolRisk.MEDIUM, ExecutionLocation.WORKER),
+        ToolKind.WRITE: _defaults(
+            SideEffect.WORKSPACE_WRITE, ToolRisk.MEDIUM, ExecutionLocation.WORKER
+        ),
+        ToolKind.EDIT: _defaults(
+            SideEffect.WORKSPACE_WRITE, ToolRisk.MEDIUM, ExecutionLocation.WORKER
+        ),
         ToolKind.LIST_DIR: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.CONTROL_PLANE),
         ToolKind.SEARCH: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.CONTROL_PLANE),
         ToolKind.LSP: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.WORKER),
-        ToolKind.EXECUTE: _defaults(frozenset({SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE, SideEffect.DESTRUCTIVE}), ToolRisk.HIGH, ExecutionLocation.WORKER),
+        ToolKind.EXECUTE: _defaults(
+            frozenset({SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE, SideEffect.DESTRUCTIVE}),
+            ToolRisk.HIGH,
+            ExecutionLocation.WORKER,
+        ),
         ToolKind.WEB_SEARCH: _defaults(SideEffect.NETWORK, ToolRisk.MEDIUM, ExecutionLocation.EXTERNAL),
         ToolKind.WEB_FETCH: _defaults(SideEffect.NETWORK, ToolRisk.MEDIUM, ExecutionLocation.EXTERNAL),
         ToolKind.TASK: _defaults(SideEffect.PROCESS, ToolRisk.HIGH, ExecutionLocation.WORKER),
         ToolKind.TASK_ACTION: _defaults(SideEffect.PROCESS, ToolRisk.HIGH, ExecutionLocation.WORKER),
         ToolKind.WAIT_TASKS: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.CONTROL_PLANE),
-        ToolKind.SCHEDULE: _defaults(SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.WORKER),
+        ToolKind.SCHEDULE: _defaults(
+            SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.WORKER
+        ),
         ToolKind.PLAN_MODE: _defaults(SideEffect.NONE, ToolRisk.LOW, ExecutionLocation.CONTROL_PLANE),
-        ToolKind.TODO: _defaults(SideEffect.EXTERNAL_WRITE, ToolRisk.MEDIUM, ExecutionLocation.CONTROL_PLANE),
-        ToolKind.ASK_USER: _defaults(SideEffect.EXTERNAL_WRITE, ToolRisk.MEDIUM, ExecutionLocation.CONTROL_PLANE),
-        ToolKind.IMAGE_GEN: _defaults(SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.EXTERNAL),
-        ToolKind.VIDEO_GEN: _defaults(SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.EXTERNAL),
-        ToolKind.TRAINING: _defaults(frozenset({SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE}), ToolRisk.HIGH, ExecutionLocation.WORKER),
-        ToolKind.MCP_EXTENSION: _defaults(frozenset({SideEffect.NETWORK, SideEffect.EXTERNAL_WRITE, SideEffect.CREDENTIAL}), ToolRisk.HIGH, ExecutionLocation.EXTERNAL),
+        ToolKind.TODO: _defaults(
+            SideEffect.EXTERNAL_WRITE, ToolRisk.MEDIUM, ExecutionLocation.CONTROL_PLANE
+        ),
+        ToolKind.ASK_USER: _defaults(
+            SideEffect.EXTERNAL_WRITE, ToolRisk.MEDIUM, ExecutionLocation.CONTROL_PLANE
+        ),
+        ToolKind.IMAGE_GEN: _defaults(
+            SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.EXTERNAL
+        ),
+        ToolKind.VIDEO_GEN: _defaults(
+            SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.EXTERNAL
+        ),
+        ToolKind.TRAINING: _defaults(
+            frozenset({SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE}),
+            ToolRisk.HIGH,
+            ExecutionLocation.WORKER,
+        ),
+        ToolKind.MCP_EXTENSION: _defaults(
+            frozenset({SideEffect.NETWORK, SideEffect.EXTERNAL_WRITE, SideEffect.CREDENTIAL}),
+            ToolRisk.HIGH,
+            ExecutionLocation.EXTERNAL,
+        ),
     }
 )
 
 
 def defaults_for_kind(kind: ToolKind) -> ToolKindDefaults:
+    """Return default semantics or reject an unknown kind without a fallback.
+
+    A default must never silently grant semantics to a newly added enum member.
+    Adding a ``ToolKind`` therefore requires an explicit mapping entry above.
+    """
+
     try:
         return TOOL_KIND_DEFAULTS[kind]
     except (KeyError, TypeError) as exc:

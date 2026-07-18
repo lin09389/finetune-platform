@@ -1,4 +1,8 @@
-"""Immutable, wire-safe contracts for the canonical tool platform."""
+"""Immutable, wire-safe contracts for the canonical tool platform.
+
+The taxonomy deliberately lives in :mod:`tool_platform.taxonomy`; this
+module consumes its public enums and does not redefine their semantics.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,16 @@ from types import MappingProxyType
 from typing import Annotated, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from .taxonomy import ExecutionLocation, SideEffect, ToolKind, ToolRisk
 
@@ -42,8 +55,12 @@ FrozenJsonObject = Annotated[Mapping[str, JsonValue], AfterValidator(_freeze_obj
 
 
 def _redact_diagnostic(value: JsonValue) -> JsonValue:
+    """Return a recursively redacted diagnostic suitable for a wire payload."""
     if isinstance(value, Mapping):
-        return {key: "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else _redact_diagnostic(item) for key, item in value.items()}
+        return {
+            key: "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else _redact_diagnostic(item)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_redact_diagnostic(item) for item in value]
     if isinstance(value, tuple):
@@ -53,7 +70,10 @@ def _redact_diagnostic(value: JsonValue) -> JsonValue:
         try:
             parsed = urlsplit(redacted)
             if parsed.scheme and parsed.netloc and parsed.query:
-                query = [(key, "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else item) for key, item in parse_qsl(parsed.query, keep_blank_values=True)]
+                query = [
+                    (key, "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else item)
+                    for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+                ]
                 redacted = urlunsplit(parsed._replace(query=urlencode(query)))
         except ValueError:
             pass
@@ -67,9 +87,13 @@ def _redact_diagnostic(value: JsonValue) -> JsonValue:
 
 
 class _CanonicalModel(BaseModel):
+    """Base configuration shared by all canonical, externally visible models."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True, validate_default=True)
 
     def diagnostic_dump(self) -> dict[str, JsonValue]:
+        """Return a recursively redacted payload for logs, events, and persistence."""
+
         return _redact_diagnostic(self.model_dump(mode="json"))  # type: ignore[return-value]
 
 
@@ -98,10 +122,17 @@ class CanonicalToolMeta(_CanonicalModel):
 
     @property
     def is_data_read_only(self) -> bool:
-        return self.side_effects.isdisjoint({SideEffect.WORKSPACE_WRITE, SideEffect.EXTERNAL_WRITE, SideEffect.DESTRUCTIVE})
+        mutating = {
+            SideEffect.WORKSPACE_WRITE,
+            SideEffect.EXTERNAL_WRITE,
+            SideEffect.DESTRUCTIVE,
+        }
+        return self.side_effects.isdisjoint(mutating)
 
     @property
     def is_read_only(self) -> bool:
+        """Compatibility alias for data read-only semantics."""
+
         return self.is_data_read_only
 
 
@@ -120,7 +151,15 @@ class ToolInvocation(_CanonicalModel):
         return _thaw_json(value)  # type: ignore[arg-type]
 
 
-ToolErrorType = Literal["transport", "validation", "policy_denied", "handler", "timeout", "cancelled", "worker_lost"]
+ToolErrorType = Literal[
+    "transport",
+    "validation",
+    "policy_denied",
+    "handler",
+    "timeout",
+    "cancelled",
+    "worker_lost",
+]
 
 
 class ToolError(_CanonicalModel):
@@ -141,7 +180,6 @@ class ToolError(_CanonicalModel):
     @field_serializer("diagnostic")
     def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
         return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
-
 
 class ToolResult(_CanonicalModel):
     schema_version: Literal[1] = 1

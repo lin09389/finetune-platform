@@ -16,9 +16,26 @@ from tool_platform.taxonomy import (
 
 def test_tool_kind_has_the_complete_stable_canonical_vocabulary() -> None:
     assert {kind.value for kind in ToolKind} == {
-        "read", "write", "edit", "list_dir", "search", "lsp", "execute", "web_search", "web_fetch",
-        "task", "task_action", "wait_tasks", "schedule", "plan_mode", "todo", "ask_user", "image_gen",
-        "video_gen", "training", "mcp_extension",
+        "read",
+        "write",
+        "edit",
+        "list_dir",
+        "search",
+        "lsp",
+        "execute",
+        "web_search",
+        "web_fetch",
+        "task",
+        "task_action",
+        "wait_tasks",
+        "schedule",
+        "plan_mode",
+        "todo",
+        "ask_user",
+        "image_gen",
+        "video_gen",
+        "training",
+        "mcp_extension",
     }
     assert len(ToolKind) == 20
     for kind in ToolKind:
@@ -73,8 +90,14 @@ def test_defaults_are_exhaustive_and_immutable() -> None:
         (ToolKind.MCP_EXTENSION, SideEffect.EXTERNAL_WRITE, ToolRisk.HIGH, ExecutionLocation.EXTERNAL),
     ],
 )
-def test_each_tool_kind_has_explicit_safe_defaults(kind: ToolKind, side_effect: SideEffect, risk: ToolRisk, location: ExecutionLocation) -> None:
+def test_each_tool_kind_has_explicit_safe_defaults(
+    kind: ToolKind,
+    side_effect: SideEffect,
+    risk: ToolRisk,
+    location: ExecutionLocation,
+) -> None:
     defaults = defaults_for_kind(kind)
+
     assert side_effect in defaults.side_effects
     assert defaults.risk is risk
     assert defaults.execution_location is location
@@ -90,8 +113,11 @@ def test_unclassified_kind_fails_closed() -> None:
 
 def test_effects_are_composable_and_data_read_only_is_independent() -> None:
     execute = defaults_for_kind(ToolKind.EXECUTE)
-    assert execute.side_effects == frozenset({SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE, SideEffect.DESTRUCTIVE})
+    assert execute.side_effects == frozenset(
+        {SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE, SideEffect.DESTRUCTIVE}
+    )
     assert execute.is_data_read_only is False
+
     web_fetch = defaults_for_kind(ToolKind.WEB_FETCH)
     assert web_fetch.side_effects == frozenset({SideEffect.NETWORK})
     assert web_fetch.is_data_read_only is True
