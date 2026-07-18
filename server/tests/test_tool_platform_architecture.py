@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 SERVER = Path(__file__).resolve().parents[1]
 PRODUCTION = [path for path in SERVER.rglob("*.py") if "tests" not in path.parts]
 

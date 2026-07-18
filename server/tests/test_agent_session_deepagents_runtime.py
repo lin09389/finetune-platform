@@ -220,7 +220,7 @@ def test_agent_session_rejects_unknown_workspace_before_persistence(tmp_path: Pa
 
 def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-runtime-{uuid.uuid4().hex[:8]}"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     try:
         target = workspace / "hello.txt"
         target.write_text("hello from deepagents\n", encoding="utf-8")
@@ -266,7 +266,7 @@ def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):
 
 def test_agent_session_deepagents_edit_file_uses_official_hitl(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-action-{uuid.uuid4().hex[:8]}"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     try:
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")
@@ -318,7 +318,7 @@ def test_agent_session_deepagents_edit_file_uses_official_hitl(tmp_path: Path):
 
 def test_agent_session_deepagents_execute_uses_official_hitl_without_whitelist(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-exec-{uuid.uuid4().hex[:8]}"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     try:
         target = workspace / "cmd.txt"
         service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
@@ -1095,7 +1095,7 @@ def test_deepagents_runtime_resolves_optional_interrupt_config():
 
 def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-hitl-{uuid.uuid4().hex[:8]}"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     try:
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")
@@ -1161,7 +1161,7 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
 
 def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: Path):
     workspace = Path.cwd() / "tmp" / f"deepagents-background-hitl-{uuid.uuid4().hex[:8]}"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     try:
         target = workspace / "hello.txt"
         target.write_text("hello\n", encoding="utf-8")

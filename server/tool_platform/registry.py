@@ -83,7 +83,7 @@ class ToolRegistry:
         if _RISK_ORDER[definition.meta.risk] < _RISK_ORDER[defaults.risk]:
             raise ValueError("declared risk cannot be lower than the tool kind default")
         self._definitions[canonical_name] = definition
-        self._aliases.update({alias: canonical_name for alias in definition.aliases})
+        self._aliases.update(dict.fromkeys(definition.aliases, canonical_name))
         self._availability[canonical_name] = ToolAvailability(
             canonical_name=canonical_name,
             available=definition.availability_probe is None,

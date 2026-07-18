@@ -8,7 +8,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
 
-from .models import CanonicalToolMeta, FrozenJsonObject, ToolAvailability, freeze_json_object, redact_json
+from .models import (
+    CanonicalToolMeta,
+    FrozenJsonObject,
+    ToolAvailability,
+    freeze_json_object,
+    redact_json,
+)
 
 
 class _CatalogModel(BaseModel):

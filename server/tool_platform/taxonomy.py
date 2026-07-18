@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
 
-class ToolKind(str, Enum):
+class ToolKind(StrEnum):
     """Stable semantic kinds for every registered tool."""
 
     READ = "read"
@@ -38,7 +38,7 @@ class ToolKind(str, Enum):
     MCP_EXTENSION = "mcp_extension"
 
 
-class SideEffect(str, Enum):
+class SideEffect(StrEnum):
     """The strongest externally observable effect a tool can have."""
 
     NONE = "none"
@@ -50,7 +50,7 @@ class SideEffect(str, Enum):
     DESTRUCTIVE = "destructive"
 
 
-class ToolRisk(str, Enum):
+class ToolRisk(StrEnum):
     """Policy sensitivity used as the safe baseline for a tool kind."""
 
     LOW = "low"
@@ -59,7 +59,7 @@ class ToolRisk(str, Enum):
     CRITICAL = "critical"
 
 
-class ExecutionLocation(str, Enum):
+class ExecutionLocation(StrEnum):
     """Where a tool is normally executed."""
 
     CONTROL_PLANE = "control_plane"

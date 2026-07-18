@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from agent_session.agent_registry import AgentRegistry
 from agent_session.runtime_contract import agent_system_prompt
 from agent_session.runtime_policy import build_agent_definition_policy
@@ -27,8 +26,8 @@ def test_build_agent_allows_official_harness_edit_and_execute_tools():
     assert "edit_file" in build.tools
     assert "execute" in build.tools
     assert not hasattr(build, "permission_rules")
-    assert build.default_provider == "openai"
-    assert build.default_model == "gpt-4o"
+    assert build.default_provider == "deepseek"
+    assert build.default_model == "deepseek-chat"
     assert build.handoff_targets == ["explore", "review"]
     assert build.async_subagent_targets == ["explore", "review"]
     assert build.definition_format == "agent_manifest_v2"

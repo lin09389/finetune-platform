@@ -14,8 +14,8 @@ from tool_platform.registry import (
     DuplicateToolError,
     RegistryFrozenError,
     ToolProjectionContext,
-    ToolRegistryError,
     ToolRegistry,
+    ToolRegistryError,
 )
 from tool_platform.taxonomy import (
     ExecutionLocation,
