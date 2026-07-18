@@ -14,6 +14,7 @@ from tool_platform.registry import (
     DuplicateToolError,
     RegistryFrozenError,
     ToolProjectionContext,
+    ToolRegistryError,
     ToolRegistry,
 )
 from tool_platform.taxonomy import (
@@ -204,6 +205,17 @@ def test_empty_allowed_names_means_allow_nothing() -> None:
     assert registry.project(ToolProjectionContext(agent_id="agent", allowed_names=frozenset())) == ()
 
 
+@pytest.mark.parametrize("selector_type", ["allowed_names", "denied_names"])
+def test_projection_rejects_unknown_name_selectors_with_a_diagnostic(selector_type: str) -> None:
+    registry = ToolRegistry()
+    registry.register(make_definition())
+
+    with pytest.raises(ToolRegistryError, match="unknown .* tool selector"):
+        registry.project(
+            ToolProjectionContext(agent_id="agent", **{selector_type: frozenset({"misspelled"})})
+        )
+
+
 def test_projection_fails_closed_for_missing_role_runtime_capability_and_facts() -> None:
     registry = ToolRegistry()
     definition = make_definition(
@@ -310,6 +322,16 @@ def test_catalog_and_snapshot_contain_only_serializable_metadata_and_schemas() -
     assert "callable" not in encoded
     with pytest.raises(TypeError):
         snapshot.tools[0].input_schema["extra"] = True  # type: ignore[index]
+
+
+def test_catalog_and_snapshot_redact_sensitive_projection_facts() -> None:
+    registry = ToolRegistry()
+    registry.register(make_definition(required_provider_facts={"x-api-key": "catalog-secret"}))
+
+    snapshot = registry.snapshot()
+    facts = snapshot.tools[0].projection.required_provider_facts
+    assert facts == {"x-api-key": "[REDACTED]"}
+    assert "catalog-secret" not in snapshot.model_dump_json()
 
 
 def test_unfiltered_catalog_reports_unchecked_tools_without_running_probes() -> None:

@@ -39,7 +39,7 @@ def _freeze_json(value: JsonValue) -> JsonValue:
     return value
 
 
-def _freeze_object(value: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
+def freeze_json_object(value: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
     return _freeze_json(dict(value))  # type: ignore[return-value]
 
 
@@ -51,27 +51,32 @@ def _thaw_json(value: JsonValue) -> JsonValue:
     return value
 
 
-FrozenJsonObject = Annotated[Mapping[str, JsonValue], AfterValidator(_freeze_object)]
+FrozenJsonObject = Annotated[Mapping[str, JsonValue], AfterValidator(freeze_json_object)]
 
 
-def _redact_diagnostic(value: JsonValue) -> JsonValue:
-    """Return a recursively redacted diagnostic suitable for a wire payload."""
+def _is_sensitive_key(key: object) -> bool:
+    normalized = str(key).lower().replace("-", "_")
+    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def redact_json(value: JsonValue) -> JsonValue:
+    """Return recursively redacted JSON suitable for persistence or wire payloads."""
     if isinstance(value, Mapping):
         return {
-            key: "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else _redact_diagnostic(item)
+            key: "[REDACTED]" if _is_sensitive_key(key) else redact_json(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_diagnostic(item) for item in value]
+        return [redact_json(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(_redact_diagnostic(item) for item in value)
+        return tuple(redact_json(item) for item in value)
     if isinstance(value, str):
         redacted = _BEARER_PATTERN.sub(r"\1[REDACTED]", value)
         try:
             parsed = urlsplit(redacted)
             if parsed.scheme and parsed.netloc and parsed.query:
                 query = [
-                    (key, "[REDACTED]" if any(part in key.lower() for part in _SENSITIVE_KEY_PARTS) else item)
+                    (key, "[REDACTED]" if _is_sensitive_key(key) else item)
                     for key, item in parse_qsl(parsed.query, keep_blank_values=True)
                 ]
                 redacted = urlunsplit(parsed._replace(query=urlencode(query)))
@@ -79,7 +84,7 @@ def _redact_diagnostic(value: JsonValue) -> JsonValue:
             pass
         if redacted[:1] in {"{", "["}:
             try:
-                return json.dumps(_redact_diagnostic(json.loads(redacted)), separators=(",", ":"))
+                return json.dumps(redact_json(json.loads(redacted)), separators=(",", ":"))
             except (json.JSONDecodeError, TypeError):
                 pass
         return redacted
@@ -94,7 +99,7 @@ class _CanonicalModel(BaseModel):
     def diagnostic_dump(self) -> dict[str, JsonValue]:
         """Return a recursively redacted payload for logs, events, and persistence."""
 
-        return _redact_diagnostic(self.model_dump(mode="json"))  # type: ignore[return-value]
+        return redact_json(self.model_dump(mode="json"))  # type: ignore[return-value]
 
 
 class CanonicalToolMeta(_CanonicalModel):
@@ -175,11 +180,11 @@ class ToolError(_CanonicalModel):
     @field_validator("diagnostic")
     @classmethod
     def redact_diagnostic(cls, value: FrozenJsonObject | None) -> FrozenJsonObject | None:
-        return _freeze_object(_redact_diagnostic(value)) if value is not None else None  # type: ignore[arg-type]
+        return freeze_json_object(redact_json(value)) if value is not None else None  # type: ignore[arg-type]
 
     @field_serializer("diagnostic")
     def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
-        return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
+        return redact_json(value) if value is not None else None  # type: ignore[return-value]
 
 
 class ToolResult(_CanonicalModel):
@@ -214,9 +219,14 @@ class ToolEvent(_CanonicalModel):
     occurred_at: datetime
     payload: FrozenJsonObject = Field(default_factory=dict, repr=False)
 
+    @field_validator("payload")
+    @classmethod
+    def redact_payload(cls, value: FrozenJsonObject) -> FrozenJsonObject:
+        return freeze_json_object(redact_json(value))  # type: ignore[arg-type]
+
     @field_serializer("payload")
     def serialize_payload(self, value: FrozenJsonObject) -> JsonValue:
-        return _thaw_json(value)  # type: ignore[arg-type]
+        return _thaw_json(redact_json(value))  # type: ignore[arg-type]
 
     @field_validator("occurred_at")
     @classmethod
@@ -236,8 +246,8 @@ class ToolAvailability(_CanonicalModel):
     @field_validator("diagnostic")
     @classmethod
     def redact_diagnostic(cls, value: FrozenJsonObject | None) -> FrozenJsonObject | None:
-        return _freeze_object(_redact_diagnostic(value)) if value is not None else None  # type: ignore[arg-type]
+        return freeze_json_object(redact_json(value)) if value is not None else None  # type: ignore[arg-type]
 
     @field_serializer("diagnostic")
     def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
-        return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
+        return redact_json(value) if value is not None else None  # type: ignore[return-value]

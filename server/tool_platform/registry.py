@@ -146,8 +146,8 @@ class ToolRegistry:
         return availability
 
     def project(self, context: ToolProjectionContext) -> tuple[ToolDefinition[Any, Any], ...]:
-        normalized_allowed = self._normalize_names(context.allowed_names)
-        normalized_denied = self._normalize_names(context.denied_names)
+        normalized_allowed = self._normalize_names(context.allowed_names, selector_type="allowed")
+        normalized_denied = self._normalize_names(context.denied_names, selector_type="denied")
         selected: list[ToolDefinition[Any, Any]] = []
         for name in sorted(self._definitions):
             definition = self._definitions[name]
@@ -191,14 +191,23 @@ class ToolRegistry:
     def _all_definitions(self) -> tuple[ToolDefinition[Any, Any], ...]:
         return tuple(definition for _, definition in sorted(self._definitions.items()))
 
-    def _normalize_names(self, names: frozenset[str] | None) -> frozenset[str] | None:
+    def _normalize_names(
+        self, names: frozenset[str] | None, *, selector_type: str
+    ) -> frozenset[str] | None:
         if names is None:
             return None
-        return frozenset(
-            definition.meta.canonical_name
-            for selector in names
-            if (definition := self.resolve(selector)) is not None
-        )
+        normalized: set[str] = set()
+        unknown: list[str] = []
+        for selector in names:
+            definition = self.resolve(selector)
+            if definition is None:
+                unknown.append(selector)
+            else:
+                normalized.add(definition.meta.canonical_name)
+        if unknown:
+            selectors = ", ".join(repr(selector) for selector in sorted(unknown))
+            raise ToolRegistryError(f"unknown {selector_type} tool selector(s): {selectors}")
+        return frozenset(normalized)
 
     @staticmethod
     def _facts_match(required: Mapping[str, object], actual: Mapping[str, object]) -> bool:

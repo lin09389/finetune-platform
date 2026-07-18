@@ -6,9 +6,9 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
 
-from .models import CanonicalToolMeta, FrozenJsonObject, ToolAvailability
+from .models import CanonicalToolMeta, FrozenJsonObject, ToolAvailability, freeze_json_object, redact_json
 
 
 class _CatalogModel(BaseModel):
@@ -22,6 +22,15 @@ class ToolProjectionConstraints(_CatalogModel):
     required_provider_facts: FrozenJsonObject = Field(default_factory=dict)
     required_model_facts: FrozenJsonObject = Field(default_factory=dict)
     required_platform_facts: FrozenJsonObject = Field(default_factory=dict)
+
+    @field_validator(
+        "required_provider_facts",
+        "required_model_facts",
+        "required_platform_facts",
+    )
+    @classmethod
+    def redact_facts(cls, value: FrozenJsonObject) -> FrozenJsonObject:
+        return freeze_json_object(redact_json(value))  # type: ignore[arg-type]
 
     @field_serializer(
         "required_provider_facts",

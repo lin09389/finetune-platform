@@ -186,6 +186,35 @@ def test_diagnostic_dump_redacts_nested_url_bearer_and_json_secrets() -> None:
     assert "%5BREDACTED%5D" in serialized
 
 
+def test_redaction_covers_hyphenated_api_key_headers_and_query_parameters() -> None:
+    invocation = ToolInvocation(
+        invocation_id="call-1",
+        tool_name="remote.call",
+        arguments={
+            "headers": {"X-API-Key": "header-secret"},
+            "url": "https://example.test/path?api-key=query-secret",
+        },
+    )
+
+    serialized = json.dumps(invocation.diagnostic_dump())
+    assert "header-secret" not in serialized
+    assert "query-secret" not in serialized
+
+
+def test_event_payload_is_redacted_before_persistence_or_serialization() -> None:
+    event = ToolEvent(
+        event_id="event-1",
+        invocation_id="call-1",
+        sequence=0,
+        event_type="progress",
+        occurred_at=datetime.now(UTC),
+        payload={"headers": {"x-api-key": "event-secret"}},
+    )
+
+    assert event.model_dump()["payload"] == {"headers": {"x-api-key": "[REDACTED]"}}
+    assert "event-secret" not in event.model_dump_json()
+
+
 def test_events_require_stable_identity_attempt_and_aware_utc_time() -> None:
     event = ToolEvent(
         event_id="event-1",
