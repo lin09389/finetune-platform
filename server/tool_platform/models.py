@@ -181,6 +181,7 @@ class ToolError(_CanonicalModel):
     def serialize_diagnostic(self, value: FrozenJsonObject | None) -> JsonValue:
         return _redact_diagnostic(value) if value is not None else None  # type: ignore[return-value]
 
+
 class ToolResult(_CanonicalModel):
     schema_version: Literal[1] = 1
     invocation_id: Annotated[str, Field(min_length=1, max_length=200)]
