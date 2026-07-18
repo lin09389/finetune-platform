@@ -21,6 +21,13 @@
 
 ## Milestone 1: Selective semantic foundation
 
+Detailed execution sequencing, file ownership, and reusable external-Agent prompts are defined in:
+
+- `docs/plans/2026-07-18-milestone1-selective-tool-foundation.md`
+- `docs/plans/2026-07-18-milestone1-agent-prompts.md`
+
+Those documents refine this milestone into one audit task, three dependency-ordered implementation tasks, and one read-only review task. They supersede the commit sequencing below when the two descriptions differ.
+
 ### Task 1: Freeze the integration baseline and branch provenance
 
 **Files:**
