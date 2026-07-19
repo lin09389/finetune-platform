@@ -59,6 +59,8 @@ def test_tool_platform_production_package_has_only_expected_files() -> None:
         "registry.py",
         "catalog.py",
         "policy.py",
+        "handlers.py",
+        "gateway.py",
     }
     tool_platform_files = {
         path.name for path in (SERVER / "tool_platform").glob("*.py") if path.is_file()
@@ -67,11 +69,16 @@ def test_tool_platform_production_package_has_only_expected_files() -> None:
     assert tool_platform_files == expected
 
 
-def test_agent_session_tool_platform_consumers_are_limited_to_manifest_and_policy() -> None:
+def test_agent_session_tool_platform_consumers_are_limited_to_manifest_and_gateway() -> None:
     consumers = {
         path.name
         for path in (SERVER / "agent_session").rglob("*.py")
         if "tool_platform" in _source(path)
     }
 
-    assert consumers == {"execution_context.py", "agent_registry.py", "permission.py"}
+    assert consumers == {
+        "execution_context.py",
+        "agent_registry.py",
+        "permission.py",
+        "deepagents_events.py",
+    }

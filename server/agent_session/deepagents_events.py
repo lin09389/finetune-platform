@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from agent_training.models import training_activity_from_tool_result
+from tool_platform.models import ToolEvent, thaw_json_object
 
 from .execution_plan_events import apply_execution_event_to_session
 from .session_state_machine import AgentSessionStateMachine
 from .state import ensure_session_state
-from .trajectory import content_indicates_tool_failure
 from .training_tools import TRAINING_TOOL_NAMES, safe_training_payload
+from .trajectory import content_indicates_tool_failure
 
 
 @dataclass
@@ -22,6 +24,7 @@ class DeepAgentsEventMapper:
     active_text: str = ""
     tool_parts: dict[str, str] = field(default_factory=dict)
     tool_part_payloads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    canonical_tool_parts: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.state_machine = AgentSessionStateMachine(self.repository)
@@ -34,6 +37,78 @@ class DeepAgentsEventMapper:
 
     def session_started(self) -> None:
         self.publish("session_started", "DeepAgents 已开始执行。", {"session_id": self.session_id, "runtime": "deepagents"})
+
+    def publish_tool_event(self, event: ToolEvent) -> dict[str, Any]:
+        """Project a canonical tool-platform event through the existing event log.
+
+        Reuses ``repository.add_event`` (via :meth:`publish`) and the
+        ``tool_call`` part projection keyed by ``invocation_id``. The canonical
+        event id is carried in the payload for traceability; no second event
+        log is created and approval persistence is not touched.
+        """
+        raw_payload = event.payload if isinstance(event.payload, Mapping) else {}
+        payload = thaw_json_object(raw_payload)
+        if not isinstance(payload, dict):
+            payload = {}
+        canonical_name = str(payload.get("canonical_name") or "tool")
+        meta: dict[str, Any] = {
+            "session_id": self.session_id,
+            "invocation_id": event.invocation_id,
+            "canonical_event_id": event.event_id,
+            "sequence": event.sequence,
+            "attempt": event.attempt,
+            "runtime": "tool_gateway",
+        }
+        event_type = event.event_type
+        if event_type == "tool.started":
+            part = self.repository.add_part(
+                self.session_id,
+                "tool_call",
+                status="running",
+                title=canonical_name,
+                content=f"正在调用工具：{canonical_name}",
+                payload={**meta, **payload},
+            )
+            self.canonical_tool_parts[event.invocation_id] = part.get("id")
+            return self.publish(
+                "tool.started",
+                f"正在调用工具：{canonical_name}",
+                {**meta, "part_id": part.get("id"), "part_type": "tool_call", "part": part, **payload},
+            )
+        if event_type in ("tool.completed", "tool.failed"):
+            completed = event_type == "tool.completed"
+            status = "completed" if completed else "failed"
+            message = (
+                f"工具调用完成：{canonical_name}" if completed else f"工具调用失败：{canonical_name}"
+            )
+            part_id = self.canonical_tool_parts.pop(event.invocation_id, None)
+            part_payload = {**meta, **payload}
+            if part_id:
+                part = self.repository.update_part(
+                    part_id, status=status, content=message, payload=part_payload
+                )
+            else:
+                part = self.repository.add_part(
+                    self.session_id,
+                    "tool_result",
+                    status=status,
+                    title=canonical_name,
+                    content=message,
+                    payload=part_payload,
+                )
+            return self.publish(
+                event_type,
+                message,
+                {
+                    **meta,
+                    "part_id": part.get("id"),
+                    "part_type": part.get("type"),
+                    "status": status,
+                    "part": part,
+                    **payload,
+                },
+            )
+        return self.publish(event_type, f"工具事件：{canonical_name}", {**meta, **payload})
 
     def handle(self, event: dict[str, Any]) -> None:
         kind = str(event.get("event") or "")

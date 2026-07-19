@@ -43,6 +43,15 @@ def freeze_json_object(value: Mapping[str, JsonValue]) -> Mapping[str, JsonValue
     return _freeze_json(dict(value))  # type: ignore[return-value]
 
 
+def thaw_json_object(value: JsonValue) -> JsonValue:
+    """Recursively convert frozen JSON (MappingProxyType/tuple) back to mutable dict/list.
+
+    Strict Pydantic models reject ``MappingProxyType`` inputs, so callers that
+    validate a frozen :class:`ToolInvocation.arguments` payload thaw it first.
+    """
+    return _thaw_json(value)
+
+
 def _thaw_json(value: JsonValue) -> JsonValue:
     if isinstance(value, Mapping):
         return {key: _thaw_json(item) for key, item in value.items()}

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.execution_context import AgentDefinition
 from agent_session.execution_plan import build_initial_execution_plan
 from agent_session.runtime_policy import build_agent_runtime_policy
+from tool_platform.models import ToolEvent
 
 
 class FakeRepository:
@@ -259,3 +261,116 @@ def test_deepagents_event_mapper_leaves_failed_or_malformed_training_results_gen
     assert all("training_activity" not in part["payload"] for part in repo.parts)
     assert all(part["type"] == "tool_call" for part in repo.parts)
     assert mapper.tool_part_payloads == {}
+
+
+# --- canonical tool-platform event projection (Task 7) -------------------------
+
+
+def _tool_event(
+    event_type: str,
+    *,
+    invocation_id: str = "inv-1",
+    sequence: int = 0,
+    payload: dict | None = None,
+    event_id: str = "tev-1",
+) -> ToolEvent:
+    return ToolEvent(
+        event_id=event_id,
+        invocation_id=invocation_id,
+        sequence=sequence,
+        attempt=1,
+        event_type=event_type,
+        occurred_at=datetime.now(UTC),
+        payload=payload or {},
+    )
+
+
+def _fresh_mapper():
+    repo = FakeRepository()
+    emitted = []
+    mapper = DeepAgentsEventMapper(repo, lambda _session_id, event: emitted.append(event), "session-1")
+    return repo, emitted, mapper
+
+
+def test_publish_tool_event_started_creates_running_tool_call_part():
+    repo, emitted, mapper = _fresh_mapper()
+
+    mapper.publish_tool_event(
+        _tool_event("tool.started", payload={"canonical_name": "workspace.read_file", "tool_name": "read_file"})
+    )
+
+    assert repo.parts[0]["type"] == "tool_call"
+    assert repo.parts[0]["status"] == "running"
+    assert repo.parts[0]["title"] == "workspace.read_file"
+    assert repo.parts[0]["payload"]["canonical_event_id"] == "tev-1"
+    assert repo.parts[0]["payload"]["invocation_id"] == "inv-1"
+    assert repo.parts[0]["payload"]["runtime"] == "tool_gateway"
+    assert emitted[0]["type"] == "tool.started"
+    assert mapper.canonical_tool_parts["inv-1"] == repo.parts[0]["id"]
+
+
+def test_publish_tool_event_completed_updates_part_and_emits():
+    repo, emitted, mapper = _fresh_mapper()
+
+    mapper.publish_tool_event(
+        _tool_event("tool.started", sequence=0, payload={"canonical_name": "test.read"})
+    )
+    mapper.publish_tool_event(
+        _tool_event(
+            "tool.completed",
+            sequence=1,
+            payload={"canonical_name": "test.read", "result": {"status": "success"}},
+        )
+    )
+
+    assert len(repo.parts) == 1  # part reused, not duplicated
+    assert repo.parts[0]["status"] == "completed"
+    assert [event["type"] for event in emitted] == ["tool.started", "tool.completed"]
+    assert "inv-1" not in mapper.canonical_tool_parts
+
+
+def test_publish_tool_event_failed_marks_part_failed():
+    repo, emitted, mapper = _fresh_mapper()
+
+    mapper.publish_tool_event(
+        _tool_event("tool.started", payload={"canonical_name": "test.execute"})
+    )
+    mapper.publish_tool_event(
+        _tool_event(
+            "tool.failed",
+            sequence=1,
+            payload={"canonical_name": "test.execute", "reason_code": "handler_error"},
+        )
+    )
+
+    assert repo.parts[0]["status"] == "failed"
+    assert emitted[-1]["type"] == "tool.failed"
+    assert emitted[-1]["payload"]["reason_code"] == "handler_error"
+
+
+def test_publish_tool_event_completed_without_started_creates_tool_result_part():
+    repo, emitted, mapper = _fresh_mapper()
+
+    mapper.publish_tool_event(_tool_event("tool.completed", payload={"canonical_name": "test.read"}))
+
+    assert repo.parts[0]["type"] == "tool_result"
+    assert repo.parts[0]["status"] == "completed"
+    assert emitted[0]["type"] == "tool.completed"
+
+
+def test_publish_tool_event_redacts_secrets_in_payload():
+    repo, _emitted, mapper = _fresh_mapper()
+
+    mapper.publish_tool_event(
+        _tool_event(
+            "tool.completed",
+            payload={
+                "canonical_name": "test.read",
+                "result": {"output": {"api_key": "sk-secret-value"}},
+            },
+        )
+    )
+
+    dumped = json.dumps(repo.parts[0]["payload"])
+    assert "sk-secret-value" not in dumped
+    assert "[REDACTED]" in dumped
