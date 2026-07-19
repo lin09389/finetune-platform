@@ -15,6 +15,7 @@ shareable.  No availability probes run.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -75,6 +76,28 @@ class GrepOutput(_StrictModel):
     count: int = Field(default=0, ge=0)
 
 
+class WriteFileInput(_StrictModel):
+    file_path: str
+    content: str
+
+
+class WriteFileOutput(_StrictModel):
+    bytes_written: int = Field(default=0, ge=0)
+    path: str
+
+
+class EditFileInput(_StrictModel):
+    file_path: str
+    old_string: str
+    new_string: str
+    replace_all: bool = False
+
+
+class EditFileOutput(_StrictModel):
+    replacements: int = Field(default=0, ge=0)
+    path: str
+
+
 # --- path isolation -----------------------------------------------------------
 
 
@@ -120,9 +143,37 @@ def _meta(canonical_name: str, kind: ToolKind) -> CanonicalToolMeta:
     )
 
 
+def _mutable_meta(canonical_name: str, kind: ToolKind) -> CanonicalToolMeta:
+    """Meta for workspace-mutating tools (not idempotent, not cacheable)."""
+    defaults = defaults_for_kind(kind)
+    return CanonicalToolMeta(
+        canonical_name=canonical_name,
+        kind=kind,
+        side_effects=defaults.side_effects,
+        risk=defaults.risk,
+        execution_location=defaults.execution_location,
+        display_name=canonical_name,
+        description=f"Platform-enforced {canonical_name} tool.",
+        idempotent=False,
+        cacheable=False,
+    )
+
+
 def _definition(canonical_name: str, kind: ToolKind, alias: str, input_model, output_model) -> ToolDefinition:
     return ToolDefinition(
         meta=_meta(canonical_name, kind),
+        input_model=input_model,
+        output_model=output_model,
+        handler=None,
+        aliases=(alias,),
+        runtime_kinds=frozenset({"agent_session"}),
+        required_capabilities=frozenset({"deepagents"}),
+    )
+
+
+def _mutable_definition(canonical_name: str, kind: ToolKind, alias: str, input_model, output_model) -> ToolDefinition:
+    return ToolDefinition(
+        meta=_mutable_meta(canonical_name, kind),
         input_model=input_model,
         output_model=output_model,
         handler=None,
@@ -137,6 +188,12 @@ FILESYSTEM_DEFINITIONS: tuple[ToolDefinition, ...] = (
     _definition("workspace.read_file", ToolKind.READ, "read_file", ReadFileInput, ReadFileOutput),
     _definition("workspace.glob", ToolKind.SEARCH, "glob", GlobInput, GlobOutput),
     _definition("workspace.grep", ToolKind.SEARCH, "grep", GrepInput, GrepOutput),
+)
+
+
+WRITE_DEFINITIONS: tuple[ToolDefinition, ...] = (
+    _mutable_definition("workspace.write_file", ToolKind.WRITE, "write_file", WriteFileInput, WriteFileOutput),
+    _mutable_definition("workspace.edit_file", ToolKind.EDIT, "edit_file", EditFileInput, EditFileOutput),
 )
 
 
@@ -216,8 +273,56 @@ def make_filesystem_handlers(project_root: str | Path) -> dict[str, Any]:
     }
 
 
+def _atomic_write(target: Path, content: str) -> int:
+    """Write ``content`` to ``target`` atomically (tmp + os.replace)."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp")
+    encoded = content.encode("utf-8")
+    tmp.write_bytes(encoded)
+    os.replace(tmp, target)
+    return len(encoded)
+
+
+def make_write_handlers(project_root: str | Path) -> dict[str, Any]:
+    """Return ``{canonical_name: async handler}`` for workspace-mutating tools."""
+    root = Path(project_root).resolve()
+
+    async def write_file(request: WriteFileInput) -> WriteFileOutput:
+        target = resolve_workspace_path(request.file_path, root)
+        written = _atomic_write(target, request.content)
+        return WriteFileOutput(bytes_written=written, path=request.file_path)
+
+    async def edit_file(request: EditFileInput) -> EditFileOutput:
+        target = resolve_workspace_path(request.file_path, root)
+        if not target.is_file():
+            raise FileNotFoundError(f"not a file: {request.file_path}")
+        text = target.read_text(encoding="utf-8", errors="replace")
+        if request.replace_all:
+            count = text.count(request.old_string)
+            if count == 0:
+                raise ValueError("old_string not found")
+            new_text = text.replace(request.old_string, request.new_string)
+        else:
+            count = text.count(request.old_string)
+            if count == 0:
+                raise ValueError("old_string not found")
+            if count > 1:
+                raise ValueError("old_string is not unique; set replace_all=True")
+            new_text = text.replace(request.old_string, request.new_string, 1)
+        _atomic_write(target, new_text)
+        return EditFileOutput(replacements=count, path=request.file_path)
+
+    return {
+        "workspace.write_file": write_file,
+        "workspace.edit_file": edit_file,
+    }
+
+
 __all__ = [
     "FILESYSTEM_DEFINITIONS",
+    "WRITE_DEFINITIONS",
+    "EditFileInput",
+    "EditFileOutput",
     "GlobInput",
     "GlobOutput",
     "GrepInput",
@@ -227,6 +332,9 @@ __all__ = [
     "ReadFileInput",
     "ReadFileOutput",
     "WorkspacePathError",
+    "WriteFileInput",
+    "WriteFileOutput",
     "make_filesystem_handlers",
+    "make_write_handlers",
     "resolve_workspace_path",
 ]

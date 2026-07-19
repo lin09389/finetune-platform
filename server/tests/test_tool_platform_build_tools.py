@@ -1,4 +1,4 @@
-"""Platform built-in tool tests (Task 9A): read / search / git-read.
+"""Platform built-in tool tests (Task 9A/9B): read / search / git-read / write / edit.
 
 Handlers are exercised directly and through the Task-7 Tool Gateway.  Path
 isolation is fail-closed: only ``/workspace/`` paths that resolve under the
@@ -16,21 +16,24 @@ from tool_platform.builtins import (
     PLATFORM_BUILTIN_TOOL_NAMES,
     make_filesystem_handlers,
     make_git_handlers,
+    make_write_handlers,
     platform_builtin_registry,
     resolve_workspace_path,
 )
 from tool_platform.builtins.filesystem import (
+    EditFileInput,
     GlobInput,
     GrepInput,
     LsInput,
     ReadFileInput,
     WorkspacePathError,
+    WriteFileInput,
 )
 from tool_platform.builtins.git import GitDiffInput, GitLogInput, GitStatusInput
 from tool_platform.gateway import ToolGateway
 from tool_platform.models import ToolInvocation
 from tool_platform.policy import ToolPolicyFacts
-from tool_platform.taxonomy import ToolKind
+from tool_platform.taxonomy import SideEffect, ToolKind
 
 
 def _read_only_facts() -> ToolPolicyFacts:
@@ -39,6 +42,60 @@ def _read_only_facts() -> ToolPolicyFacts:
         runtime_kind="agent_session",
         enabled_capabilities=frozenset({"deepagents"}),
     )
+
+
+def _safe_auto_facts() -> ToolPolicyFacts:
+    """safe_auto: workspace writes run without approval; sensitive effects ask."""
+    return ToolPolicyFacts(
+        runtime_kind="agent_session",
+        enabled_capabilities=frozenset({"deepagents"}),
+        require_approval_for=frozenset(
+            {SideEffect.PROCESS, SideEffect.NETWORK, SideEffect.EXTERNAL_WRITE, SideEffect.CREDENTIAL, SideEffect.DESTRUCTIVE}
+        ),
+    )
+
+
+def _confirm_all_facts() -> ToolPolicyFacts:
+    """confirm_all: every non-NONE side effect (incl. workspace write) asks."""
+    return ToolPolicyFacts(
+        runtime_kind="agent_session",
+        enabled_capabilities=frozenset({"deepagents"}),
+        require_approval_for=frozenset(
+            {
+                SideEffect.WORKSPACE_WRITE,
+                SideEffect.PROCESS,
+                SideEffect.NETWORK,
+                SideEffect.EXTERNAL_WRITE,
+                SideEffect.CREDENTIAL,
+                SideEffect.DESTRUCTIVE,
+            }
+        ),
+    )
+
+
+def _read_only_block_facts() -> ToolPolicyFacts:
+    """read_only: every non-NONE side effect is hard-denied."""
+    return ToolPolicyFacts(
+        runtime_kind="agent_session",
+        enabled_capabilities=frozenset({"deepagents"}),
+        deny_for=frozenset(
+            {
+                SideEffect.WORKSPACE_WRITE,
+                SideEffect.PROCESS,
+                SideEffect.NETWORK,
+                SideEffect.EXTERNAL_WRITE,
+                SideEffect.CREDENTIAL,
+                SideEffect.DESTRUCTIVE,
+            }
+        ),
+    )
+
+
+class _ApprovingAdapter:
+    def request_approval(self, invocation, policy_decision):
+        from tool_platform.handlers import ApprovalOutcome
+
+        return ApprovalOutcome(granted=True)
 
 
 # --- path isolation -----------------------------------------------------------
@@ -172,6 +229,8 @@ def test_platform_builtins_register_without_conflict():
         "workspace.read_file",
         "workspace.glob",
         "workspace.grep",
+        "workspace.write_file",
+        "workspace.edit_file",
         "git.status",
         "git.diff",
         "git.log",
@@ -187,15 +246,20 @@ def test_platform_builtins_do_not_collide_with_deepagents_binding_names():
     assert PLATFORM_BUILTIN_TOOL_NAMES.isdisjoint(deepagents_names)
 
 
-def test_platform_builtins_are_read_only_low_risk():
+def test_read_only_builtins_are_low_risk_and_mutating_builtins_are_medium():
     registry = platform_builtin_registry()
-    for name in PLATFORM_BUILTIN_TOOL_NAMES:
+    read_only = {"workspace.ls", "workspace.read_file", "workspace.glob", "workspace.grep", "git.status", "git.diff", "git.log"}
+    for name in read_only:
         meta = registry.resolve(name).meta
         assert meta.kind in {ToolKind.READ, ToolKind.LIST_DIR, ToolKind.SEARCH}
         assert meta.risk.value == "low"
-        from tool_platform.taxonomy import SideEffect
-
         assert meta.side_effects == frozenset({SideEffect.NONE})
+    for name in ("workspace.write_file", "workspace.edit_file"):
+        meta = registry.resolve(name).meta
+        assert meta.kind in {ToolKind.WRITE, ToolKind.EDIT}
+        assert meta.risk.value == "medium"
+        assert meta.side_effects == frozenset({SideEffect.WORKSPACE_WRITE})
+        assert meta.idempotent is False
 
 
 # --- git handlers -------------------------------------------------------------
@@ -234,3 +298,181 @@ def test_git_handlers_reject_unvalidated_root(tmp_path: Path):
     # A path outside the allowed workspace roots must fail closed.
     with pytest.raises(ValueError):
         make_git_handlers("/nonexistent/root/xyz")
+
+
+# --- write / edit handlers (Task 9B) -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_file_handler_creates_and_overwrites_atomically(tmp_path: Path):
+    handlers = make_write_handlers(tmp_path)
+
+    created = await handlers["workspace.write_file"](
+        WriteFileInput(file_path="/workspace/app.py", content="first\n")
+    )
+    assert created.bytes_written == len(b"first\n")
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "first\n"
+
+    overwritten = await handlers["workspace.write_file"](
+        WriteFileInput(file_path="/workspace/app.py", content="second\n")
+    )
+    assert overwritten.bytes_written == len(b"second\n")
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "second\n"
+    # No leftover tmp file from the atomic write.
+    assert not (tmp_path / "app.py.tmp").exists()
+
+
+@pytest.mark.asyncio
+async def test_write_file_handler_creates_parent_dirs(tmp_path: Path):
+    handlers = make_write_handlers(tmp_path)
+    await handlers["workspace.write_file"](
+        WriteFileInput(file_path="/workspace/pkg/mod.py", content="x = 1\n")
+    )
+    assert (tmp_path / "pkg" / "mod.py").read_text(encoding="utf-8") == "x = 1\n"
+
+
+@pytest.mark.asyncio
+async def test_write_file_handler_rejects_path_escape(tmp_path: Path):
+    handlers = make_write_handlers(tmp_path)
+    with pytest.raises(WorkspacePathError):
+        await handlers["workspace.write_file"](
+            WriteFileInput(file_path="/workspace/../etc/evil", content="x")
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_file_handler_unique_replacement(tmp_path: Path):
+    (tmp_path / "app.py").write_text("alpha\nbeta\nalpha\n", encoding="utf-8")
+    handlers = make_write_handlers(tmp_path)
+
+    out = await handlers["workspace.edit_file"](
+        EditFileInput(file_path="/workspace/app.py", old_string="beta", new_string="BETA")
+    )
+    assert out.replacements == 1
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "alpha\nBETA\nalpha\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_file_handler_replace_all(tmp_path: Path):
+    (tmp_path / "app.py").write_text("alpha\nbeta\nalpha\n", encoding="utf-8")
+    handlers = make_write_handlers(tmp_path)
+
+    out = await handlers["workspace.edit_file"](
+        EditFileInput(file_path="/workspace/app.py", old_string="alpha", new_string="ALPHA", replace_all=True)
+    )
+    assert out.replacements == 2
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "ALPHA\nbeta\nALPHA\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_file_handler_rejects_missing_and_non_unique(tmp_path: Path):
+    (tmp_path / "app.py").write_text("a\na\n", encoding="utf-8")
+    handlers = make_write_handlers(tmp_path)
+
+    with pytest.raises(ValueError, match="not found"):
+        await handlers["workspace.edit_file"](
+            EditFileInput(file_path="/workspace/app.py", old_string="missing", new_string="x")
+        )
+    with pytest.raises(ValueError, match="not unique"):
+        await handlers["workspace.edit_file"](
+            EditFileInput(file_path="/workspace/app.py", old_string="a", new_string="x")
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_file_handler_rejects_path_escape(tmp_path: Path):
+    (tmp_path / "app.py").write_text("x", encoding="utf-8")
+    handlers = make_write_handlers(tmp_path)
+    with pytest.raises(WorkspacePathError):
+        await handlers["workspace.edit_file"](
+            EditFileInput(file_path="/workspace/../etc/evil", old_string="x", new_string="y")
+        )
+
+
+# --- gateway integration for write/edit --------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gateway_write_safe_auto_allows_without_approval(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(
+        registry,
+        lambda _e: None,
+        handlers={**make_filesystem_handlers(tmp_path), **make_write_handlers(tmp_path)},
+    )
+    invocation = ToolInvocation(
+        invocation_id="inv-write",
+        tool_name="write_file",
+        arguments={"file_path": "/workspace/out.py", "content": "print(1)\n"},
+    )
+
+    outcome = await gateway.invoke(invocation, _safe_auto_facts())
+
+    assert outcome.status == "success"
+    assert outcome.decision == "allow"
+    assert (tmp_path / "out.py").read_text(encoding="utf-8") == "print(1)\n"
+
+
+@pytest.mark.asyncio
+async def test_gateway_write_confirm_all_suspends_by_default(tmp_path: Path):
+    registry = platform_builtin_registry()
+    calls = {"handler": 0}
+    handlers = make_write_handlers(tmp_path)
+    wrapped = {
+        "workspace.write_file": (lambda h: (lambda req: (calls.__setitem__("handler", calls["handler"] + 1), h(req))[1]))(handlers["workspace.write_file"])
+    }
+    gateway = ToolGateway(registry, lambda _e: None, handlers=wrapped)
+
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-w", tool_name="write_file", arguments={"file_path": "/workspace/out.py", "content": "x"}),
+        _confirm_all_facts(),
+    )
+
+    assert outcome.status == "needs_approval"
+    assert outcome.decision == "ask"
+    assert calls["handler"] == 0
+    assert not (tmp_path / "out.py").exists()
+
+
+@pytest.mark.asyncio
+async def test_gateway_write_confirm_all_dispatches_with_approving_adapter(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(
+        registry,
+        lambda _e: None,
+        handlers={**make_filesystem_handlers(tmp_path), **make_write_handlers(tmp_path)},
+        approval_adapter=_ApprovingAdapter(),
+    )
+
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-w2", tool_name="edit_file", arguments={"file_path": "/workspace/app.py", "old_string": "a", "new_string": "b"}),
+        _confirm_all_facts(),
+    )
+    # edit_file on a missing file would fail; seed it first via safe_auto, then edit under confirm_all.
+    await gateway.invoke(
+        ToolInvocation(invocation_id="inv-seed", tool_name="write_file", arguments={"file_path": "/workspace/app.py", "content": "a"}),
+        _safe_auto_facts(),
+    )
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-w3", tool_name="edit_file", arguments={"file_path": "/workspace/app.py", "old_string": "a", "new_string": "b"}),
+        _confirm_all_facts(),
+    )
+
+    assert outcome.status == "success"
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "b"
+
+
+@pytest.mark.asyncio
+async def test_gateway_write_read_only_denies(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(registry, lambda _e: None, handlers=make_write_handlers(tmp_path))
+
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-w4", tool_name="write_file", arguments={"file_path": "/workspace/out.py", "content": "x"}),
+        _read_only_block_facts(),
+    )
+
+    assert outcome.status == "denied"
+    assert outcome.error is not None
+    assert outcome.error.code == "denied_side_effect"
+    assert not (tmp_path / "out.py").exists()

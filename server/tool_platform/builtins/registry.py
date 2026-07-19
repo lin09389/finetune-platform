@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from ..registry import ToolRegistry
-from .filesystem import FILESYSTEM_DEFINITIONS
+from .filesystem import FILESYSTEM_DEFINITIONS, WRITE_DEFINITIONS
 from .git import GIT_DEFINITIONS
 
-PLATFORM_BUILTIN_DEFINITIONS: tuple = (*FILESYSTEM_DEFINITIONS, *GIT_DEFINITIONS)
+PLATFORM_BUILTIN_DEFINITIONS: tuple = (*FILESYSTEM_DEFINITIONS, *WRITE_DEFINITIONS, *GIT_DEFINITIONS)
 
 PLATFORM_BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     definition.meta.canonical_name for definition in PLATFORM_BUILTIN_DEFINITIONS
