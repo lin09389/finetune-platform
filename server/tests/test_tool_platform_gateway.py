@@ -323,6 +323,29 @@ async def test_handler_exception_fails_closed():
 
 
 @pytest.mark.asyncio
+async def test_handler_exception_redacts_credentials_from_error_and_events():
+    async def boom(request: StrictInput) -> StrictOutput:
+        raise RuntimeError(
+            "request failed with Bearer raw-secret-token at "
+            "https://example.test/run?api_key=raw-query-secret"
+        )
+
+    registry = _build_registry(make_definition(kind=ToolKind.READ, handler=boom))
+    sink: list = []
+    gateway = ToolGateway(registry, sink.append)
+
+    outcome = await gateway.invoke(_invocation("test.read"), ToolPolicyFacts())
+
+    assert outcome.status == "error"
+    assert outcome.error is not None
+    serialized = outcome.model_dump_json()
+    assert "raw-secret-token" not in serialized
+    assert "raw-query-secret" not in serialized
+    assert "[REDACTED]" in outcome.error.message
+    assert all("raw-secret" not in event.model_dump_json() for event in sink)
+
+
+@pytest.mark.asyncio
 async def test_handler_missing_fails_closed():
     # Definition with handler=None and no injected override.
     registry = _build_registry(make_definition(kind=ToolKind.READ, handler=None))

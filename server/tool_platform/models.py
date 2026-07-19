@@ -29,6 +29,9 @@ from .taxonomy import ExecutionLocation, SideEffect, ToolKind, ToolRisk
 
 _SENSITIVE_KEY_PARTS = ("authorization", "credential", "password", "secret", "token", "api_key", "apikey")
 _BEARER_PATTERN = re.compile(r"(?i)(bearer\s+)[^\s,;]+")
+_INLINE_SECRET_PATTERN = re.compile(
+    r"(?i)(\b(?:authorization|credential|password|secret|token|api[_-]?key|apikey)=)[^&#\s,;]+"
+)
 
 
 def _freeze_json(value: JsonValue) -> JsonValue:
@@ -81,6 +84,7 @@ def redact_json(value: JsonValue) -> JsonValue:
         return tuple(redact_json(item) for item in value)
     if isinstance(value, str):
         redacted = _BEARER_PATTERN.sub(r"\1[REDACTED]", value)
+        redacted = _INLINE_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
         try:
             parsed = urlsplit(redacted)
             if parsed.scheme and parsed.netloc and parsed.query:
@@ -185,6 +189,14 @@ class ToolError(_CanonicalModel):
     retryable: bool = False
     retry_after_seconds: float | None = Field(default=None, ge=0)
     origin: ExecutionLocation | None = None
+
+    @field_validator("message")
+    @classmethod
+    def redact_message(cls, value: str) -> str:
+        """Keep exception-derived error text safe for API responses and events."""
+
+        redacted = redact_json(value)
+        return redacted if isinstance(redacted, str) else value
 
     @field_validator("diagnostic")
     @classmethod
