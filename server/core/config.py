@@ -170,6 +170,10 @@ class Settings(BaseSettings):
         le=200_000,
         description="写入时间线 part 的工具结果最大字符数（AGENT_TOOL_RESULT_UI_MAX_CHARS）；全文可在 VFS",
     )
+    agent_tool_orchestration_mode: str = Field(
+        default="legacy",
+        description="Agent 工具编排模式（AGENT_TOOL_ORCHESTRATION_MODE）：legacy 默认（DeepAgents 既有行为）；shadow 绑定工具平台只读快照但不改变执行；controlled 预留给后续强制执行。会话元数据 orchestration_mode 优先于此设置。",
+    )
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
     intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")

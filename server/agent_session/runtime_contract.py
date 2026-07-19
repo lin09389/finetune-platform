@@ -10,9 +10,11 @@ from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_man
 from .execution_context import AgentDefinition
 from .permission import AgentRuntimePermissionPolicy, permission_policy_for_agent
 from .runtime_policy import AgentRuntimePolicy, build_agent_runtime_policy, enabled_skill_paths
+from .tool_projection import compile_session_tool_projection
 
 RuntimeKind = Literal["agent_session", "project_chat"]
 BackendMode = Literal["workspace", "project_chat_readonly"]
+OrchestrationMode = Literal["legacy", "shadow", "controlled"]
 
 PLATFORM_IDENTITY_PROMPT = "你是 Finetune Platform 的代码 Agent。你需要先理解项目，再使用工具完成任务。"
 FILESYSTEM_PROMPT = (
@@ -167,6 +169,8 @@ class AgentRuntimeContract:
     graph_thread_id: str | None = None
     recursion_limit: int | None = None
     runtime_policy: AgentRuntimePolicy | None = None
+    orchestration_mode: OrchestrationMode = "legacy"
+    tool_projection: Any = None
 
     @classmethod
     def for_agent_session(
@@ -193,6 +197,15 @@ class AgentRuntimeContract:
         org_id = str(metadata.get("org_id") or "default-org")
         permission_policy = permission_policy_for_agent(agent, agent_id, metadata)
         permission_policy.validate_enabled_skills(project_path, enabled_skill_sources)
+        orchestration_mode = resolve_orchestration_mode(metadata)
+        tool_projection = None
+        if orchestration_mode != "legacy":
+            tool_projection = compile_session_tool_projection(
+                agent_registry=agent_registry,
+                agent_id=agent_id,
+                metadata=metadata,
+                orchestration_mode=orchestration_mode,
+            )
         runtime_policy = build_agent_runtime_policy(
             agent=agent,
             agent_id=agent_id,
@@ -229,6 +242,8 @@ class AgentRuntimeContract:
             graph_thread_id=runtime_policy.execution_plan.thread_id,
             recursion_limit=runtime_policy.execution_plan.recursion_limit,
             runtime_policy=runtime_policy,
+            orchestration_mode=orchestration_mode,
+            tool_projection=tool_projection,
         )
 
     @classmethod
@@ -273,6 +288,26 @@ def normalize_enabled_skill_sources(value: Any) -> list[str] | None:
     if value is None or not isinstance(value, list):
         return None
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def resolve_orchestration_mode(metadata: dict[str, Any]) -> OrchestrationMode:
+    """Resolve the session tool-orchestration mode (metadata wins, then settings).
+
+    Defaults to ``legacy`` (no binding, zero behaviour change) unless the
+    session explicitly opts into ``shadow`` or ``controlled``.
+    """
+    raw = str(metadata.get("orchestration_mode") or "").strip().lower()
+    if raw in {"shadow", "controlled"}:
+        return raw  # type: ignore[return-value]
+    try:
+        from core.config import settings
+
+        configured = str(getattr(settings, "agent_tool_orchestration_mode", "") or "").strip().lower()
+        if configured in {"shadow", "controlled"}:
+            return configured  # type: ignore[return-value]
+    except Exception:
+        pass
+    return "legacy"
 
 
 def validate_agent_launch(agent: AgentDefinition | None, agent_id: str, metadata: dict[str, Any]) -> None:
@@ -379,6 +414,7 @@ __all__ = [
     "normalize_enabled_skill_sources",
     "platform_prompt_sections",
     "recursion_limit_for_agent",
+    "resolve_orchestration_mode",
     "system_prompt_sections",
     "validate_agent_launch",
 ]

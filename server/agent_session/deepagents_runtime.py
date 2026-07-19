@@ -413,7 +413,27 @@ class DeepAgentsSessionRunner:
             subagents=self._subagents_for_agent(agent_id, model, metadata),
             checkpointer=checkpointer,
         )
+        self._persist_shadow_projection(session_id, contract)
         return build_deep_agent_runtime(contract)
+
+    def _persist_shadow_projection(self, session_id: str, contract: AgentRuntimeContract) -> None:
+        """Bind the read-only shadow tool projection to session metadata.
+
+        Shadow mode compiles a deterministic snapshot for later offline
+        comparison; it never changes the DeepAgents execution path. Legacy
+        mode (no projection) assigns nothing.
+        """
+        projection = getattr(contract, "tool_projection", None)
+        mode = getattr(contract, "orchestration_mode", "legacy")
+        if projection is None or mode != "shadow":
+            return
+        try:
+            session = self.repository.get_session(session_id) or {}
+            metadata = dict(session.get("metadata") or {})
+            metadata["tool_platform_shadow"] = projection.diagnostic_dump()
+            self.repository.update_session(session_id, metadata=metadata)
+        except Exception:
+            logger.exception("Failed to persist shadow tool projection for session %s", session_id)
 
     async def _complete_trajectory_requirements(
         self,
@@ -541,7 +561,10 @@ class DeepAgentsSessionRunner:
                 )
                 rec_section = format_verify_recommendations_section(rec)
                 try:
-                    from agent_session.multi_file import build_multi_file_state, multi_file_correction_blurb
+                    from agent_session.multi_file import (
+                        build_multi_file_state,
+                        multi_file_correction_blurb,
+                    )
 
                     multi_blurb = multi_file_correction_blurb(
                         build_multi_file_state(

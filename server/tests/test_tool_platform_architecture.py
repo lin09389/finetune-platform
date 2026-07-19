@@ -19,8 +19,10 @@ def test_tool_platform_imports_use_the_canonical_package_name() -> None:
     assert offenders == []
 
 
-def test_milestone_one_does_not_integrate_registry_or_gateway_with_deepagents() -> None:
-    forbidden = ("ToolRegistry", "ToolGateway", "tool_platform.registry", "tool_platform.gateway")
+def test_deepagents_runtime_never_invokes_the_tool_gateway_or_handles() -> None:
+    """Shadow binding compiles read-only projection facts; it must not execute
+    through the canonical Tool Gateway or pull handlers into the run loop."""
+    forbidden = ("ToolGateway", "tool_platform.gateway", "tool_platform.handlers", "dispatch_handler")
     offenders = {
         path.name: [token for token in forbidden if token in _source(path)]
         for path in (
@@ -61,6 +63,7 @@ def test_tool_platform_production_package_has_only_expected_files() -> None:
         "policy.py",
         "handlers.py",
         "gateway.py",
+        "projection.py",
     }
     tool_platform_files = {
         path.name for path in (SERVER / "tool_platform").glob("*.py") if path.is_file()
@@ -69,7 +72,7 @@ def test_tool_platform_production_package_has_only_expected_files() -> None:
     assert tool_platform_files == expected
 
 
-def test_agent_session_tool_platform_consumers_are_limited_to_manifest_and_gateway() -> None:
+def test_agent_session_tool_platform_consumers_are_white_listed() -> None:
     consumers = {
         path.name
         for path in (SERVER / "agent_session").rglob("*.py")
@@ -81,4 +84,6 @@ def test_agent_session_tool_platform_consumers_are_limited_to_manifest_and_gatew
         "agent_registry.py",
         "permission.py",
         "deepagents_events.py",
+        "deepagents_runtime.py",
+        "tool_projection.py",
     }
