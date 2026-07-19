@@ -14,12 +14,14 @@ from pathlib import Path
 import pytest
 from tool_platform.builtins import (
     PLATFORM_BUILTIN_TOOL_NAMES,
+    make_execute_handlers,
     make_filesystem_handlers,
     make_git_handlers,
     make_write_handlers,
     platform_builtin_registry,
     resolve_workspace_path,
 )
+from tool_platform.builtins.execute import ExecuteInput, RunTestsInput
 from tool_platform.builtins.filesystem import (
     EditFileInput,
     GlobInput,
@@ -231,6 +233,8 @@ def test_platform_builtins_register_without_conflict():
         "workspace.grep",
         "workspace.write_file",
         "workspace.edit_file",
+        "workspace.execute",
+        "workspace.run_tests",
         "git.status",
         "git.diff",
         "git.log",
@@ -259,6 +263,14 @@ def test_read_only_builtins_are_low_risk_and_mutating_builtins_are_medium():
         assert meta.kind in {ToolKind.WRITE, ToolKind.EDIT}
         assert meta.risk.value == "medium"
         assert meta.side_effects == frozenset({SideEffect.WORKSPACE_WRITE})
+        assert meta.idempotent is False
+    for name in ("workspace.execute", "workspace.run_tests"):
+        meta = registry.resolve(name).meta
+        assert meta.kind is ToolKind.EXECUTE
+        assert meta.risk.value == "high"
+        assert meta.side_effects == frozenset(
+            {SideEffect.PROCESS, SideEffect.WORKSPACE_WRITE, SideEffect.DESTRUCTIVE}
+        )
         assert meta.idempotent is False
 
 
@@ -476,3 +488,159 @@ async def test_gateway_write_read_only_denies(tmp_path: Path):
     assert outcome.error is not None
     assert outcome.error.code == "denied_side_effect"
     assert not (tmp_path / "out.py").exists()
+
+
+# --- execute / run_tests handlers (Task 9C) ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_handler_runs_command_and_captures_output(tmp_path: Path):
+    handlers = make_execute_handlers(tmp_path)
+    out = await handlers["workspace.execute"](ExecuteInput(command="echo hello"))
+    assert out.exit_code == 0
+    assert "hello" in out.output
+
+
+@pytest.mark.asyncio
+async def test_execute_handler_reports_nonzero_exit(tmp_path: Path):
+    handlers = make_execute_handlers(tmp_path)
+    out = await handlers["workspace.execute"](ExecuteInput(command="python -c \"raise SystemExit(3)\""))
+    assert out.exit_code == 3
+
+
+@pytest.mark.asyncio
+async def test_run_tests_handler_parses_pass_fail(tmp_path: Path):
+    handlers = make_execute_handlers(tmp_path)
+    passed = await handlers["workspace.run_tests"](RunTestsInput(command="echo ok"))
+    assert passed.passed is True
+    assert passed.exit_code == 0
+
+    failed = await handlers["workspace.run_tests"](RunTestsInput(command="python -c \"raise SystemExit(1)\""))
+    assert failed.passed is False
+    assert failed.exit_code == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_handler_times_out(tmp_path: Path):
+    handlers = make_execute_handlers(tmp_path)
+    out = await handlers["workspace.execute"](
+        ExecuteInput(command="python -c \"import time; time.sleep(5)\"", timeout=1)
+    )
+    assert out.exit_code == 124
+    assert "timed out" in out.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_gateway_execute_safe_auto_asks(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(registry, lambda _e: None, handlers=make_execute_handlers(tmp_path))
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-ex", tool_name="execute", arguments={"command": "echo hi"}),
+        _safe_auto_facts(),
+    )
+    # safe_auto gates process/destructive effects -> ask.
+    assert outcome.status == "needs_approval"
+    assert outcome.decision == "ask"
+
+
+@pytest.mark.asyncio
+async def test_gateway_execute_approving_adapter_dispatches(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(
+        registry,
+        lambda _e: None,
+        handlers=make_execute_handlers(tmp_path),
+        approval_adapter=_ApprovingAdapter(),
+    )
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-ex2", tool_name="execute", arguments={"command": "echo hi"}),
+        _safe_auto_facts(),
+    )
+    assert outcome.status == "success"
+    assert "hi" in outcome.result.output["output"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_execute_read_only_denies(tmp_path: Path):
+    registry = platform_builtin_registry()
+    gateway = ToolGateway(registry, lambda _e: None, handlers=make_execute_handlers(tmp_path))
+    outcome = await gateway.invoke(
+        ToolInvocation(invocation_id="inv-ex3", tool_name="execute", arguments={"command": "echo hi"}),
+        _read_only_block_facts(),
+    )
+    assert outcome.status == "denied"
+    assert outcome.error.code == "denied_side_effect"
+
+
+# --- legacy execute entry blockade (Task 9C core) ----------------------------
+
+
+def test_controlled_backend_blocks_legacy_execute_without_running(tmp_path: Path):
+    from agent_session.platform_shell import PlatformShellBackend
+
+    sentinel = tmp_path / "sentinel.txt"
+    backend = PlatformShellBackend(root_dir=str(tmp_path), virtual_mode=True, controlled_execute=True)
+
+    # A command that would create a side-effect file if it actually ran.
+    response = backend.execute(
+        f'python -c "open(r\'{sentinel}\', \'w\').write(\'x\')"'
+    )
+
+    assert response.exit_code == 1
+    assert "gated" in response.output.lower()
+    # No subprocess ran: the sentinel file was never created.
+    assert not sentinel.exists()
+
+
+def test_legacy_backend_executes_normally(tmp_path: Path):
+    from agent_session.platform_shell import PlatformShellBackend
+
+    backend = PlatformShellBackend(root_dir=str(tmp_path), virtual_mode=True, controlled_execute=False)
+    response = backend.execute("echo legacy-ok")
+    assert response.exit_code == 0
+    assert "legacy-ok" in response.output
+
+
+def test_runtime_factory_passes_controlled_flag_for_controlled_contract(tmp_path: Path):
+    from agent_session.runtime_contract import AgentRuntimeContract
+    from agent_session.runtime_factory import DeepAgentsRuntimeFactory
+
+    captured: dict[str, object] = {}
+
+    def fake_build(project_path, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    import agent_session.runtime as runtime_mod
+
+    original = runtime_mod.build_deepagents_backend
+    runtime_mod.build_deepagents_backend = fake_build
+    try:
+        factory = DeepAgentsRuntimeFactory()
+        legacy_contract = AgentRuntimeContract.for_agent_session(
+            session={"id": "s", "project_path": str(tmp_path), "agent_id": "build", "metadata": {}},
+            goal="g",
+            model=object(),
+            agent_registry=__import__("agent_session.agent_registry", fromlist=["AgentRegistry"]).AgentRegistry(),
+            tools=[],
+            middleware=[],
+            subagents=[],
+            checkpointer=False,
+        )
+        controlled_contract = AgentRuntimeContract.for_agent_session(
+            session={"id": "s", "project_path": str(tmp_path), "agent_id": "build",
+                     "metadata": {"orchestration_mode": "controlled"}},
+            goal="g",
+            model=object(),
+            agent_registry=__import__("agent_session.agent_registry", fromlist=["AgentRegistry"]).AgentRegistry(),
+            tools=[],
+            middleware=[],
+            subagents=[],
+            checkpointer=False,
+        )
+        factory._backend_for(legacy_contract)
+        assert captured.get("controlled_execute") is False
+        factory._backend_for(controlled_contract)
+        assert captured.get("controlled_execute") is True
+    finally:
+        runtime_mod.build_deepagents_backend = original

@@ -114,6 +114,7 @@ def build_deepagents_backend(
     agent_id: str = "build",
     org_id: str = "default-org",
     enabled_skill_sources: list[str] | None = None,
+    controlled_execute: bool = False,
 ) -> Any:
     """Build a CompositeBackend that separates project files from agent state.
 
@@ -148,6 +149,7 @@ def build_deepagents_backend(
         inherit_env=False,
         wsl_enabled=wsl_enabled,
         wsl_distribution=wsl_distribution,
+        controlled_execute=controlled_execute,
     )
     memory_service = get_memory_service()
     memory_service.store.ensure_namespace("user", user_id)

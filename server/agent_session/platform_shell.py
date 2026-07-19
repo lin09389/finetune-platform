@@ -287,6 +287,7 @@ class PlatformShellBackend(LocalShellBackend):
         inherit_env: bool = False,
         wsl_enabled: bool = False,
         wsl_distribution: str | None = None,
+        controlled_execute: bool = False,
     ) -> None:
         """Initialize the platform shell backend.
 
@@ -303,6 +304,11 @@ class PlatformShellBackend(LocalShellBackend):
                 platforms this is silently ignored.
             wsl_distribution: Optional WSL distro name. If omitted, the first
                 installed non-Docker distro is selected lazily.
+            controlled_execute: If True, ``execute`` short-circuits with a
+                gating error and never runs a subprocess. This is the
+                execution-layer deny that blocks the legacy ``execute`` entry
+                point in controlled mode, forcing all execution through the
+                Tool Gateway. Legacy/shadow modes pass False (unchanged).
         """
         super().__init__(
             root_dir=root_dir,
@@ -315,6 +321,7 @@ class PlatformShellBackend(LocalShellBackend):
         self._wsl_enabled = bool(wsl_enabled) and sys.platform == "win32"
         self._wsl_distribution = str(wsl_distribution or "").strip() or None
         self._resolved_wsl_distribution: str | None = None
+        self._controlled_execute = bool(controlled_execute)
 
     def execute(
         self,
@@ -324,10 +331,15 @@ class PlatformShellBackend(LocalShellBackend):
     ) -> ExecuteResponse:
         """Execute ``command`` after rewriting ``/workspace`` paths.
 
-        When WSL is enabled, the command runs inside the selected distro's bash
-        with the working directory set to the WSL path of ``root_dir``.
-        Otherwise, it delegates to the parent ``LocalShellBackend.execute``
-        (which uses ``cmd.exe`` on Windows).
+        In controlled mode (``controlled_execute=True``) this short-circuits
+        with a gating error and never delegates to the parent ``execute`` or
+        WSL, so the legacy ``execute`` entry point cannot run a subprocess
+        outside the Tool Gateway.
+
+        When WSL is enabled (and not controlled), the command runs inside the
+        selected distro's bash with the working directory set to the WSL path
+        of ``root_dir``. Otherwise, it delegates to the parent
+        ``LocalShellBackend.execute`` (which uses ``cmd.exe`` on Windows).
 
         Args:
             command: Shell command string (may contain ``/workspace/...``).
@@ -337,6 +349,15 @@ class PlatformShellBackend(LocalShellBackend):
             ``ExecuteResponse`` with combined output, exit code, and
             truncation flag.
         """
+        if self._controlled_execute:
+            return ExecuteResponse(
+                output=(
+                    "execute is gated by the Tool Gateway in controlled mode; "
+                    "use the managed execute / run_tests tool instead."
+                ),
+                exit_code=1,
+                truncated=False,
+            )
         if self._wsl_enabled:
             return self._execute_via_wsl(command, timeout)
         rewritten, _ = rewrite_workspace_paths(command, str(self.cwd))

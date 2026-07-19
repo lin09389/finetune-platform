@@ -49,9 +49,11 @@ def test_resolve_orchestration_mode_defaults_to_legacy():
     assert resolve_orchestration_mode({"orchestration_mode": "bogus"}) == "legacy"
 
 
-def test_resolve_orchestration_mode_accepts_only_implemented_shadow_mode():
+def test_resolve_orchestration_mode_accepts_shadow_and_controlled():
     assert resolve_orchestration_mode({"orchestration_mode": "shadow"}) == "shadow"
-    assert resolve_orchestration_mode({"orchestration_mode": "CONTROLLED"}) == "legacy"
+    # Task 9C enables controlled (backend deny + managed execute); Task 9D adds
+    # the atomic startup gate.
+    assert resolve_orchestration_mode({"orchestration_mode": "CONTROLLED"}) == "controlled"
 
 
 def test_legacy_contract_binds_no_projection(tmp_path: Path):

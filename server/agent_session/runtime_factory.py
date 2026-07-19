@@ -60,6 +60,7 @@ class DeepAgentsRuntimeFactory:
             agent_id=contract.agent_id,
             org_id=contract.org_id,
             enabled_skill_sources=contract.enabled_skill_sources,
+            controlled_execute=getattr(contract, "orchestration_mode", "legacy") == "controlled",
         )
 
     @staticmethod

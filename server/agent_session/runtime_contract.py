@@ -291,22 +291,26 @@ def normalize_enabled_skill_sources(value: Any) -> list[str] | None:
 
 
 def resolve_orchestration_mode(metadata: dict[str, Any]) -> OrchestrationMode:
-    """Resolve the currently supported session tool-orchestration mode.
+    """Resolve the session tool-orchestration mode (metadata wins, then settings).
 
-    Task 8 supports only ``legacy`` and read-only ``shadow`` binding.
-    ``controlled`` remains a future type-level value but deliberately resolves
-    to ``legacy`` until a real enforcement path exists, so configuration can
-    never claim enforcement that the runtime does not provide.
+    - ``legacy`` (default): no binding, zero behaviour change.
+    - ``shadow``: bind a read-only projection snapshot; DeepAgents still runs.
+    - ``controlled``: the Tool Gateway is the execution path; the legacy
+      ``execute`` entry is blocked at the backend layer (Task 9C). Task 9D
+      adds the atomic startup gate that refuses controlled launch unless every
+      Build tool has a hard enforcement boundary; until then a controlled
+      session compiles its projection and blocks the legacy execute entry but
+      does not yet reroute the model tool catalog.
     """
     raw = str(metadata.get("orchestration_mode") or "").strip().lower()
-    if raw == "shadow":
-        return "shadow"
+    if raw in {"shadow", "controlled"}:
+        return raw  # type: ignore[return-value]
     try:
         from core.config import settings
 
         configured = str(getattr(settings, "agent_tool_orchestration_mode", "") or "").strip().lower()
-        if configured == "shadow":
-            return "shadow"
+        if configured in {"shadow", "controlled"}:
+            return configured  # type: ignore[return-value]
     except Exception:
         pass
     return "legacy"

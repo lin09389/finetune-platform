@@ -1,5 +1,6 @@
 """Platform-owned canonical built-in tools for the controlled tool platform."""
 
+from .execute import EXECUTE_DEFINITIONS, make_execute_handlers
 from .filesystem import (
     FILESYSTEM_DEFINITIONS,
     WRITE_DEFINITIONS,
@@ -18,12 +19,14 @@ from .registry import (
 )
 
 __all__ = [
+    "EXECUTE_DEFINITIONS",
     "FILESYSTEM_DEFINITIONS",
     "GIT_DEFINITIONS",
     "PLATFORM_BUILTIN_ALIASES",
     "PLATFORM_BUILTIN_DEFINITIONS",
     "PLATFORM_BUILTIN_TOOL_NAMES",
     "WRITE_DEFINITIONS",
+    "make_execute_handlers",
     "make_filesystem_handlers",
     "make_git_handlers",
     "make_write_handlers",

@@ -77,6 +77,7 @@ def test_tool_platform_builtins_package_has_only_expected_files() -> None:
         "__init__.py",
         "filesystem.py",
         "git.py",
+        "execute.py",
         "registry.py",
     }
     builtins_files = {
