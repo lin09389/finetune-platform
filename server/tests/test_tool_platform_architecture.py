@@ -19,10 +19,11 @@ def test_tool_platform_imports_use_the_canonical_package_name() -> None:
     assert offenders == []
 
 
-def test_deepagents_runtime_never_invokes_the_tool_gateway_or_handles() -> None:
-    """Shadow binding compiles read-only projection facts; it must not execute
-    through the canonical Tool Gateway or pull handlers into the run loop."""
-    forbidden = ("ToolGateway", "tool_platform.gateway", "tool_platform.handlers", "dispatch_handler")
+def test_deepagents_runtime_keeps_handler_dispatch_inside_the_gateway() -> None:
+    """Controlled mode routes tools through the Tool Gateway (9D-1), but the
+    runtime must never call ``dispatch_handler`` or import ``tool_platform.handlers``
+    directly — handler dispatch stays encapsulated inside the gateway."""
+    forbidden = ("dispatch_handler",)
     offenders = {
         path.name: [token for token in forbidden if token in _source(path)]
         for path in (
@@ -78,6 +79,7 @@ def test_tool_platform_builtins_package_has_only_expected_files() -> None:
         "filesystem.py",
         "git.py",
         "execute.py",
+        "gateway_tools.py",
         "registry.py",
     }
     builtins_files = {

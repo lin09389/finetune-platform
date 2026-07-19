@@ -15,7 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
 
 from ..definition import ToolDefinition
-from ..models import CanonicalToolMeta, FrozenJsonObject, freeze_json_object, redact_json
+from ..models import CanonicalToolMeta, FrozenJsonObject, freeze_json_object, jsonable, redact_json
 from ..taxonomy import ToolKind, defaults_for_kind
 
 
@@ -109,7 +109,7 @@ class DeepAgentsContractToolObservation(_StrictModel):
 
     @field_serializer("input_schema")
     def serialize_schema(self, value: FrozenJsonObject) -> JsonValue:
-        return _jsonable(value)
+        return jsonable(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +277,35 @@ def require_controlled_mode_support(tool_names: Iterable[str]) -> None:
         raise DeepAgentsControlledModeUnsupported(blockers)
 
 
+#: Every DeepAgents built-in tool name that must be excluded from the model
+#: catalog in controlled mode (the platform substitutes its own managed tools
+#: via the Tool Gateway).  Includes the Task-5 UNSUPPORTED tools (execute,
+#: task, write_todos) which controlled mode neither routes through the legacy
+#: backend nor exposes to the model.
+CONTROLLED_MODE_EXCLUSION_SET: frozenset[str] = frozenset(
+    {item.definition.meta.canonical_name for item in _BUILTIN_BINDINGS}
+)
+
+
+def controlled_mode_exclusion_set() -> frozenset[str]:
+    """Return the built-in tool names controlled mode must exclude."""
+    return CONTROLLED_MODE_EXCLUSION_SET
+
+
+def verify_controlled_mode_exclusion(excluded: Iterable[str]) -> tuple[str, ...]:
+    """Return built-in names that controlled mode failed to exclude.
+
+    Used by the 9D startup gate: every name in
+    :data:`CONTROLLED_MODE_EXCLUSION_SET` must be present in ``excluded`` (the
+    middleware exclusion set actually applied).  Any missing name means the
+    legacy entry point remains model-visible and controlled mode must fall
+    back to legacy rather than claim enforcement it cannot provide.
+    """
+    applied = {str(name) for name in excluded}
+    missing = CONTROLLED_MODE_EXCLUSION_SET - applied
+    return tuple(sorted(missing))
+
+
 def observe_contract_tools(tools: Iterable[Any]) -> tuple[DeepAgentsContractToolObservation, ...]:
     """Describe explicit ``AgentRuntimeContract.tools`` without invoking them."""
 
@@ -316,15 +345,8 @@ def _input_schema(tool: Any) -> Mapping[str, JsonValue]:
     return {}
 
 
-def _jsonable(value: object) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(item) for item in value]
-    return value  # type: ignore[return-value]
-
-
 __all__ = [
+    "CONTROLLED_MODE_EXCLUSION_SET",
     "DeepAgentsContractToolObservation",
     "DeepAgentsControlledModeUnsupported",
     "DeepAgentsEnforcementCapability",
@@ -332,6 +354,8 @@ __all__ = [
     "DeepAgentsToolSource",
     "builtin_tool_bindings",
     "controlled_mode_blockers",
+    "controlled_mode_exclusion_set",
     "observe_contract_tools",
     "require_controlled_mode_support",
+    "verify_controlled_mode_exclusion",
 ]

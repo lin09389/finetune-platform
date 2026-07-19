@@ -66,11 +66,13 @@ def compile_session_tool_projection(
 ) -> ToolProjectionSnapshot | None:
     """Return a shadow snapshot when ``orchestration_mode`` is shadow/controlled.
 
-    ``legacy`` returns ``None`` (nothing to bind).  The snapshot is computed
-    only from manifest selectors + autonomy metadata + the builtin registry;
-    no probes run and no session state mutates.
+    ``legacy`` returns ``None`` (nothing to bind).  ``shadow`` and
+    ``controlled`` both compile a read-only snapshot (controlled additionally
+    substitutes managed tools at runtime).  The snapshot is computed only
+    from manifest selectors + autonomy metadata + the builtin registry; no
+    probes run and no session state mutates.
     """
-    if orchestration_mode != "shadow":
+    if orchestration_mode not in {"shadow", "controlled"}:
         return None
 
     policy = _resolve_manifest_tool_policy(agent_registry, agent_id)

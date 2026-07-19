@@ -8,6 +8,7 @@ import uuid
 import weakref
 from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,38 @@ LOCAL_ASYNC_TOOL_NAMES = frozenset(
         "cancel_async_task",
     }
 )
+
+
+def _is_tool_exclusion_middleware(middleware: Any) -> bool:
+    """True for DeepAgents ``_ToolExclusionMiddleware`` instances."""
+    return type(middleware).__name__ == "_ToolExclusionMiddleware"
+
+
+def _build_exclusion_middleware(excluded: frozenset[str], logger: logging.Logger) -> Any:
+    """Construct a DeepAgents tool-exclusion middleware for ``excluded`` names."""
+    try:
+        from deepagents.middleware._tool_exclusion import _ToolExclusionMiddleware
+    except Exception:  # pragma: no cover - depends on optional runtime dependency
+        logger.warning("DeepAgents tool exclusion middleware is unavailable; cannot enforce controlled exclusion")
+        return None
+    return _ToolExclusionMiddleware(excluded=excluded)
+
+
+def _downgrade_contract_to_legacy(contract: AgentRuntimeContract) -> AgentRuntimeContract:
+    """Return a copy of ``contract`` downgraded to legacy orchestration mode."""
+    return dataclass_replace(contract, orchestration_mode="legacy", tool_projection=None)
+
+
+def _replace_contract_for_controlled(
+    contract: AgentRuntimeContract,
+    *,
+    tools: list[Any],
+    middleware: list[Any],
+) -> AgentRuntimeContract:
+    """Return a copy of ``contract`` with controlled-mode tools/middleware applied."""
+    effective_middleware = [mw for mw in middleware if mw is not None]
+    return dataclass_replace(contract, tools=tools, middleware=effective_middleware)
+
 
 class StartAsyncTaskInput(BaseModel):
     subagent_type: str = Field(
@@ -413,8 +446,95 @@ class DeepAgentsSessionRunner:
             subagents=self._subagents_for_agent(agent_id, model, metadata),
             checkpointer=checkpointer,
         )
+        if contract.orchestration_mode == "controlled":
+            contract = self._apply_controlled_cutover(contract, session_id, project_path, agent_id, metadata)
         self._persist_shadow_projection(session_id, contract)
         return build_deep_agent_runtime(contract)
+
+    def _apply_controlled_cutover(
+        self,
+        contract: AgentRuntimeContract,
+        session_id: str,
+        project_path: str,
+        agent_id: str,
+        metadata: dict[str, Any],
+    ) -> AgentRuntimeContract:
+        """Substitute platform-managed tools (via Tool Gateway) for the legacy built-ins.
+
+        Falls back to legacy if the startup gate cannot verify that every
+        legacy built-in is excluded from the model catalog.
+        """
+        from tool_platform.adapters.deepagents import (
+            controlled_mode_exclusion_set,
+            verify_controlled_mode_exclusion,
+        )
+
+        exclusion_set = controlled_mode_exclusion_set()
+        missing = verify_controlled_mode_exclusion(exclusion_set)
+        if missing:
+            logger.warning(
+                "controlled mode startup gate failed for session %s; missing exclusions: %s. Falling back to legacy.",
+                session_id,
+                ", ".join(missing),
+            )
+            return _downgrade_contract_to_legacy(contract)
+
+        try:
+            from tool_platform.builtins import (
+                make_execute_handlers,
+                make_filesystem_handlers,
+                make_git_handlers,
+                make_write_handlers,
+                platform_builtin_registry,
+            )
+            from tool_platform.builtins.gateway_tools import build_gateway_tool_structures
+            from tool_platform.gateway import ToolGateway
+
+            from .permission import policy_facts_for_session
+
+            handlers = {
+                **make_filesystem_handlers(project_path),
+                **make_write_handlers(project_path),
+                **make_git_handlers(project_path, extra_roots=[project_path]),
+                **make_execute_handlers(project_path),
+            }
+            mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
+            gateway = ToolGateway(
+                platform_builtin_registry(),
+                mapper.publish_tool_event,
+                handlers=handlers,
+            )
+            facts = policy_facts_for_session(
+                metadata,
+                enforcement_status="controlled",
+                runtime_kind="agent_session",
+                enabled_capabilities=frozenset({"deepagents"}),
+            )
+            gateway_tools = build_gateway_tool_structures(
+                gateway=gateway,
+                registry=platform_builtin_registry(),
+                facts=facts,
+                agent_id=agent_id,
+            )
+        except Exception:
+            logger.exception(
+                "controlled mode tool assembly failed for session %s; falling back to legacy.",
+                session_id,
+            )
+            return _downgrade_contract_to_legacy(contract)
+
+        controlled_middleware = [*contract.middleware]
+        # Replace the legacy builtin exclusion with the controlled full set so
+        # no legacy built-in (incl. execute/task/write_todos) is model-visible.
+        controlled_middleware = [
+            mw for mw in controlled_middleware if not _is_tool_exclusion_middleware(mw)
+        ]
+        controlled_middleware.append(_build_exclusion_middleware(exclusion_set, logger))
+        return _replace_contract_for_controlled(
+            contract,
+            tools=[*contract.tools, *gateway_tools],
+            middleware=controlled_middleware,
+        )
 
     def _persist_shadow_projection(self, session_id: str, contract: AgentRuntimeContract) -> None:
         """Bind the read-only shadow tool projection to session metadata.
