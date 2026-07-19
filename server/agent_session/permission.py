@@ -15,8 +15,12 @@ autonomy defaults when the key is present.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from tool_platform.policy import ToolPolicyFacts
+from tool_platform.taxonomy import SideEffect, ToolRisk
 
 from .execution_context import AgentDefinition
 
@@ -300,6 +304,90 @@ def is_read_only_autonomy(metadata: dict[str, Any] | None) -> bool:
     return normalize_autonomy_mode(dict(metadata or {}).get("autonomy_mode")) == "read_only"
 
 
+# --- deterministic tool policy facts (Task 6) -----------------------------------
+#
+# Side-effect gates derived from autonomy_mode. These feed the pure
+# ``tool_platform.policy`` evaluator and do NOT replace the DeepAgents HITL
+# interrupt map (``resolve_deepagents_interrupt_on`` remains authoritative
+# until the Tool Gateway / shadow binding land).
+
+# safe_auto: workspace writes run without HITL (matches the existing
+# interrupt_on=None for write_file/edit_file); process / network / external /
+# credential / destructive effects still ask.
+SAFE_AUTO_REQUIRE_APPROVAL_EFFECTS: frozenset[SideEffect] = frozenset(
+    {
+        SideEffect.PROCESS,
+        SideEffect.NETWORK,
+        SideEffect.EXTERNAL_WRITE,
+        SideEffect.CREDENTIAL,
+        SideEffect.DESTRUCTIVE,
+    }
+)
+# confirm_all: every non-NONE side effect asks.
+CONFIRM_ALL_REQUIRE_APPROVAL_EFFECTS: frozenset[SideEffect] = frozenset(
+    {
+        SideEffect.WORKSPACE_WRITE,
+        SideEffect.PROCESS,
+        SideEffect.NETWORK,
+        SideEffect.EXTERNAL_WRITE,
+        SideEffect.CREDENTIAL,
+        SideEffect.DESTRUCTIVE,
+    }
+)
+# read_only: every non-NONE side effect is hard-denied (fail-closed mutation guard).
+READ_ONLY_DENY_EFFECTS: frozenset[SideEffect] = CONFIRM_ALL_REQUIRE_APPROVAL_EFFECTS
+
+
+def policy_facts_for_session(
+    metadata: dict[str, Any] | None,
+    *,
+    enforcement_status: Literal["legacy_runtime", "shadow", "controlled"] = "legacy_runtime",
+    allowed_names: frozenset[str] | None = None,
+    denied_names: frozenset[str] | None = None,
+    risk_ceiling: ToolRisk | None = None,
+    runtime_kind: str | None = None,
+    enabled_capabilities: frozenset[str] | None = None,
+    provider_facts: Mapping[str, Any] | None = None,
+    model_facts: Mapping[str, Any] | None = None,
+    platform_facts: Mapping[str, Any] | None = None,
+) -> ToolPolicyFacts:
+    """Adapt existing autonomy/HITL metadata into deterministic policy facts.
+
+    Maps ``autonomy_mode`` to side-effect gates and ``session_tool_trust`` to
+    ``trusted_names``. Projection-derived selectors (allowed/denied names, risk
+    ceiling, runtime/capability/provider/model/platform facts) are forwarded
+    when supplied so the evaluator can fail closed on missing required facts.
+
+    This adapter only compiles facts; it does not persist approval state and
+    does not alter ``resolve_deepagents_interrupt_on``. The legacy DeepAgents
+    HITL interrupt map remains the authoritative runtime gate.
+    """
+    mode = normalize_autonomy_mode(dict(metadata or {}).get("autonomy_mode"))
+    if mode == "read_only":
+        deny_for: frozenset[SideEffect] = READ_ONLY_DENY_EFFECTS
+        require_approval_for: frozenset[SideEffect] = frozenset()
+    elif mode == "confirm_all":
+        deny_for = frozenset()
+        require_approval_for = CONFIRM_ALL_REQUIRE_APPROVAL_EFFECTS
+    else:  # safe_auto
+        deny_for = frozenset()
+        require_approval_for = SAFE_AUTO_REQUIRE_APPROVAL_EFFECTS
+    return ToolPolicyFacts(
+        enforcement_status=enforcement_status,
+        allowed_names=allowed_names,
+        denied_names=denied_names or frozenset(),
+        risk_ceiling=risk_ceiling,
+        trusted_names=frozenset(session_tool_trust_set(metadata)),
+        require_approval_for=require_approval_for,
+        deny_for=deny_for,
+        runtime_kind=runtime_kind,
+        enabled_capabilities=enabled_capabilities,
+        provider_facts=dict(provider_facts or {}),
+        model_facts=dict(model_facts or {}),
+        platform_facts=dict(platform_facts or {}),
+    )
+
+
 @dataclass(frozen=True)
 class AgentRuntimePermissionPolicy:
     """Single policy surface for AgentSession runtime permission decisions."""
@@ -443,9 +531,12 @@ def validate_hitl_decisions(part: dict[str, Any], decisions: list[dict[str, Any]
 __all__ = [
     "AgentRuntimePermissionPolicy",
     "AutonomyMode",
+    "CONFIRM_ALL_REQUIRE_APPROVAL_EFFECTS",
     "DEFAULT_DEEPAGENTS_INTERRUPT_ON",
     "FilesystemPermissionProfile",
+    "READ_ONLY_DENY_EFFECTS",
     "READ_ONLY_FALLBACK_TOOLS",
+    "SAFE_AUTO_REQUIRE_APPROVAL_EFFECTS",
     "SESSION_TOOL_TRUST_KEY",
     "TRUSTABLE_HITL_TOOLS",
     "VALID_AUTONOMY_MODES",
@@ -471,6 +562,7 @@ __all__ = [
     "is_read_only_autonomy",
     "normalize_autonomy_mode",
     "permission_policy_for_agent",
+    "policy_facts_for_session",
     "resolve_deepagents_interrupt_on",
     "session_tool_trust_set",
     "tools_granted_by_hitl_decisions",

@@ -50,7 +50,7 @@ def test_milestone_one_adds_no_agent_session_approval_state_machine() -> None:
     assert prohibited.isdisjoint(found)
 
 
-def test_milestone_one_production_package_has_only_expected_files() -> None:
+def test_tool_platform_production_package_has_only_expected_files() -> None:
     expected = {
         "__init__.py",
         "taxonomy.py",
@@ -58,6 +58,7 @@ def test_milestone_one_production_package_has_only_expected_files() -> None:
         "definition.py",
         "registry.py",
         "catalog.py",
+        "policy.py",
     }
     tool_platform_files = {
         path.name for path in (SERVER / "tool_platform").glob("*.py") if path.is_file()
@@ -66,11 +67,11 @@ def test_milestone_one_production_package_has_only_expected_files() -> None:
     assert tool_platform_files == expected
 
 
-def test_agent_session_tool_platform_consumers_are_limited_to_manifest_compilation() -> None:
+def test_agent_session_tool_platform_consumers_are_limited_to_manifest_and_policy() -> None:
     consumers = {
         path.name
         for path in (SERVER / "agent_session").rglob("*.py")
         if "tool_platform" in _source(path)
     }
 
-    assert consumers == {"execution_context.py", "agent_registry.py"}
+    assert consumers == {"execution_context.py", "agent_registry.py", "permission.py"}
