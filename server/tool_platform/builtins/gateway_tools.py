@@ -10,19 +10,52 @@ any side effect.  The legacy DeepAgents built-ins are excluded separately
 This adapter is the controlled-mode execution seam.  It does not persist
 approval state and does not alter the DeepAgents model loop beyond
 substituting the tool surface.
+
+Invocation identity:
+    The LLM-assigned ``tool_call_id`` is the canonical idempotency key for a
+    tool invocation.  When the model is resumed after a HITL interrupt, the
+    DeepAgents loop replays the *same* ``ToolCall`` — including the same
+    ``tool_call_id`` — so the Tool Gateway can match the replay against the
+    terminal cache entry it produced earlier.  Using a fresh random UUID here
+    would defeat that match, re-triggering an ``ask`` decision forever and
+    turning every approval into an infinite loop.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from typing import Any
+
+from langchain_core.tools import StructuredTool
 
 from ..adapters.deepagents import DeepAgentsEnforcementCapability
 from ..gateway import ToolGateway
 from ..models import ToolInvocation, thaw_json_object
 from ..policy import ToolPolicyFacts
 from ..registry import ToolProjectionContext, ToolRegistry
+
+
+class _ToolCallIdAwareStructuredTool(StructuredTool):
+    """StructuredTool that surfaces the LLM-assigned ``tool_call_id`` to its coroutine.
+
+    The base implementation only forwards ``tool_call_id`` to the coroutine
+    when ``args_schema`` declares a field typed with ``InjectedToolCallId``
+    (and raises if it is missing).  This adapter reuses the strict platform
+    ``args_schema`` untouched and threads the id through afterwards: the id
+    is the idempotency key shared between a tool call and its interrupt/resume
+    replay, and we cannot afford to lose it from the coroutine's view.
+    """
+
+    def _to_args_and_kwargs(
+        self, tool_input: Any, tool_call_id: str | None
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        args, kwargs = super()._to_args_and_kwargs(tool_input, tool_call_id)
+        coroutine = self.coroutine
+        if coroutine is not None and "tool_call_id" in inspect.signature(coroutine).parameters:
+            kwargs["tool_call_id"] = tool_call_id
+        return args, kwargs
 
 
 def _projection_context(agent_id: str) -> ToolProjectionContext:
@@ -46,9 +79,13 @@ def build_gateway_tool_structures(
     Each tool is exposed under its DeepAgents-compatible alias (e.g.
     ``read_file``) so the model-facing surface is seamless.  Invocations are
     routed through ``gateway.invoke`` with the session's policy facts.
-    """
-    from langchain_core.tools import StructuredTool
 
+    The coroutine accepts the LLM-assigned ``tool_call_id`` (forwarded by
+    :class:`_ToolCallIdAwareStructuredTool`) so that an interrupt/resume replay
+    hits the same gateway ``invocation_id`` as the original tool call.  Without
+    this contract the gateway could never match a replay against its terminal
+    cache and every approval-bound tool would loop forever.
+    """
     visible = registry.project(_projection_context(agent_id))
     tools: list[Any] = []
 
@@ -59,9 +96,12 @@ def build_gateway_tool_structures(
         canonical_name = meta.canonical_name
 
         def _make_handler(name: str) -> Any:
-            async def handler(**kwargs: Any) -> str:
+            async def handler(
+                *, tool_call_id: str | None = None, **kwargs: Any
+            ) -> str:
+                invocation_id = tool_call_id or f"gw_{uuid.uuid4().hex}"
                 invocation = ToolInvocation(
-                    invocation_id=f"gw_{uuid.uuid4().hex}",
+                    invocation_id=invocation_id,
                     tool_name=name,
                     arguments=kwargs,
                 )
@@ -79,7 +119,7 @@ def build_gateway_tool_structures(
             return handler
 
         tools.append(
-            StructuredTool.from_function(
+            _ToolCallIdAwareStructuredTool.from_function(
                 coroutine=_make_handler(canonical_name),
                 name=alias,
                 description=meta.description,

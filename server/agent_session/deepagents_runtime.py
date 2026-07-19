@@ -8,6 +8,7 @@ import uuid
 import weakref
 from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,21 @@ def _build_exclusion_middleware(excluded: frozenset[str], logger: logging.Logger
 def _downgrade_contract_to_legacy(contract: AgentRuntimeContract) -> AgentRuntimeContract:
     """Return a copy of ``contract`` downgraded to legacy orchestration mode."""
     return dataclass_replace(contract, orchestration_mode="legacy", tool_projection=None)
+
+
+@dataclass(frozen=True, slots=True)
+class _ControlledToolRuntime:
+    """Per-session owned Tool Gateway assembly for controlled mode.
+
+    Holds the :class:`ToolGateway`, its backing registry and the event mapper
+    together so prompt/resume turns on the same runner reuse the *exact same*
+    in-process terminal-outcome cache (the cache that lets a HITL replay hit
+    its prior suspended invocation instead of starting over).
+    """
+
+    gateway: Any
+    registry: Any
+    mapper: Any
 
 
 def _replace_contract_for_controlled(
@@ -270,6 +286,14 @@ class DeepAgentsSessionRunner:
         self.interrupt_session = interrupt_session
         self.training_service = training_service
         self._compat_checkpointer_contexts: list[Any] = []
+        # Per-session Tool Gateway cache (controlled mode): keyed by
+        # ``(session_id, project_path)``. The gateway's in-process terminal
+        # outcome cache (``_terminals``) must survive the prompt->resume turn
+        # boundary — every resume re-runs ``_apply_controlled_cutover`` and a
+        # fresh ToolGateway here would wipe the cache, re-issuing ``ask``
+        # approvals forever. Restarts (lost process state) still lose this
+        # cache; recovery then routes the session to ``needs_manual_review``.
+        self._controlled_tool_runtimes: dict[tuple[str, str], _ControlledToolRuntime] = {}
         self.state_machine = AgentSessionStateMachine(repository)
         _RUNNER_INSTANCES.add(self)
 
@@ -492,18 +516,35 @@ class DeepAgentsSessionRunner:
 
             from .permission import policy_facts_for_session
 
-            handlers = {
-                **make_filesystem_handlers(project_path),
-                **make_write_handlers(project_path),
-                **make_git_handlers(project_path, extra_roots=[project_path]),
-                **make_execute_handlers(project_path),
-            }
-            mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
-            gateway = ToolGateway(
-                platform_builtin_registry(),
-                mapper.publish_tool_event,
-                handlers=handlers,
-            )
+            # Reuse the per-session Tool Gateway across prompts/resumes.  The
+            # gateway owns the in-process terminal-outcome cache used by HITL
+            # replay; recreating it on every resume would wipe that cache and
+            # turn any ``ask`` policy decision into an infinite approval loop.
+            cache_key = (session_id, str(project_path))
+            runtime = getattr(self, "_controlled_tool_runtimes", {}).get(cache_key)
+            cache = getattr(self, "_controlled_tool_runtimes", None)
+            if cache is None:
+                cache = {}
+                self._controlled_tool_runtimes = cache
+            if runtime is None:
+                handlers = {
+                    **make_filesystem_handlers(project_path),
+                    **make_write_handlers(project_path),
+                    **make_git_handlers(project_path, extra_roots=[project_path]),
+                    **make_execute_handlers(project_path),
+                }
+                mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
+                gateway = ToolGateway(
+                    platform_builtin_registry(),
+                    mapper.publish_tool_event,
+                    handlers=handlers,
+                )
+                runtime = _ControlledToolRuntime(
+                    gateway=gateway,
+                    registry=platform_builtin_registry(),
+                    mapper=mapper,
+                )
+                cache[cache_key] = runtime
             facts = policy_facts_for_session(
                 metadata,
                 enforcement_status="controlled",
@@ -511,8 +552,8 @@ class DeepAgentsSessionRunner:
                 enabled_capabilities=frozenset({"deepagents"}),
             )
             gateway_tools = build_gateway_tool_structures(
-                gateway=gateway,
-                registry=platform_builtin_registry(),
+                gateway=runtime.gateway,
+                registry=runtime.registry,
                 facts=facts,
                 agent_id=agent_id,
             )

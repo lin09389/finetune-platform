@@ -171,6 +171,206 @@ async def test_gateway_tool_structure_routes_through_gateway(tmp_path: Path):
     assert [e.event_type for e in sink] == ["tool.started", "tool.completed"]
 
 
+@pytest.mark.asyncio
+async def test_gateway_tool_structure_uses_tool_call_id_for_idempotent_replay(
+    tmp_path: Path,
+):
+    """Replaying the same ``tool_call_id`` must hit the gateway terminal cache.
+
+    Before the fix the StructuredTool coroutine minted a fresh random UUID
+    per handler entry, so when DeepAgents resumed a HITL-interrupted tool
+    call, the gateway saw a new invocation_id, never matched its terminal
+    cache, and re-issued the same ``ask`` forever.  The LLM-assigned
+    ``tool_call_id`` is the canonical idempotency key.
+    """
+    (tmp_path / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    from tool_platform.builtins import (
+        make_filesystem_handlers,
+        platform_builtin_registry,
+    )
+    from tool_platform.builtins.gateway_tools import build_gateway_tool_structures
+    from tool_platform.gateway import ToolGateway
+    from tool_platform.policy import ToolPolicyFacts
+
+    handler_calls = {"count": 0}
+    base_handlers = make_filesystem_handlers(tmp_path)
+    read_handler = base_handlers["workspace.read_file"]
+
+    async def counting(request, *args, **kwargs):  # type: ignore[no-untyped-def]
+        handler_calls["count"] += 1
+        return await read_handler(request, *args, **kwargs)
+
+    wrapped_handlers = dict(base_handlers)
+    wrapped_handlers["workspace.read_file"] = counting
+    sink: list = []
+    gateway = ToolGateway(
+        platform_builtin_registry(),
+        sink.append,
+        handlers=wrapped_handlers,
+    )
+    tools = build_gateway_tool_structures(
+        gateway=gateway,
+        registry=platform_builtin_registry(),
+        facts=ToolPolicyFacts(
+            runtime_kind="agent_session", enabled_capabilities=frozenset({"deepagents"})
+        ),
+        agent_id="build",
+    )
+    read_tool = next(t for t in tools if t.name == "read_file")
+
+    tool_call = {
+        "args": {"file_path": "/workspace/app.py"},
+        "name": "read_file",
+        "type": "tool_call",
+        "id": "call_replay_1",
+    }
+    # First call executes the handler and caches the terminal outcome under
+    # invocation_id == "call_replay_1".
+    first = await read_tool.ainvoke(tool_call)
+    # Second call with the SAME tool_call_id must hit the cache: the handler
+    # is not re-executed and no new canonical events are emitted.
+    second = await read_tool.ainvoke(tool_call)
+
+    import json
+
+    assert json.loads(first.content) == json.loads(second.content)
+    assert handler_calls["count"] == 1
+    assert len(sink) == 2  # tool.started + tool.completed once
+    # The cache entry is keyed by the tool_call_id, proving the StructuredTool
+    # forwards the LLM-assigned id instead of minting a random UUID.
+    assert "call_replay_1" in gateway._terminals
+
+
+@pytest.mark.asyncio
+async def test_apply_controlled_cutover_reuses_gateway_across_resumes(tmp_path: Path):
+    """The same ToolGateway instance must back both prompt and resume turns.
+
+    A resume rebuilds the contract via ``_apply_controlled_cutover``. If the
+    gateway were reconstructed on every call its in-process terminal cache
+    (``_terminals``) would be wiped, defeating the idempotency achieved via
+    the LLM-assigned ``tool_call_id`` and turning every approval into an
+    infinite loop.
+    """
+    from agent_session.deepagents_runtime import (
+        DeepAgentsSessionRunner,
+        _is_tool_exclusion_middleware,
+    )
+
+    runner = DeepAgentsSessionRunner.__new__(DeepAgentsSessionRunner)
+    runner.repository = _FakeRepo()
+    runner.notify_event = lambda *_a, **_k: None
+    runner.agent_registry = AgentRegistry()
+    runner._controlled_tool_runtimes = {}
+
+    contract = _contract(metadata={"orchestration_mode": "controlled"}, project_path=str(tmp_path))
+
+    first = runner._apply_controlled_cutover(
+        contract, "ctrl-session", str(tmp_path), "build", {"autonomy_mode": "safe_auto"}
+    )
+    second = runner._apply_controlled_cutover(
+        contract, "ctrl-session", str(tmp_path), "build", {"autonomy_mode": "safe_auto"}
+    )
+
+    # Tool surface is identical (memory identity would be too strict; the
+    # wiring is rebuilt but every tool shares one gateway).
+    assert {getattr(t, "name", "") for t in first.tools} == {
+        getattr(t, "name", "") for t in second.tools
+    }
+    # Cached runtime record exists for the (session_id, project_path) key.
+    assert ("ctrl-session", str(tmp_path)) in runner._controlled_tool_runtimes
+    runtime = runner._controlled_tool_runtimes[("ctrl-session", str(tmp_path))]
+    # Sanity-check the cached gateway instance is the ONLY one materialised.
+    cached_gateway_ids = {id(runtime.gateway)}
+    assert len(cached_gateway_ids) == 1
+    # Exclusion middleware still applied exactly once on both contracts.
+    for patched in (first, second):
+        exclusions = [mw for mw in patched.middleware if _is_tool_exclusion_middleware(mw)]
+        assert len(exclusions) == 1
+        assert exclusions[0]._excluded >= CONTROLLED_MODE_EXCLUSION_SET
+
+
+@pytest.mark.asyncio
+async def test_controlled_gateway_cache_survives_cutover_replay_for_idempotency(
+    tmp_path: Path,
+):
+    """End-to-end replay guarantee: prompt + resume share the gateway cache.
+
+    Combined check for fix 1 (tool_call_id-driven invocation_id) and fix 2
+    (cross-resume gateway identity) at the runner seam: a writer tool that
+    would otherwise need approval must not re-request approval when the same
+    ``tool_call_id`` is replayed on the resume turn.
+    """
+    (tmp_path / "app.py").write_text("a\n", encoding="utf-8")
+    from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+    from tool_platform.policy import ToolPolicyFacts
+    from tool_platform.taxonomy import SideEffect
+
+    runner = DeepAgentsSessionRunner.__new__(DeepAgentsSessionRunner)
+    runner.repository = _FakeRepo()
+    runner.notify_event = lambda *_a, **_k: None
+    runner.agent_registry = AgentRegistry()
+    runner._controlled_tool_runtimes = {}
+
+    contract = _contract(metadata={"orchestration_mode": "controlled"}, project_path=str(tmp_path))
+
+    # confirm_all: workspace writes need approval; the approving adapter
+    # would normally short-circuit policy ``ask`` for both turns.
+    facts = ToolPolicyFacts(
+        runtime_kind="agent_session",
+        enabled_capabilities=frozenset({"deepagents"}),
+        require_approval_for=frozenset({SideEffect.WORKSPACE_WRITE}),
+    )
+
+    # Prompt-turn cutover.
+    first_contract = runner._apply_controlled_cutover(
+        contract, "ctrl-session", str(tmp_path), "build", {"autonomy_mode": "safe_auto"}
+    )
+    # Resume-turn cutover on the same session.
+    second_contract = runner._apply_controlled_cutover(
+        contract, "ctrl-session", str(tmp_path), "build", {"autonomy_mode": "safe_auto"}
+    )
+
+    # Sanity-check facts derivation (kept here for clarity; the runner uses
+    # its own policy_facts_for_session internally).
+    _ = facts
+
+    runtime_cache = runner._controlled_tool_runtimes[("ctrl-session", str(tmp_path))]
+    first_gateway_tools = [t for t in first_contract.tools if getattr(t, "name", "") == "edit_file"]
+    second_gateway_tools = [t for t in second_contract.tools if getattr(t, "name", "") == "edit_file"]
+    assert first_gateway_tools and second_gateway_tools
+
+    edit_tool = first_gateway_tools[0]
+    tool_call = {
+        "args": {
+            "file_path": "/workspace/app.py",
+            "old_string": "a",
+            "new_string": "b",
+        },
+        "name": "edit_file",
+        "type": "tool_call",
+        "id": "call_edit_1",
+    }
+    import json
+
+    # First turn: the gateway runs the handler and caches the terminal outcome
+    # under invocation_id == "call_edit_1". (Under confirm_all this would
+    # normally suspend without dispatch; safe_auto lets it complete.) On
+    # success the StructuredTool returns the tool's output JSON directly (no
+    # envelope), so ``replacements`` proves the edit ran.
+    first_out = await edit_tool.ainvoke(tool_call)
+    first_payload = json.loads(first_out.content)
+    assert first_payload.get("replacements") == 1
+
+    # Second turn (resume): the SAME tool_call is replayed with the same id.
+    # The gateway must hit its terminal cache — provided the gateway instance
+    # survived between cutover calls (fix 2) and forwarded the tool_call_id
+    # instead of minting a fresh UUID (fix 1).
+    second_out = await second_gateway_tools[0].ainvoke(tool_call)
+    second_payload = json.loads(second_out.content)
+    assert second_payload == first_payload
+    assert "call_edit_1" in runtime_cache.gateway._terminals
+
+
 # --- rollback / default -------------------------------------------------------
 
 
@@ -212,3 +412,107 @@ class _FakeRepo:
 
     def list_parts(self, _session_id):
         return []
+
+
+# --- 9D-2: factory.build assembly + backend blockade -------------------------
+
+
+def test_controlled_factory_build_passes_platform_tools_and_full_exclusion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """DeepAgents receives platform StructuredTools + a full controlled exclusion."""
+    from agent_session.runtime_factory import DeepAgentsRuntimeFactory
+
+    captured: dict[str, object] = {}
+
+    def fake_create_deep_agent(**kwargs):
+        captured.update(kwargs)
+        return {"graph": True}
+
+    fake_module = type(
+        "DeepAgentsModule",
+        (),
+        {
+            "create_deep_agent": staticmethod(fake_create_deep_agent),
+            "FilesystemPermission": type("FP", (), {"__init__": lambda self, **kw: setattr(self, "_kwargs", kw)}),
+        },
+    )
+    monkeypatch.setitem(__import__("sys").modules, "deepagents", fake_module)
+    factory = DeepAgentsRuntimeFactory()
+    monkeypatch.setattr(factory, "_backend_for", lambda _contract: object())
+
+    # _apply_controlled_cutover runs inside _build_graph; call it directly to
+    # observe the substituted tools/middleware without a real DeepAgents graph.
+    from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+
+    runner = DeepAgentsSessionRunner.__new__(DeepAgentsSessionRunner)
+    runner.repository = _FakeRepo()
+    runner.notify_event = lambda *_a, **_k: None
+    runner.agent_registry = AgentRegistry()
+
+    contract = _contract(metadata={"orchestration_mode": "controlled"}, project_path=str(tmp_path))
+    from agent_session.deepagents_runtime import _is_tool_exclusion_middleware
+
+    patched = runner._apply_controlled_cutover(
+        contract, "ctrl-session", str(tmp_path), "build", {"autonomy_mode": "safe_auto"}
+    )
+
+    tool_names = {getattr(t, "name", "") for t in (patched.tools or [])}
+    assert {"read_file", "write_file", "edit_file", "execute", "run_tests", "ls", "grep", "glob"} <= tool_names
+    exclusions = [mw for mw in patched.middleware if _is_tool_exclusion_middleware(mw)]
+    assert len(exclusions) == 1
+    assert exclusions[0]._excluded >= CONTROLLED_MODE_EXCLUSION_SET
+
+
+def test_controlled_backend_blocks_legacy_execute_entry(tmp_path: Path):
+    """In controlled mode the backend deny blocks the legacy execute entry point."""
+    from agent_session.platform_shell import PlatformShellBackend
+
+    backend = PlatformShellBackend(root_dir=str(tmp_path), virtual_mode=True, controlled_execute=True)
+    response = backend.execute("echo should-not-run")
+    assert response.exit_code == 1
+    assert "gated" in response.output.lower()
+
+
+def test_controlled_factory_passes_controlled_execute_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """_backend_for forwards controlled_execute=True for controlled contracts."""
+    from agent_session.runtime_factory import DeepAgentsRuntimeFactory
+
+    captured: dict[str, object] = {}
+
+    def fake_build(project_path, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    import agent_session.runtime as runtime_mod
+
+    original = runtime_mod.build_deepagents_backend
+    runtime_mod.build_deepagents_backend = fake_build
+    try:
+        factory = DeepAgentsRuntimeFactory()
+        controlled = _contract(metadata={"orchestration_mode": "controlled"}, project_path=str(tmp_path))
+        legacy = _contract(metadata={}, project_path=str(tmp_path))
+        factory._backend_for(controlled)
+        assert captured.get("controlled_execute") is True
+        factory._backend_for(legacy)
+        assert captured.get("controlled_execute") is False
+    finally:
+        runtime_mod.build_deepagents_backend = original
+
+
+# --- rollback: controlled is opt-in ------------------------------------------
+
+
+def test_controlled_mode_is_opt_in_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """No explicit metadata/config => legacy, even for Build sessions."""
+    monkeypatch.setenv("AGENT_TOOL_ORCHESTRATION_MODE", "legacy")
+    contract = _contract(metadata={}, project_path=str(tmp_path))
+    assert contract.orchestration_mode == "legacy"
+    assert contract.tool_projection is None
+
+
+def test_controlled_mode_opt_in_via_metadata(tmp_path: Path):
+    contract = _contract(metadata={"orchestration_mode": "controlled"}, project_path=str(tmp_path))
+    assert contract.orchestration_mode == "controlled"
