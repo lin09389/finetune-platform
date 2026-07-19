@@ -72,6 +72,37 @@ def test_tool_platform_production_package_has_only_expected_files() -> None:
     assert tool_platform_files == expected
 
 
+def test_tool_platform_builtins_package_has_only_expected_files() -> None:
+    expected = {
+        "__init__.py",
+        "filesystem.py",
+        "git.py",
+        "registry.py",
+    }
+    builtins_files = {
+        path.name for path in (SERVER / "tool_platform" / "builtins").glob("*.py") if path.is_file()
+    }
+
+    assert builtins_files == expected
+
+
+def test_tool_platform_builtins_define_no_second_toolkind_and_keep_deepagents_free() -> None:
+    builtins_dir = SERVER / "tool_platform" / "builtins"
+    offenders_kind = [
+        path.relative_to(SERVER)
+        for path in builtins_dir.rglob("*.py")
+        if "class ToolKind(" in _source(path)
+    ]
+    offenders_deepagents = [
+        path.relative_to(SERVER)
+        for path in builtins_dir.rglob("*.py")
+        if "import deepagents" in _source(path) or "from deepagents" in _source(path)
+    ]
+
+    assert offenders_kind == []
+    assert offenders_deepagents == []
+
+
 def test_agent_session_tool_platform_consumers_are_white_listed() -> None:
     consumers = {
         path.name
