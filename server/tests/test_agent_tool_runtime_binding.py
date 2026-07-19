@@ -49,9 +49,9 @@ def test_resolve_orchestration_mode_defaults_to_legacy():
     assert resolve_orchestration_mode({"orchestration_mode": "bogus"}) == "legacy"
 
 
-def test_resolve_orchestration_mode_accepts_shadow_and_controlled():
+def test_resolve_orchestration_mode_accepts_only_implemented_shadow_mode():
     assert resolve_orchestration_mode({"orchestration_mode": "shadow"}) == "shadow"
-    assert resolve_orchestration_mode({"orchestration_mode": "CONTROLLED"}) == "controlled"
+    assert resolve_orchestration_mode({"orchestration_mode": "CONTROLLED"}) == "legacy"
 
 
 def test_legacy_contract_binds_no_projection(tmp_path: Path):
@@ -92,6 +92,11 @@ def test_shadow_contract_binds_non_empty_snapshot(tmp_path: Path):
     assert contract.tool_projection.orchestration_mode == "shadow"
     assert contract.tool_projection.enforcement_status == "shadow"
     assert contract.tool_projection.agent_id == "build"
+    assert contract.tool_projection.schema_version == 1
+    assert contract.tool_projection.facts["binding_mode"] == "binding_only"
+    assert contract.tool_projection.facts["coverage"] == "deepagents_builtins"
+    assert contract.tool_projection.facts["custom_tools_included"] is False
+    assert contract.tool_projection.facts["runtime_enforcement"] == "legacy_runtime"
 
 
 def test_shadow_snapshot_marks_unsupported_tools_as_blockers(tmp_path: Path):
@@ -227,3 +232,32 @@ def test_shadow_contract_runtime_factory_passes_legacy_fields_only(
         captured["permissions"], legacy_capture["permissions"], strict=True
     ):
         assert shadow_perm._kwargs == legacy_perm._kwargs
+
+
+def test_shadow_persistence_preserves_the_first_bound_snapshot(tmp_path: Path):
+    from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+
+    original = {"schema_version": 1, "orchestration_mode": "shadow", "marker": "original"}
+
+    class Repository:
+        def __init__(self):
+            self.session = {"id": "shadow-session", "metadata": {"tool_platform_shadow": original}}
+            self.updates: list[dict] = []
+
+        def get_session(self, _session_id):
+            return self.session
+
+        def update_session(self, _session_id, **updates):
+            self.updates.append(updates)
+
+    repository = Repository()
+    runner = DeepAgentsSessionRunner(repository=repository, notify_event=lambda *_args: None)
+    contract = _contract(
+        project_path=str(tmp_path),
+        metadata={"autonomy_mode": "read_only", "orchestration_mode": "shadow"},
+    )
+
+    runner._persist_shadow_projection("shadow-session", contract)
+
+    assert repository.session["metadata"]["tool_platform_shadow"] is original
+    assert repository.updates == []

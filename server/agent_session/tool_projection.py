@@ -70,7 +70,7 @@ def compile_session_tool_projection(
     only from manifest selectors + autonomy metadata + the builtin registry;
     no probes run and no session state mutates.
     """
-    if orchestration_mode == "legacy":
+    if orchestration_mode != "shadow":
         return None
 
     policy = _resolve_manifest_tool_policy(agent_registry, agent_id)
@@ -103,6 +103,10 @@ def compile_session_tool_projection(
     constraints: dict[str, Any] = {
         "runtime_kind": "agent_session",
         "allowed_kinds": [kind.value for kind in allowed_kinds] if allowed_kinds else None,
+        "binding_mode": "binding_only",
+        "coverage": "deepagents_builtins",
+        "custom_tools_included": False,
+        "runtime_enforcement": "legacy_runtime",
     }
     return compile_tool_projection(
         agent_id=agent_id,

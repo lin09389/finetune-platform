@@ -53,6 +53,7 @@ class ResolvedToolSummary(_ProjectionModel):
 class ToolProjectionSnapshot(_ProjectionModel):
     """Immutable, wire-safe snapshot of a session's compiled tool projection."""
 
+    schema_version: Literal[1] = 1
     orchestration_mode: OrchestrationMode
     enforcement_status: ProjectionEnforcementStatus
     agent_id: str = Field(min_length=1, max_length=200)
@@ -74,7 +75,7 @@ class ToolProjectionSnapshot(_ProjectionModel):
 def _jsonable(value: object) -> JsonValue:
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (tuple, set, frozenset)):
+    if isinstance(value, tuple | set | frozenset):
         return [_jsonable(item) for item in value]
     return value  # type: ignore[return-value]
 

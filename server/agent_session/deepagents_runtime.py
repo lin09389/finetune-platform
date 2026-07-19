@@ -430,6 +430,8 @@ class DeepAgentsSessionRunner:
         try:
             session = self.repository.get_session(session_id) or {}
             metadata = dict(session.get("metadata") or {})
+            if "tool_platform_shadow" in metadata:
+                return
             metadata["tool_platform_shadow"] = projection.diagnostic_dump()
             self.repository.update_session(session_id, metadata=metadata)
         except Exception:

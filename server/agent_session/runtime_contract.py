@@ -113,7 +113,7 @@ def _agent_required_sections(agent: AgentDefinition | None) -> tuple[str, ...]:
     if agent is None:
         return ("已完成项", "变更文件", "验证结果")
     sections = agent.output_schema.get("required_sections") if isinstance(agent.output_schema, dict) else None
-    if not sections or not isinstance(sections, (list, tuple)):
+    if not sections or not isinstance(sections, list | tuple):
         return ("已完成项", "变更文件", "验证结果")
     return tuple(str(s).strip() for s in sections if str(s).strip())
 
@@ -291,20 +291,22 @@ def normalize_enabled_skill_sources(value: Any) -> list[str] | None:
 
 
 def resolve_orchestration_mode(metadata: dict[str, Any]) -> OrchestrationMode:
-    """Resolve the session tool-orchestration mode (metadata wins, then settings).
+    """Resolve the currently supported session tool-orchestration mode.
 
-    Defaults to ``legacy`` (no binding, zero behaviour change) unless the
-    session explicitly opts into ``shadow`` or ``controlled``.
+    Task 8 supports only ``legacy`` and read-only ``shadow`` binding.
+    ``controlled`` remains a future type-level value but deliberately resolves
+    to ``legacy`` until a real enforcement path exists, so configuration can
+    never claim enforcement that the runtime does not provide.
     """
     raw = str(metadata.get("orchestration_mode") or "").strip().lower()
-    if raw in {"shadow", "controlled"}:
-        return raw  # type: ignore[return-value]
+    if raw == "shadow":
+        return "shadow"
     try:
         from core.config import settings
 
         configured = str(getattr(settings, "agent_tool_orchestration_mode", "") or "").strip().lower()
-        if configured in {"shadow", "controlled"}:
-            return configured  # type: ignore[return-value]
+        if configured == "shadow":
+            return "shadow"
     except Exception:
         pass
     return "legacy"
