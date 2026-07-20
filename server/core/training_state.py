@@ -49,28 +49,20 @@ class TrainingProgress:
     estimated_wait_seconds: float = 0.0
 
     def copy(self) -> "TrainingProgress":
-        """浅拷贝，避免 dataclass 字典构造开销"""
-        return TrainingProgress(**{f.name: getattr(self, f.name) for f in fields(self)})
+        """浅拷贝，避免 dataclass 字典构造开销。
+
+        P2-4: 对 dict 字段(phase_durations)做独立拷贝,
+        避免并发修改导致原对象与拷贝共享同一 dict 引用。
+        """
+        kwargs = {f.name: getattr(self, f.name) for f in fields(self)}
+        # P2-4: dict 字段需独立拷贝,避免共享引用
+        if kwargs.get("phase_durations") is not None:
+            kwargs["phase_durations"] = dict(kwargs["phase_durations"])
+        return TrainingProgress(**kwargs)
 
     def model_dump(self) -> dict[str, Any]:
         """兼容 Pydantic 接口的序列化方法"""
         return {f.name: getattr(self, f.name) for f in fields(self)}
-
-
-class AwaitableBool:
-    def __init__(self, value: bool):
-        self.value = value
-
-    def __bool__(self):
-        return self.value
-
-    def __eq__(self, other):
-        return self.value == other
-
-    def __await__(self):
-        async def _return_value():
-            return self.value
-        return _return_value().__await__()
 
 
 class TrainingRecord(BaseModel):
@@ -210,12 +202,11 @@ class TrainingState:
                 self._training_tasks = active_tasks
 
             # 检测训练状态异常：_is_training=True 但无存活线程
+            # P1-9: 仅在曾有过心跳(_last_heartbeat > 0)且停滞超过阈值时重置。
+            # 移除 _last_heartbeat == 0 重置分支:训练刚启动尚未触发 callback 时,
+            # _training_tasks 可能为空(注册时序窗口),不应误重置。
             if self._is_training and len(self._training_tasks) == 0:
-                stale_heartbeat = (
-                    self._last_heartbeat > 0
-                    and (now - self._last_heartbeat) > 300
-                )
-                if stale_heartbeat or self._last_heartbeat == 0:
+                if self._last_heartbeat > 0 and (now - self._last_heartbeat) > 300:
                     logger.warning(
                         "检测到训练状态异常：_is_training=True 但无活跃线程，"
                         f"最后心跳: {self._last_heartbeat}, "
@@ -224,6 +215,12 @@ class TrainingState:
                     )
                     self._is_training = False
                     self._stop_requested = False
+                elif self._last_heartbeat == 0:
+                    # P1-9: 从未收到心跳 — 可能是 pipeline 启动时序窗口,仅 debug 日志,不重置
+                    logger.debug(
+                        "Training state is_training=True but no heartbeat yet and no active threads; "
+                        "likely startup window, not resetting."
+                    )
 
     def _process_update(self, update: StateUpdate):
         """处理状态更新"""
