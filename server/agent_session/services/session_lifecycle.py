@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from agent_session.service import AgentSessionService
 
 SAVED_CLOUD_PROVIDER_PRIORITY = ("deepseek", "openrouter", "openai")
+_CALLER_METADATA_KEYS = frozenset({"orchestration_mode"})
+_ORCHESTRATION_MODES = frozenset({"legacy", "shadow", "controlled"})
 cloud_provider_repository = CloudProviderRepository(secure_storage)
 
 
@@ -42,6 +44,23 @@ class SessionLifecycleService:
 
     def _validate_project_path(self, project_path: str | None) -> str:
         return self.validate_project_path(project_path)
+
+    @staticmethod
+    def _safe_request_metadata(raw_metadata: dict[str, Any] | None) -> dict[str, Any]:
+        """Keep caller metadata to explicit, non-authoritative creation options.
+
+        Approval state, tool trust, identity, workspace ownership and runtime
+        facts are server-owned.  In particular, callers must not pre-populate
+        ``session_tool_trust`` to turn a policy ``ask`` into an allow.
+        """
+        raw = dict(raw_metadata or {})
+        mode = raw.get("orchestration_mode")
+        if not isinstance(mode, str):
+            return {}
+        normalized = mode.strip().lower()
+        if normalized not in _ORCHESTRATION_MODES:
+            return {}
+        return {"orchestration_mode": normalized}
 
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
         project_path, workspace_id = resolve_agent_workspace(
@@ -61,15 +80,9 @@ class SessionLifecycleService:
             "model_configuration": self.get_model_configuration_status(provider, model, model_configured),
             "workspace": {"id": workspace_id, "path": project_path},
             "task_mode": request.task_mode,
-            # Caller-supplied metadata wins (e.g. orchestration_mode=controlled
-            # opts a session into the managed tool platform). autonomy_mode and
-            # deepagents_interrupt_on are normalized above, so they are not
-            # carried from raw caller metadata.
-            **{
-                key: value
-                for key, value in dict(request.metadata or {}).items()
-                if key not in {"autonomy_mode", "deepagents_interrupt_on"}
-            },
+            # Only explicit, non-authoritative creation options are accepted
+            # from callers. Security and recovery state stays server-owned.
+            **self._safe_request_metadata(request.metadata),
         }
         if request.scope_paths or request.scope_notes:
             from agent_session.task_scope import apply_task_scope_to_metadata

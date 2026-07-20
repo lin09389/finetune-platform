@@ -2817,8 +2817,44 @@ def test_controlled_safe_auto_execute_resumes_and_runs_once(tmp_path: Path):
         assert permission_part.get("status") == "approved"
         decisions = (permission_part.get("payload") or {}).get("decisions") or []
         assert any(d.get("type") == "approve" for d in decisions)
-        # The session has transitioned out of the interrupt state; the resume
-        # background task will dispatch the managed execute through the gateway.
-        assert stored["status"] != "waiting_approval"
+        # Execute the queued resume exactly as Starlette does after the HTTP
+        # response. This proves the managed tool dispatches once after approval,
+        # rather than merely proving that the decision was persisted.
+        for background_task in bg.tasks:
+            asyncio.run(background_task.func(*background_task.args, **background_task.kwargs))
+        completed = service.get_session(session.id)
+        assert completed.status == "completed"
+        assert target.read_text(encoding="utf-8") == "ok"
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def test_create_session_metadata_cannot_pregrant_tool_trust(tmp_path: Path):
+    """Only the orchestration opt-in may cross the session-creation boundary."""
+    workspace = Path.cwd() / "tmp" / f"metadata-boundary-{uuid.uuid4().hex[:8]}"
+    workspace.mkdir(parents=True)
+    try:
+        service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="metadata boundary",
+                project_path=str(workspace),
+                metadata={
+                    "orchestration_mode": "controlled",
+                    "session_tool_trust": ["execute"],
+                    "deepagents_interrupt_on": False,
+                    "workspace": {"path": "C:/attacker"},
+                    "user_id": "attacker",
+                },
+            )
+        )
+        stored = service.repository.get_session(session.id)
+        assert stored is not None
+        metadata = stored["metadata"]
+        assert metadata["orchestration_mode"] == "controlled"
+        assert "session_tool_trust" not in metadata
+        assert "user_id" not in metadata
+        assert metadata["workspace"]["path"] == str(workspace)
+        assert metadata["deepagents_interrupt_on"] is False
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
