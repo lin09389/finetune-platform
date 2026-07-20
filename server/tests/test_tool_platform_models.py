@@ -22,6 +22,8 @@ from tool_platform.models import (  # noqa: E402
     ToolEvent,
     ToolInvocation,
     ToolResult,
+    freeze_json_object,
+    jsonable,
 )
 from tool_platform.taxonomy import (  # noqa: E402
     ExecutionLocation,
@@ -117,6 +119,19 @@ def test_json_round_trip_preserves_contracts() -> None:
     )
     assert ToolResult.model_validate_json(original.model_dump_json()) == original
     assert CanonicalToolMeta.model_validate_json(tool_meta().model_dump_json()) == tool_meta()
+
+
+def test_jsonable_unfreezes_maps_tuples_and_set_likes() -> None:
+    frozen = freeze_json_object({"nested": {"values": [1, 2]}, "flag": True})
+    assert jsonable(frozen) == {"nested": {"values": [1, 2]}, "flag": True}
+    assert jsonable(("a", "b")) == ["a", "b"]
+    assert jsonable(["a", "b"]) == ["a", "b"]
+    assert sorted(jsonable({"z", "a"})) == ["a", "z"]  # type: ignore[arg-type]
+    assert sorted(jsonable(frozenset({"b", "a"}))) == ["a", "b"]  # type: ignore[arg-type]
+    assert jsonable({"z", "a"}) == ["a", "z"]  # type: ignore[arg-type]
+    assert jsonable(frozenset({"b", "a"})) == ["a", "b"]  # type: ignore[arg-type]
+    assert jsonable("plain") == "plain"
+    assert jsonable(3) == 3
 
 
 @pytest.mark.parametrize(

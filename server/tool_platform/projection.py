@@ -72,14 +72,6 @@ class ToolProjectionSnapshot(_ProjectionModel):
         return redact_json(self.model_dump(mode="json"))  # type: ignore[return-value]
 
 
-def _jsonable(value: object) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, tuple | set | frozenset):
-        return [_jsonable(item) for item in value]
-    return value  # type: ignore[return-value]
-
-
 def compile_tool_projection(
     *,
     agent_id: str,

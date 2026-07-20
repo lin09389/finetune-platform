@@ -306,6 +306,40 @@ async def test_async_availability_probe_is_explicit_and_cached() -> None:
     assert registry.project(ToolProjectionContext(agent_id="agent")) == (registry.resolve("workspace.read_file"),)
 
 
+@pytest.mark.asyncio
+async def test_dependency_probe_exception_is_fail_closed_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    async def boom() -> bool:
+        raise RuntimeError("probe exploded")
+
+    registry = ToolRegistry()
+    registry.register(make_definition(probe=boom))
+
+    with caplog.at_level("ERROR", logger="tool_platform.registry"):
+        result = await registry.check_availability("workspace.read_file", timeout_seconds=1)
+
+    assert result.available is False
+    assert result.reason_code == "dependency_probe_failed"
+    assert registry.project(ToolProjectionContext(agent_id="agent")) == ()
+    assert any("dependency probe failed" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_dependency_probe_timeout_is_fail_closed_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    async def slow() -> bool:
+        await asyncio.sleep(10)
+        return True
+
+    registry = ToolRegistry()
+    registry.register(make_definition(probe=slow))
+
+    with caplog.at_level("WARNING", logger="tool_platform.registry"):
+        result = await registry.check_availability("workspace.read_file", timeout_seconds=0.01)
+
+    assert result.available is False
+    assert result.reason_code == "dependency_probe_timeout"
+    assert any("dependency probe timed out" in record.message for record in caplog.records)
+
+
 def test_catalog_and_snapshot_contain_only_serializable_metadata_and_schemas() -> None:
     registry = ToolRegistry()
     registry.register(make_definition())

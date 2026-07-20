@@ -178,6 +178,30 @@ async def test_unavailable_tool_denies():
     assert outcome.error.code == "unavailable"
 
 
+@pytest.mark.asyncio
+async def test_availability_check_exception_is_fail_closed_and_logged(
+    caplog: pytest.LogCaptureFixture,
+):
+    class BrokenRegistry(SpyRegistry):
+        async def check_availability(self, name: str, *, timeout_seconds: float = 5):
+            self.availability_calls.append(name)
+            raise RuntimeError("registry unavailable")
+
+    registry = BrokenRegistry()
+    registry.register(make_definition(kind=ToolKind.READ))
+    registry.freeze()
+    sink: list = []
+    gateway = ToolGateway(registry, sink.append)
+
+    with caplog.at_level("ERROR", logger="tool_platform.gateway"):
+        outcome = await gateway.invoke(_invocation("test.read"), ToolPolicyFacts())
+
+    assert outcome.status == "denied"
+    assert outcome.error is not None
+    assert outcome.error.code == "unavailable"
+    assert any("availability check failed" in record.message for record in caplog.records)
+
+
 # --- input / output validation -----------------------------------------------
 
 
@@ -416,6 +440,51 @@ async def test_terminal_outcome_is_idempotent():
     assert calls["handler"] == 1
     # Second invoke must not re-emit events.
     assert len(sink) == 2
+
+
+@pytest.mark.asyncio
+async def test_terminal_cache_evicts_oldest_entries():
+    calls = {"handler": 0}
+
+    async def counting(request: StrictInput) -> StrictOutput:
+        calls["handler"] += 1
+        return StrictOutput(content=request.path)
+
+    registry = _build_registry(make_definition(kind=ToolKind.READ, handler=counting))
+    gateway = ToolGateway(registry, lambda _event: None, terminal_cache_max=2)
+
+    first = await gateway.invoke(
+        _invocation("test.read", invocation_id="inv-a"), ToolPolicyFacts()
+    )
+    second = await gateway.invoke(
+        _invocation("test.read", invocation_id="inv-b"), ToolPolicyFacts()
+    )
+    third = await gateway.invoke(
+        _invocation("test.read", invocation_id="inv-c"), ToolPolicyFacts()
+    )
+
+    assert calls["handler"] == 3
+    assert "inv-a" not in gateway._terminals
+    assert set(gateway._terminals) == {"inv-b", "inv-c"}
+
+    # Oldest was evicted: replaying inv-a re-runs the handler.
+    replayed = await gateway.invoke(
+        _invocation("test.read", invocation_id="inv-a"), ToolPolicyFacts()
+    )
+    assert calls["handler"] == 4
+    assert replayed is not first
+    # Recent ids remain cached.
+    assert (
+        await gateway.invoke(_invocation("test.read", invocation_id="inv-c"), ToolPolicyFacts())
+        is third
+    )
+    assert second.invocation_id == "inv-b"
+
+
+def test_terminal_cache_max_must_be_positive():
+    registry = _build_registry(make_definition())
+    with pytest.raises(ValueError, match="terminal_cache_max"):
+        ToolGateway(registry, lambda _event: None, terminal_cache_max=0)
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
 
 from .definition import ToolDefinition
-from .models import FrozenJsonObject, ToolAvailability, freeze_json_object, redact_json
+from .models import FrozenJsonObject, ToolAvailability, freeze_json_object, jsonable, redact_json
 from .taxonomy import SideEffect, ToolRisk
 
 _RISK_ORDER: dict[ToolRisk, int] = {
@@ -78,15 +78,7 @@ class ToolPolicyFacts(BaseModel):
 
     @field_serializer("provider_facts", "model_facts", "platform_facts")
     def _serialize_facts(self, value: FrozenJsonObject) -> JsonValue:
-        return _jsonable(value)
-
-
-def _jsonable(value: object) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (tuple, frozenset, set)):
-        return [_jsonable(item) for item in value]
-    return value  # type: ignore[return-value]
+        return jsonable(value)
 
 
 def _names_for(definition: ToolDefinition[Any, Any]) -> frozenset[str]:

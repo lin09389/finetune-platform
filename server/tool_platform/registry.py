@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -10,8 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer
 
 from .catalog import ToolCatalogEntry, ToolCatalogSnapshot, ToolProjectionConstraints
 from .definition import ToolDefinition
-from .models import FrozenJsonObject, ToolAvailability
+from .models import FrozenJsonObject, ToolAvailability, jsonable
 from .taxonomy import ToolKind, ToolRisk, defaults_for_kind
+
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistryError(ValueError):
@@ -52,7 +55,7 @@ class ToolProjectionContext(BaseModel):
 
     @field_serializer("provider_facts", "model_facts", "platform_facts")
     def serialize_facts(self, value: FrozenJsonObject) -> JsonValue:
-        return _jsonable(value)
+        return jsonable(value)
 
 
 class ToolRegistry:
@@ -131,12 +134,21 @@ class ToolRegistry:
                     canonical_name=definition.meta.canonical_name, available=bool(value)
                 )
         except TimeoutError:
+            logger.warning(
+                "dependency probe timed out for tool %s after %ss",
+                definition.meta.canonical_name,
+                timeout_seconds,
+            )
             availability = ToolAvailability(
                 canonical_name=definition.meta.canonical_name,
                 available=False,
                 reason_code="dependency_probe_timeout",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - fail closed without logging probe payloads
+            logger.error(
+                "dependency probe failed for tool %s",
+                definition.meta.canonical_name,
+            )
             availability = ToolAvailability(
                 canonical_name=definition.meta.canonical_name,
                 available=False,
@@ -227,16 +239,8 @@ class ToolRegistry:
                 agent_ids=tuple(sorted(definition.agent_ids)),
                 runtime_kinds=tuple(sorted(definition.runtime_kinds)),
                 required_capabilities=tuple(sorted(definition.required_capabilities)),
-                required_provider_facts=_jsonable(definition.required_provider_facts),  # type: ignore[arg-type]
-                required_model_facts=_jsonable(definition.required_model_facts),  # type: ignore[arg-type]
-                required_platform_facts=_jsonable(definition.required_platform_facts),  # type: ignore[arg-type]
+                required_provider_facts=jsonable(definition.required_provider_facts),  # type: ignore[arg-type]
+                required_model_facts=jsonable(definition.required_model_facts),  # type: ignore[arg-type]
+                required_platform_facts=jsonable(definition.required_platform_facts),  # type: ignore[arg-type]
             ),
         )
-
-
-def _jsonable(value: object) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(item) for item in value]
-    return value  # type: ignore[return-value]

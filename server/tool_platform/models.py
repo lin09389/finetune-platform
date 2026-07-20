@@ -63,6 +63,26 @@ def _thaw_json(value: JsonValue) -> JsonValue:
     return value
 
 
+def jsonable(value: object) -> JsonValue:
+    """Recursively convert frozen/set-like structures into JSON-serializable values.
+
+    Handles :class:`~types.MappingProxyType` maps, tuples produced by
+    :func:`freeze_json_object`, and ``set``/``frozenset`` fields used by
+    serializers (e.g. side effects). Lists are accepted for symmetry.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): jsonable(item) for key, item in value.items()}
+    if isinstance(value, tuple | list):
+        return [jsonable(item) for item in value]
+    if isinstance(value, set | frozenset):
+        converted = [jsonable(item) for item in value]
+        return sorted(
+            converted,
+            key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        )
+    return value  # type: ignore[return-value]
+
+
 FrozenJsonObject = Annotated[Mapping[str, JsonValue], AfterValidator(freeze_json_object)]
 
 

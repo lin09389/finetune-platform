@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
@@ -13,6 +13,7 @@ from .models import (
     FrozenJsonObject,
     ToolAvailability,
     freeze_json_object,
+    jsonable,
     redact_json,
 )
 
@@ -44,7 +45,7 @@ class ToolProjectionConstraints(_CatalogModel):
         "required_platform_facts",
     )
     def serialize_facts(self, value: FrozenJsonObject) -> JsonValue:
-        return _jsonable(value)
+        return jsonable(value)
 
 
 class ToolCatalogEntry(_CatalogModel):
@@ -59,7 +60,7 @@ class ToolCatalogEntry(_CatalogModel):
 
     @field_serializer("input_schema", "output_schema")
     def serialize_schema(self, value: FrozenJsonObject) -> JsonValue:
-        return _jsonable(value)
+        return jsonable(value)
 
 
 class ToolCatalogSnapshot(_CatalogModel):
@@ -77,14 +78,6 @@ def catalog_json(
     else:
         payload = [item.model_dump(mode="json") for item in catalog]
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
-
-
-def _jsonable(value: object) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_jsonable(item) for item in value]
-    return value  # type: ignore[return-value]
 
 
 __all__ = [

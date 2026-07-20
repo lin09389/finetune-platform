@@ -25,7 +25,9 @@ Constraints honored:
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -44,6 +46,8 @@ from .handlers import (
 from .models import ToolError, ToolEvent, ToolInvocation, ToolResult, redact_json, thaw_json_object
 from .policy import ToolPolicyFacts, evaluate_tool_policy
 from .taxonomy import ToolRisk
+
+logger = logging.getLogger(__name__)
 
 
 class ToolGatewayOutcome(BaseModel):
@@ -72,14 +76,19 @@ class ToolGateway:
         approval_adapter: ApprovalAdapter | None = None,
         availability_timeout: float = 5.0,
         handler_timeout: float | None = None,
+        terminal_cache_max: int = 1024,
     ) -> None:
+        if terminal_cache_max < 1:
+            raise ValueError("terminal_cache_max must be >= 1")
         self._registry = registry
         self._sink = event_sink
         self._handlers: dict[str, Any] = dict(handlers) if handlers else {}
         self._approval: ApprovalAdapter = approval_adapter or SuspensionApprovalAdapter()
         self._availability_timeout = availability_timeout
         self._handler_timeout = handler_timeout
-        self._terminals: dict[str, ToolGatewayOutcome] = {}
+        self._terminal_cache_max = terminal_cache_max
+        # Bounded FIFO cache of terminal outcomes for in-process idempotency.
+        self._terminals: OrderedDict[str, ToolGatewayOutcome] = OrderedDict()
 
     async def invoke(
         self,
@@ -90,6 +99,10 @@ class ToolGateway:
     ) -> ToolGatewayOutcome:
         invocation_id = invocation.invocation_id
 
+        # FIFO lookup only: reads deliberately do not promote an entry, so the
+        # cache evicts in the order outcomes were produced. Switching to LRU
+        # would require ``move_to_end`` here, but corner cases are negligible
+        # at the per-session replay scale (<1024 entries).
         cached = self._terminals.get(invocation_id)
         if cached is not None:
             return cached
@@ -145,7 +158,7 @@ class ToolGateway:
                 events=tuple(emitted),
             )
             if cache:
-                self._terminals[invocation_id] = outcome
+                self._cache_terminal(invocation_id, outcome)
             return outcome
 
         # 1. resolve
@@ -359,7 +372,12 @@ class ToolGateway:
             return await self._registry.check_availability(
                 tool_name, timeout_seconds=self._availability_timeout
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - fail closed without exposing probe details
+            logger.error(
+                "availability check failed for tool %s (canonical=%s)",
+                tool_name,
+                canonical_name,
+            )
             from .models import ToolAvailability
 
             return ToolAvailability(
@@ -367,6 +385,13 @@ class ToolGateway:
                 available=False,
                 reason_code="availability_check_failed",
             )
+
+    def _cache_terminal(self, invocation_id: str, outcome: ToolGatewayOutcome) -> None:
+        """Store a terminal outcome and evict the oldest entries when full."""
+        self._terminals[invocation_id] = outcome
+        self._terminals.move_to_end(invocation_id)
+        while len(self._terminals) > self._terminal_cache_max:
+            self._terminals.popitem(last=False)
 
 
 __all__ = ["ToolGateway", "ToolGatewayOutcome"]
