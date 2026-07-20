@@ -152,7 +152,9 @@ class AgentTrainingService:
 
         try:
             model_path, dataset_file = self._resolve_submission_paths(proposal)
-            self._validate_submission_config(proposal.config)
+            # P1-3: 调用同步版本 — submit_approved_training 本身是同步方法,
+            # 在线程池或同步上下文中运行,无需 asyncio.to_thread 包装。
+            self._validate_submission_config_sync(proposal.config)
             record = start_training_task(
                 config=proposal.config.model_copy(deep=True),
                 state=self._submission_state(),
@@ -527,15 +529,20 @@ class AgentTrainingService:
                 details={"identifier": raw},
             ) from exc
 
-    def _validate_submission_config(self, config) -> None:
-        """Repeat the complete preflight at approval time before task creation.
+    def _validate_submission_config_sync(self, config) -> None:
+        """Synchronous preflight executed at approval time before task creation.
 
-        DeepAgents tools run on the asyncio event loop.  ``asyncio.run`` is
-        illegal there, so when a loop is already running the preflight is
-        executed in a short-lived worker thread that owns its own loop.
+        P1-3: Extracted from the original ``_validate_submission_config`` so that
+        synchronous callers (e.g. ``submit_approved_training``) can invoke it
+        directly, while async callers go through ``_validate_submission_config``
+        which wraps this method with ``asyncio.to_thread``.
+
+        ``asyncio.run`` is safe here because this method runs either in a worker
+        thread (when called via ``asyncio.to_thread``) or in a synchronous
+        context where no event loop is running (FastAPI sync routes run in the
+        threadpool, DeepAgents tool dispatch is async and uses the async wrapper).
         """
         import asyncio
-        from concurrent.futures import ThreadPoolExecutor
 
         try:
             validate_release_supported_features(config)
@@ -546,22 +553,24 @@ class AgentTrainingService:
                 details={"error": str(exc)},
             ) from exc
 
-        def _run_preflight():
-            return asyncio.run(TrainingValidator.validate_config(config, self._settings))
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            validation = _run_preflight()
-        else:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                validation = executor.submit(_run_preflight).result()
+        validation = asyncio.run(TrainingValidator.validate_config(config, self._settings))
         if validation.errors:
             raise AgentTrainingError(
                 "proposal_stale",
                 "Training proposal no longer passes preflight; request a new proposal.",
                 details={"errors": validation.errors},
             )
+
+    async def _validate_submission_config(self, config) -> None:
+        """Async wrapper that runs the blocking preflight in a worker thread.
+
+        DeepAgents tools run on the asyncio event loop; calling
+        ``_validate_submission_config_sync`` directly would block the loop.
+        Use this coroutine from async routes / async tool dispatch.
+        """
+        import asyncio
+
+        await asyncio.to_thread(self._validate_submission_config_sync, config)
 
     @staticmethod
     def _normalize_scope_value(value: str | None) -> str | None:
@@ -591,9 +600,57 @@ class AgentTrainingService:
 
     @staticmethod
     def _suggest(config, required_vram_gb: float | None) -> list[str]:
-        if required_vram_gb and config.method == "lora" and config.quantization == 0:
-            return ["Consider QLoRA with 4-bit quantization to reduce VRAM requirements."]
-        return []
+        """生成针对当前 config 的优化建议(展示给用户,非强制)。
+
+        P3-2: 扩展启发式覆盖 method=full + 高 VRAM、batch_size 过大、
+        未启用 gradient_checkpointing、未启用 flash_attn 等常见可优化点。
+        所有建议以中文输出,与 validator.py 警告语言保持一致。
+        """
+        suggestions: list[str] = []
+        vram = required_vram_gb or 0.0
+
+        # 1. 原有启发式:lora + 无量化 → 建议 QLoRA
+        if vram and config.method == "lora" and config.quantization == 0:
+            suggestions.append("考虑使用 QLoRA(4-bit 量化)以降低 VRAM 占用。")
+
+        # 2. full + 高 VRAM → 建议 LoRA/QLoRA
+        if vram and config.method == "full" and vram > 24.0:
+            suggestions.append(
+                f"全参数训练预估 VRAM {vram:.1f}GB 较高,考虑改用 LoRA 或 QLoRA 以显著降低显存需求。"
+            )
+
+        # 3. batch_size 过大 + 高 VRAM → 建议降低 batch_size 或启用梯度累积
+        if vram and vram > 16.0 and config.batch_size > 4:
+            suggestions.append(
+                f"batch_size={config.batch_size} 在预估 VRAM {vram:.1f}GB 下可能 OOM,"
+                f"建议降至 1-2 并增大 gradient_accumulation(当前 {config.gradient_accumulation})。"
+            )
+
+        # 4. 高 VRAM + 未启用 gradient_checkpointing → 建议启用
+        if vram and vram > 16.0 and not config.gradient_checkpointing:
+            suggestions.append(
+                "启用 gradient_checkpointing 可降低 30-50% 显存,代价是约 20% 训练速度。"
+            )
+
+        # 5. 未启用 use_flash_attn → 建议启用(适用于支持的模型)
+        if not config.use_flash_attn:
+            suggestions.append(
+                "启用 use_flash_attn 可降低注意力层显存并加速训练(需 flash-attn 包)。"
+            )
+
+        # 6. lora + rank 过高(>=64)→ 建议降 rank
+        if config.method in ("lora", "qlora") and config.rank >= 64:
+            suggestions.append(
+                f"LoRA rank={config.rank} 较高,通常 8-32 已足够;过高会增加可训练参数与显存。"
+            )
+
+        # 7. epochs 过高(>10)→ 提醒过拟合风险
+        if config.epochs > 10:
+            suggestions.append(
+                f"epochs={config.epochs} 较高,小数据集易过拟合;建议配合 early_stopping_patience 使用。"
+            )
+
+        return suggestions
 
 
 __all__ = ["AgentTrainingService"]
