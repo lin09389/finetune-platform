@@ -100,7 +100,19 @@ class InProcessTrainingGateway(TrainingGateway):
 
         from core.training_events_v2 import get_training_event_hub_v2
 
-        progress = self.context.state.get_progress()
+        # P1-2: when task_id is provided, ensure we only return progress for
+        # that task — otherwise concurrent in_process tasks would cross-pollute
+        # via state.get_progress() which always returns the latest snapshot.
+        state = self.context.state
+        if task_id is not None:
+            current_record = state.get_current_record() if hasattr(state, "get_current_record") else None
+            if current_record is not None and getattr(current_record, "id", None) != task_id:
+                # Requested task is not the active one — return idle progress.
+                from training_engine.schemas import TrainingProgressResponse as _PR
+                idle = _PR(status="idle", message="Task not active")
+                return idle.model_dump()
+
+        progress = state.get_progress()
         latest_event = get_training_event_hub_v2().get_latest()
         if latest_event:
             merged = legacy_progress_from_v2_event(latest_event, progress)
