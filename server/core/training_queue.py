@@ -317,7 +317,11 @@ class TrainingQueue:
             logger.error(f"保存队列状态失败：{e}")
 
     def _load_state(self):
-        """从文件加载状态"""
+        """从文件加载状态
+
+        P1-1: 同时恢复 running 快照 — 重启时无法续接训练线程,
+        根据 started_at 时间将残留任务标记为 CANCELLED(近期)或 FAILED(>24h)。
+        """
         if not self.state_file.exists():
             backup_path = self.state_file.with_suffix('.json.bak')
             if backup_path.exists():
@@ -348,6 +352,46 @@ class TrainingQueue:
                 if data.get("error"):
                     task.error = data["error"]
                 self._history[task_id] = task
+
+            # P1-1: recover running snapshot — process restart killed the threads.
+            # Mark stale running tasks so the queue state matches reality.
+            MAX_RUN_HOURS = 24
+            now_ts = datetime.now().timestamp()
+            recovered_count = 0
+            for task_id, data in state.get("running", {}).items():
+                started_at_iso = data.get("started_at")
+                if not started_at_iso:
+                    continue
+                try:
+                    started_dt = datetime.fromisoformat(started_at_iso)
+                    elapsed_hours = (now_ts - started_dt.timestamp()) / 3600.0
+                except (ValueError, TypeError):
+                    elapsed_hours = 0.0
+
+                task = TrainingTask(
+                    priority=data.get("priority", 2),
+                    created_at=data.get("created_at", now_ts),
+                    task_id=task_id,
+                    config=None,
+                    status=TaskStatus.FAILED if elapsed_hours > MAX_RUN_HOURS else TaskStatus.CANCELLED,
+                )
+                task.started_at = started_dt if started_at_iso else None
+                task.completed_at = datetime.now()
+                task.error = (
+                    f"process restart abandoned running task after {elapsed_hours:.1f}h"
+                    if elapsed_hours <= MAX_RUN_HOURS
+                    else f"stale running task > {MAX_RUN_HOURS}h, marked failed"
+                )
+                self._history[task_id] = task
+                recovered_count += 1
+
+            if recovered_count:
+                logger.warning(
+                    f"Recovered {recovered_count} stale running task(s) from state file "
+                    f"(marked CANCELLED if <{MAX_RUN_HOURS}h, FAILED otherwise)"
+                )
+                # Persist the corrected state so we don't keep re-warning on every restart.
+                self._save_state()
 
             logger.info(f"从文件加载了 {len(self._history)} 个历史任务")
 
@@ -400,6 +444,9 @@ class TrainingQueue:
         """
         P0-2: 取消任务（支持队列中的任务）
 
+        P0-4: 运行中任务取消时,主动通过 TrainingState.request_stop() 传播停止信号,
+        否则训练线程仅依靠 task.status 检查,取消延迟可达一个 step 周期。
+
         Args:
             task_id: 任务 ID
 
@@ -415,6 +462,9 @@ class TrainingQueue:
                     return False
                 task.status = TaskStatus.CANCELLED
                 logger.info(f"运行中任务已标记取消：{task_id}")
+                # P0-4: propagate stop signal to the training thread immediately.
+                # ``state.request_stop()`` is a non-blocking event set, safe under lock.
+                self._request_training_stop(task_id)
                 return True
 
             if task_id in self._all_tasks:
@@ -429,6 +479,23 @@ class TrainingQueue:
 
             logger.warning(f"无法取消任务 {task_id}：任务不存在")
             return False
+
+    def _request_training_stop(self, task_id: str) -> None:
+        """P0-4: Propagate cancel signal to the running training thread.
+
+        Uses ``TrainingState.request_stop()`` which sets the ``_stop_requested``
+        flag that ``ProgressCallback.on_step_end`` (and similar) check between
+        steps. Safe to call when the task has already exited — the try/except
+        swallows the lookup failure.
+        """
+        try:
+            from core.training_context import get_training_context
+            state = get_training_context().state
+            state.request_stop()
+            logger.info(f"已通过 state.request_stop 通知任务 {task_id} 停止")
+        except Exception as e:
+            # Task may have already exited and unregistered; not an error.
+            logger.debug(f"request_stop for {task_id} skipped: {e}")
 
     def get_queue_status(self) -> dict[str, Any]:
         """获取队列状态"""
