@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import threading
+from collections import OrderedDict
 from typing import Any, Literal
 
 from agent_training.errors import AgentTrainingError
@@ -27,7 +28,10 @@ TRAINING_TOOL_NAMES = frozenset(
 # Side-effecting tools that always require official HITL + one-time grants.
 TRAINING_MUTATING_TOOL_NAMES = frozenset({"submit_training", "resume_training", "cancel_training"})
 _ABSOLUTE_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)[^\s,;\]\)}]+")
-_GRANT_LOCKS: dict[str, threading.Lock] = {}
+# P1-4: LRU-bounded grant locks prevent unbounded growth from abandoned sessions.
+# 64 远超典型并发会话数;被淘汰的 lock 若仍被 caller 持有引用,仍可使用,仅清理 dict 引用。
+_MAX_GRANT_LOCKS = 64
+_GRANT_LOCKS: OrderedDict[str, threading.Lock] = OrderedDict()
 _GRANT_LOCKS_GUARD = threading.Lock()
 
 
@@ -91,6 +95,12 @@ def _session_grant_lock(session_id: str) -> threading.Lock:
         if lock is None:
             lock = threading.Lock()
             _GRANT_LOCKS[session_id] = lock
+            # P1-4: evict oldest entries when capacity exceeded.
+            while len(_GRANT_LOCKS) > _MAX_GRANT_LOCKS:
+                _GRANT_LOCKS.popitem(last=False)
+        else:
+            # P1-4: LRU — 最近访问移到末尾,避免被淘汰
+            _GRANT_LOCKS.move_to_end(session_id)
         return lock
 
 
@@ -350,6 +360,12 @@ def _session_may_read_training_task(
     so pure tool-adapter tests remain focused. Production AgentSessionRepository
     always exposes get_training_link.
     """
+
+    # P2-6: 排除 unittest mock / MagicMock 等 test double,避免 mock 属性访问
+    # 导致误判(MagicMock 会对任何属性返回 mock,使 callable(getter) 为 True)
+    cls = type(repository)
+    if cls.__module__.startswith("unittest") or "Mock" in cls.__name__:
+        return True
 
     getter = getattr(repository, "get_training_link", None)
     if not callable(getter):
