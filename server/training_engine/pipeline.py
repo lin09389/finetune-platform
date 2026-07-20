@@ -106,6 +106,8 @@ class TrainingPipeline:
         self._exception_info: dict[str, Any] | None = None
         self._phase_timings: dict[str, float] = {}
         self._phase_start_times: dict[str, datetime] = {}
+        # P1-8: cleanup 线程超时未结束时标记,供上层观测
+        self._cleanup_dangled: bool = False
 
     def __enter__(self) -> TrainingPipeline:
         self.ctx.start_time = datetime.now()
@@ -630,7 +632,9 @@ class TrainingPipeline:
         import threading as _wd_threading
         import time as _wd_time
 
-        STALL_TIMEOUT_SECONDS = 300
+        # P1-6: 从 settings 读取,不再硬编码;默认值与历史行为一致(300/600)
+        STALL_TIMEOUT_SECONDS = self.ctx.settings.training_watchdog_stall_seconds
+        WATCHDOG_TIMEOUT_SECONDS = self.ctx.settings.training_watchdog_timeout_seconds
         _watchdog_stop = _wd_threading.Event()
 
         def _training_watchdog() -> None:
@@ -655,9 +659,10 @@ class TrainingPipeline:
                                 "total_steps": progress.total_steps,
                             },
                         )
-                        if elapsed_since_hb > STALL_TIMEOUT_SECONDS * 2:
+                        # P1-6: 用独立 WATCHDOG_TIMEOUT_SECONDS 而非 *2,可独立配置
+                        if elapsed_since_hb > WATCHDOG_TIMEOUT_SECONDS:
                             logger.error(
-                                f"训练卡死超时 ({elapsed_since_hb:.0f}s)，自动触发停止"
+                                f"训练卡死超时 ({elapsed_since_hb:.0f}s,阈值 {WATCHDOG_TIMEOUT_SECONDS}s)，自动触发停止"
                             )
                             self.ctx.state.request_stop()
                             _watchdog_stop.set()
@@ -890,14 +895,30 @@ class TrainingPipeline:
             daemon=False,
         )
         cleanup_thread.start()
+
+        # P1-8: 从 settings 读取超时,默认 60s(原 30s 过短);超时后标记 dangled 供观测
+        cleanup_timeout = self.ctx.settings.training_cleanup_timeout_seconds
         try:
-            cleanup_thread.join(timeout=30)
+            cleanup_thread.join(timeout=cleanup_timeout)
         except Exception as e:
             logger.warning(f"等待清理线程完成超时：{e}")
+
+        if cleanup_thread.is_alive():
+            self._cleanup_dangled = True
+            logger.error(
+                "Cleanup thread did not finish in %ds; GPU memory may leak. Task: %s",
+                cleanup_timeout,
+                getattr(self.ctx, "task_id", None) or "unknown",
+            )
 
     @property
     def current_phase(self) -> str:
         return self._current_phase
+
+    @property
+    def cleanup_dangled(self) -> bool:
+        """P1-8: cleanup 线程是否超时未结束。Worker 可在 finish 前检查此标记。"""
+        return self._cleanup_dangled
 
     @property
     def interrupted(self) -> bool:

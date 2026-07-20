@@ -273,6 +273,26 @@ class Settings(BaseSettings):
     training_worker_lease_seconds: int = Field(default=30, ge=5, le=3600)
     training_worker_max_attempts: int = Field(default=3, ge=1, le=20)
     training_worker_stale_seconds: int = Field(default=30, ge=5, le=3600)
+    # P1-6: Watchdog 配置化(默认值与历史硬编码一致,向后兼容)
+    training_watchdog_stall_seconds: int = Field(
+        default=300,
+        ge=60,
+        le=3600,
+        description="训练 watchdog 心跳停滞告警阈值(秒)。超过此值无心跳则发布 stall_detected 事件。",
+    )
+    training_watchdog_timeout_seconds: int = Field(
+        default=600,
+        ge=120,
+        le=7200,
+        description="训练 watchdog 硬超时阈值(秒)。超过此值无心跳则自动 request_stop。",
+    )
+    # P1-8: cleanup 线程 join 超时配置化
+    training_cleanup_timeout_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=600,
+        description="训练 cleanup 线程 join 超时(秒)。超时后标记 dangled 并记录 ERROR。",
+    )
     # Durable training_events retention (worker / SQLite hub)
     training_events_max_rows: int = Field(
         default=50_000,

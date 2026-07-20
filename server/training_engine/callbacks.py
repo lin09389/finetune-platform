@@ -126,16 +126,20 @@ class ProgressCallback:
         pass
 
     def on_prediction_step(self, args, state, control, **kwargs):
-        pass
+        # P1-6: eval/predict 阶段也更新心跳,避免长 eval 被误判卡死
+        self.state.update_heartbeat()
 
     def on_substep_end(self, args, state, control, **kwargs):
-        pass
+        # P1-6: GA>1 时 substep 心跳(仅 gradient_accumulation_steps>1 触发)
+        self.state.update_heartbeat()
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):
-        pass
+        # P1-6: HF 4.40+ 优化器步前心跳(每 optimizer step 都触发,覆盖 GA=1)
+        self.state.update_heartbeat()
 
     def on_optimizer_step(self, args, state, control, **kwargs):
-        pass
+        # P1-6: 兼容 HF <4.40 的 fallback 心跳点
+        self.state.update_heartbeat()
 
     _save_checkpoint_metadata = None
 
@@ -190,7 +194,8 @@ class ProgressCallback:
             logger.debug(f"WebSocket checkpoint 事件推送失败：{e}")
 
     def on_evaluate(self, args, state, control, **kwargs):
-        pass
+        # P1-6: eval 开始时更新心跳
+        self.state.update_heartbeat()
 
     def on_predict(self, args, state, control, metrics, **kwargs):
         pass
