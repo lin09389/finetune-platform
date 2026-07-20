@@ -17,6 +17,9 @@ from .profiles import ApplicationProfile
 
 logger = logging.getLogger("finetune-platform")
 _TRAINING_RECONCILER: Any | None = None
+# P1-7: API-side recover loop — periodically checks Worker liveness and
+# hard-recovers expired leases only when no alive Worker is observed.
+_TRAINING_RECOVER_TASK: Any | None = None
 # Populated during Agent profile startup; consumed by /api/info (agent_ready).
 _AGENT_READINESS: dict[str, Any] = {
     "ready": False,
@@ -213,6 +216,45 @@ async def _initialize_agent_services() -> None:
         logger.error("Agent session service is not ready: %s", issues)
 
 
+async def _training_recover_loop() -> None:
+    """P1-7: API 进程周期性检查 Worker 存活状态。
+
+    策略:
+    - 有活 Worker 时,不调用 recover_expired(让 Worker 自愈,避免与 Worker 冲突)
+    - 无活 Worker 时,硬清理过期 lease(防止 Worker 永不重启导致任务卡死)
+    """
+    while True:
+        try:
+            await asyncio.sleep(60)
+            from training_worker.repository import get_training_job_repository
+
+            repository = get_training_job_repository()
+            # 用 2x lease_seconds 作为 stale 阈值,避免误判
+            stale_after = max(60, int(settings.training_worker_lease_seconds) * 2)
+            workers = repository.worker_status(stale_after_seconds=stale_after)
+            alive_workers = [w for w in workers if w.get("status") == "online"]
+
+            if not alive_workers:
+                recovered = repository.recover_expired()
+                requeued = recovered.get("requeued", 0)
+                interrupted = recovered.get("interrupted", 0)
+                cancelled = recovered.get("cancelled", 0)
+                if requeued or interrupted or cancelled:
+                    logger.warning(
+                        "No alive workers (stale_after=%ds); recovered expired jobs: "
+                        "requeued=%d, interrupted=%d, cancelled=%d",
+                        stale_after,
+                        requeued,
+                        interrupted,
+                        cancelled,
+                    )
+        except asyncio.CancelledError:
+            logger.info("Training recover loop cancelled")
+            raise
+        except Exception as exc:
+            logger.debug("Training recover loop iteration skipped: %s", exc)
+
+
 async def _initialize_finetune_services():
     if settings.training_execution_mode == "worker":
         from training_worker.repository import (
@@ -274,6 +316,14 @@ async def _initialize_finetune_services():
             await grpc_server.start()
         except Exception as exc:
             logger.warning("Inference gRPC startup failed: %s", exc)
+
+    # P1-7: 启动 API 侧 recover loop — 仅在 worker 模式下需要
+    global _TRAINING_RECOVER_TASK
+    if _TRAINING_RECOVER_TASK is None and settings.training_execution_mode == "worker":
+        _TRAINING_RECOVER_TASK = asyncio.create_task(_training_recover_loop())
+        logger.info("Training recover loop started (interval=60s, stale_after=%ds)",
+                    max(60, int(settings.training_worker_lease_seconds) * 2))
+
     return grpc_server
 
 
@@ -294,6 +344,17 @@ async def _auto_backup_loop() -> None:
 
 
 async def _shutdown_finetune_services(grpc_server) -> None:
+    # P1-7: 取消 API 侧 recover loop,避免 "Task was destroyed but it is pending" 警告
+    global _TRAINING_RECOVER_TASK
+    if _TRAINING_RECOVER_TASK is not None:
+        _TRAINING_RECOVER_TASK.cancel()
+        try:
+            await _TRAINING_RECOVER_TASK
+        except asyncio.CancelledError:
+            pass
+        _TRAINING_RECOVER_TASK = None
+        logger.info("Training recover loop stopped")
+
     if grpc_server:
         try:
             await grpc_server.stop()
