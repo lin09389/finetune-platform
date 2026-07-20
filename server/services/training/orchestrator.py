@@ -30,13 +30,24 @@ def start_training_task(
     priority: str,
     record_id: str | None = None,
     output_path: Path | None = None,
+    backend: str | None = None,
 ) -> TrainingRecordResponse:
-    """Internal helper to start or resume a training task with stable identifiers."""
+    """Internal helper to start or resume a training task with stable identifiers.
+
+    Args:
+        backend: optional explicit backend tag ("native" or "swift"). If None,
+            inferred from ``config.method`` — methods starting with ``swift``
+            route to the SWIFT executor, everything else to native.
+    """
     record_id = record_id or str(uuid.uuid4())
     output_path = output_path or (settings.outputs_dir_resolved / f"train_{record_id[:8]}")
     output_path.mkdir(parents=True, exist_ok=True)
 
     worker_mode = settings.training_execution_mode == "worker"
+
+    # P0-3: infer backend from method if caller didn't specify.
+    if backend is None:
+        backend = "swift" if str(config.method).startswith("swift") else "native"
 
     from training_engine.reporter import sync_training_record_metadata
     record = TrainingRecord(
@@ -69,7 +80,7 @@ def start_training_task(
         )
         repository.enqueue(
             job_id=record_id,
-            backend="native",
+            backend=backend,
             priority=priority_map.get(priority.lower(), 2),
             config=config.model_dump(),
             model_path=str(model_path),
@@ -79,7 +90,7 @@ def start_training_task(
             max_attempts=settings.training_worker_max_attempts,
             allow_requeue_terminal=is_resume,
         )
-        logger.info("训练任务已提交到持久化 Worker 队列：%s", record_id)
+        logger.info("训练任务已提交到持久化 Worker 队列：%s (backend=%s)", record_id, backend)
         return TrainingRecordResponse(**record.model_dump())
 
     if state is None:  # pragma: no cover - defensive contract guard
