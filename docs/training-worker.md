@@ -37,6 +37,83 @@ containers.
 
 Worker health and queue state are exposed by `GET /training/queue/status`.
 
+## Backends
+
+The Worker dispatches jobs by the `backend` field stored on each durable job:
+
+- `native` (default): runs the in-repo `training_thread` pipeline on the
+  Worker process. Loads the model and dataset via `TrainingConfigInput`.
+- `swift`: runs the SWIFT (阿里 SWIFT 框架) CLI subprocess via
+  `SwiftBackend.start_training`. The Worker polls `get_training_status`
+  every 2s and forwards `cancel_event` to `backend.stop_training()`.
+
+A job's backend is chosen at enqueue time by the orchestrator based on
+the request's `method` and the `/training/check-swift` availability
+probe. Unknown backends fall back to `self.executor` (default
+`_execute_native`), preserving backward compatibility for custom
+executor injection in tests.
+
+## SSE authentication
+
+Training SSE streams (`GET /training/progress/stream`,
+`GET /training/v2/events/stream`) are authenticated via
+`services.training.policy.authenticate_training_sse`:
+
+- `ENABLE_AUTH=false` (default in dev/tests): no auth, returns `None`.
+- `ENABLE_AUTH=true`: requires a JWT bearer token via either
+  - `?token=<jwt>` query param (primary — `EventSource` API cannot set
+    custom headers), or
+  - `Authorization: Bearer <jwt>` header (for non-browser clients like curl).
+
+Missing or invalid token → `HTTPException(401)`. The same pattern applies
+to training WebSocket endpoints via `authenticate_training_websocket`.
+
+## Watchdog configuration
+
+The in-pipeline watchdog monitors heartbeat staleness and force-stops
+hung training. Thresholds are configurable in `Settings`:
+
+```text
+TRAINING_WATCHDOG_STALL_SECONDS=300    # warn + emit training_stall_detected
+TRAINING_WATCHDOG_TIMEOUT_SECONDS=600  # force request_stop()
+TRAINING_CLEANUP_TIMEOUT_SECONDS=60    # cleanup thread join timeout
+```
+
+Defaults match the historical hardcoded values (300/600/60). When
+`cleanup_thread.join(timeout)` times out, the pipeline sets
+`cleanup_dangled = True` (observable via `pipeline.cleanup_dangled`) and
+logs an ERROR; GPU memory may leak until the next process restart.
+
+## API recover loop
+
+In Worker mode, the API process runs `_training_recover_loop`
+(lifespan.py) with the following strategy:
+
+- Every 60s, query `repository.worker_status(stale_after_seconds=2 * lease_seconds)`.
+- If at least one Worker is `online`, do nothing — the Worker self-heals
+  via `recover_expired()` in its own poll loop. This avoids racing with
+  the Worker on lease recovery.
+- If no alive Worker is observed, call `repository.recover_expired()` to
+  hard-requeue expired leases (final state `interrupted` after
+  `TRAINING_WORKER_MAX_ATTEMPTS`).
+
+This guards against the scenario where the Worker process dies and
+never restarts, leaving running jobs stuck in `leased`/`running` forever.
+
+## Cleanup dangled
+
+When the training pipeline's cleanup thread (which releases GPU memory
+and finalizes checkpoints) does not finish within
+`TRAINING_CLEANUP_TIMEOUT_SECONDS`, the pipeline sets
+`cleanup_dangled = True` and continues rather than blocking the Worker
+poll loop. The Worker can observe this flag via
+`pipeline.cleanup_dangled` (property) and log/metric accordingly.
+
+This is a graceful-degradation path: the dangled cleanup thread
+continues running in the background (it is a daemon thread), but the
+Worker is free to claim the next job. A subsequent process restart
+will hard-release any leaked GPU memory.
+
 ## Compatibility mode
 
 Set `TRAINING_EXECUTION_MODE=in_process` to use the legacy daemon-thread queue.
