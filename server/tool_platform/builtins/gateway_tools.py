@@ -91,7 +91,14 @@ def build_gateway_tool_structures(
 
     for definition in visible:
         meta = definition.meta
-        alias = definition.aliases[0] if definition.aliases else meta.canonical_name
+        # The StructuredTool is exposed under its namespaced canonical name
+        # (e.g. ``workspace.read_file``), NOT its DeepAgents-compatible alias.
+        # The controlled-mode exclusion middleware hides the legacy built-ins by
+        # their bare alias names (``read_file``); if the platform tool shared
+        # that alias, the exclusion middleware would hide it too (it filters all
+        # tools by name). Using the canonical name keeps the platform tool
+        # model-visible while the legacy built-in is excluded.
+        tool_name = meta.canonical_name
         input_model = definition.input_model
         canonical_name = meta.canonical_name
 
@@ -121,7 +128,7 @@ def build_gateway_tool_structures(
         tools.append(
             _ToolCallIdAwareStructuredTool.from_function(
                 coroutine=_make_handler(canonical_name),
-                name=alias,
+                name=tool_name,
                 description=meta.description,
                 args_schema=input_model,
             )

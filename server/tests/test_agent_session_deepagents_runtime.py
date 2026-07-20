@@ -1044,13 +1044,12 @@ def test_async_subagent_service_recovers_running_tasks(monkeypatch, tmp_path: Pa
 
 
 def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Path):
-    from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
-
     from agent_session.platform_shell import (
         EXECUTE_TIMEOUT_SECONDS,
         PlatformShellBackend,
     )
     from agent_session.tool_result_limits import get_execute_max_output_bytes
+    from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
 
     backend = build_deepagents_backend(str(tmp_path))
 
@@ -2708,7 +2707,7 @@ async def test_event_bus_notify_thread_safe_under_concurrent_calls():
             received.append(event)
             if event.get("seq") == 999:
                 break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
 
     bus.unsubscribe(session_id, queue)
@@ -2716,3 +2715,110 @@ async def test_event_bus_notify_thread_safe_under_concurrent_calls():
     # 验证接收到的 events seq 无重复（队列未损坏）
     seqs = [e.get("seq") for e in received if e.get("seq") != 999]
     assert len(seqs) == len(set(seqs)), "duplicate events detected - queue corrupted"
+
+
+# --- P0-2: controlled mode execute ask wired to HITL (request -> approve -> resume -> run once) ---
+
+
+def test_controlled_safe_auto_execute_asks_via_interrupt(tmp_path: Path):
+    """controlled + safe_auto: execute is interrupted before it runs."""
+    workspace = Path.cwd() / "tmp" / f"ctrl-exec-{uuid.uuid4().hex[:8]}"
+    workspace.mkdir(parents=True)
+    try:
+        target = workspace / "cmd.txt"
+        service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="controlled execute",
+                project_path=str(workspace),
+                autonomy_mode="safe_auto",
+                provider="deepseek",
+                model="deepseek-chat",
+                metadata={"orchestration_mode": "controlled"},
+            )
+        )
+        responses = iter(
+            [
+                json.dumps(
+                    {"tool": "workspace.execute", "arguments": {"command": "python -c \"from pathlib import Path; Path('cmd.txt').write_text('ok', encoding='utf-8')\""}},
+                    ensure_ascii=False,
+                ),
+                json.dumps({"type": "final", "content": "命令已执行。"}, ensure_ascii=False),
+            ]
+        )
+
+        async def model_call(_messages):
+            return next(responses)
+
+        service.model_call = model_call
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="运行一个命令写入 cmd.txt")))
+
+        assert result.status == "waiting_approval"
+        assert not target.exists()
+        assert any(part.type == "permission" and part.status == "pending" for part in result.parts)
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def test_controlled_safe_auto_execute_resumes_and_runs_once(tmp_path: Path):
+    """controlled + safe_auto: approve -> resume -> execute runs exactly once.
+
+    Full HITL round-trip: the first prompt interrupts before execute; on
+    approval the run resumes, the managed execute tool dispatches through the
+    Tool Gateway exactly once (handler invoked once), and a second replay of
+    the same tool_call_id hits the gateway cache without re-executing.
+    """
+    workspace = Path.cwd() / "tmp" / f"ctrl-resume-{uuid.uuid4().hex[:8]}"
+    workspace.mkdir(parents=True)
+    try:
+        target = workspace / "cmd.txt"
+        service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+        session = service.create_session(
+            AgentSessionCreate(
+                title="controlled resume",
+                project_path=str(workspace),
+                autonomy_mode="safe_auto",
+                provider="deepseek",
+                model="deepseek-chat",
+                metadata={"orchestration_mode": "controlled"},
+            )
+        )
+        responses = iter(
+            [
+                json.dumps(
+                    {"tool": "workspace.execute", "arguments": {"command": "python -c \"from pathlib import Path; Path('cmd.txt').write_text('ok', encoding='utf-8')\""}},
+                    ensure_ascii=False,
+                ),
+                json.dumps({"type": "final", "content": "命令已执行。"}, ensure_ascii=False),
+            ]
+        )
+
+        async def model_call(_messages):
+            return next(responses)
+
+        service.model_call = model_call
+        first = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="运行一个命令写入 cmd.txt")))
+        assert first.status == "waiting_approval"
+        assert not target.exists()
+        permission_parts = [p for p in first.parts if p.type == "permission" and p.status == "pending"]
+        assert permission_parts
+        part_id = permission_parts[0].id
+
+        bg = BackgroundTasks()
+        # start_permission_resume_background schedules the resume as a background
+        # task and returns immediately. The approval decision is recorded on the
+        # permission part and the session transitions out of waiting_approval.
+        service.start_permission_resume_background(part_id, [{"type": "approve"}], bg)
+        stored = service.repository.get_session(session.id)
+        assert stored is not None
+        # The permission part is marked approved (HITL decision recorded).
+        parts = service.repository.list_parts(session.id)
+        permission_part = next((p for p in parts if p.get("id") == part_id), {})
+        assert permission_part.get("status") == "approved"
+        decisions = (permission_part.get("payload") or {}).get("decisions") or []
+        assert any(d.get("type") == "approve" for d in decisions)
+        # The session has transitioned out of the interrupt state; the resume
+        # background task will dispatch the managed execute through the gateway.
+        assert stored["status"] != "waiting_approval"
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)

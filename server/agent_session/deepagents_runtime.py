@@ -114,15 +114,51 @@ class _ControlledToolRuntime:
     mapper: Any
 
 
+def _controlled_interrupt_on(registry: Any, facts: Any) -> dict[str, Any] | None:
+    """Derive the DeepAgents ``interrupt_on`` map for controlled mode.
+
+    A managed tool is added to ``interrupt_on`` when its declared side effects
+    intersect the session's ``require_approval_for`` set - i.e. exactly the
+    tools the deterministic policy would ``ask`` for. DeepAgents then suspends
+    the run before such a tool executes (waiting_approval -> approve -> resume),
+    so the Tool Gateway only ever sees already-approved invocations and never
+    has to grant an ``ask`` itself.
+    """
+    from tool_platform.registry import ToolProjectionContext
+
+    require = facts.require_approval_for
+    if not require:
+        return None
+    context = ToolProjectionContext(
+        agent_id="build",
+        runtime_kind=facts.runtime_kind,
+        enabled_capabilities=facts.enabled_capabilities,
+    )
+    interrupt: dict[str, Any] = {}
+    for definition in registry.project(context):
+        if definition.meta.side_effects & require:
+            # Use the canonical name: that is the StructuredTool name the model
+            # sees (the bare alias is excluded by the middleware), so DeepAgents
+            # interrupt_on must match the canonical name.
+            interrupt[definition.meta.canonical_name] = True
+    return interrupt or None
+
+
 def _replace_contract_for_controlled(
     contract: AgentRuntimeContract,
     *,
     tools: list[Any],
     middleware: list[Any],
+    interrupt_on: dict[str, Any] | None = None,
 ) -> AgentRuntimeContract:
     """Return a copy of ``contract`` with controlled-mode tools/middleware applied."""
     effective_middleware = [mw for mw in middleware if mw is not None]
-    return dataclass_replace(contract, tools=tools, middleware=effective_middleware)
+    return dataclass_replace(
+        contract,
+        tools=tools,
+        middleware=effective_middleware,
+        interrupt_on=interrupt_on,
+    )
 
 
 class StartAsyncTaskInput(BaseModel):
@@ -551,12 +587,6 @@ class DeepAgentsSessionRunner:
                 runtime_kind="agent_session",
                 enabled_capabilities=frozenset({"deepagents"}),
             )
-            gateway_tools = build_gateway_tool_structures(
-                gateway=runtime.gateway,
-                registry=runtime.registry,
-                facts=facts,
-                agent_id=agent_id,
-            )
         except Exception:
             logger.exception(
                 "controlled mode tool assembly failed for session %s; falling back to legacy.",
@@ -570,11 +600,41 @@ class DeepAgentsSessionRunner:
         controlled_middleware = [
             mw for mw in controlled_middleware if not _is_tool_exclusion_middleware(mw)
         ]
-        controlled_middleware.append(_build_exclusion_middleware(exclusion_set, logger))
+        exclusion_middleware = _build_exclusion_middleware(exclusion_set, logger)
+        if exclusion_middleware is None:
+            # Fail-closed: if the exclusion middleware cannot be constructed,
+            # the legacy built-ins would stay model-visible and bypass the
+            # Tool Gateway. Downgrade to legacy rather than run controlled
+            # without enforcement.
+            logger.warning(
+                "controlled mode exclusion middleware unavailable for session %s; falling back to legacy.",
+                session_id,
+            )
+            return _downgrade_contract_to_legacy(contract)
+        controlled_middleware.append(exclusion_middleware)
+
+        # P0-2: route the Gateway's ``ask`` decisions through DeepAgents HITL.
+        # Tools whose side effects intersect the session's
+        # ``require_approval_for`` are declared in ``interrupt_on`` so DeepAgents
+        # suspends the run *before* the tool executes (waiting_approval -> UI
+        # approve -> resume). The Gateway is then run with a facts copy that
+        # clears ``require_approval_for``: by the time a tool call reaches the
+        # Gateway, HITL has already approved it, so the Gateway only enforces
+        # allow/deny + dispatch. This avoids the needs_approval death-loop
+        # where a SuspendedApprovalAdapter never grants and the model retries.
+        interrupt_on = _controlled_interrupt_on(runtime.registry, facts)
+        gateway_facts = facts.model_copy(update={"require_approval_for": frozenset()})
+        gateway_tools = build_gateway_tool_structures(
+            gateway=runtime.gateway,
+            registry=runtime.registry,
+            facts=gateway_facts,
+            agent_id=agent_id,
+        )
         return _replace_contract_for_controlled(
             contract,
             tools=[*contract.tools, *gateway_tools],
             middleware=controlled_middleware,
+            interrupt_on=interrupt_on,
         )
 
     def _persist_shadow_projection(self, session_id: str, contract: AgentRuntimeContract) -> None:

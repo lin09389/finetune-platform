@@ -28,6 +28,11 @@ class AgentSessionCreate(BaseModel):
     # Phase B0: constrain exploration/edits to project-relative paths.
     scope_paths: list[str] | None = None
     scope_notes: str | None = Field(default=None, max_length=500)
+    # Caller-supplied session metadata (e.g. {"orchestration_mode": "controlled"}
+    # opts into the managed tool platform). Safe keys are merged into the
+    # persisted session metadata; autonomy_mode/deepagents_interrupt_on are
+    # normalized separately and not carried from here.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentPromptRequest(BaseModel):

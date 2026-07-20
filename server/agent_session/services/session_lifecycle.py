@@ -4,6 +4,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from cloud_models import CloudProviderRepository
+
+from agent_session.model_capabilities import agent_model_tool_calling_status
 from agent_session.models import (
     AgentMemoryFileResponse,
     AgentSessionCreate,
@@ -12,14 +15,12 @@ from agent_session.models import (
     AgentSessionPreferencesUpdate,
     AgentSessionResponse,
 )
-from agent_session.model_capabilities import agent_model_tool_calling_status
 from agent_session.permission import default_deepagents_permission_metadata, normalize_autonomy_mode
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.state import ensure_session_state
+from api.workspace import resolve_agent_workspace
 from core.config import settings
 from security.encryption import secure_storage
-from cloud_models import CloudProviderRepository
-from api.workspace import resolve_agent_workspace
 from workspace.path_policy import require_valid_project_path, resolve_default_project_path
 
 if TYPE_CHECKING:
@@ -60,6 +61,15 @@ class SessionLifecycleService:
             "model_configuration": self.get_model_configuration_status(provider, model, model_configured),
             "workspace": {"id": workspace_id, "path": project_path},
             "task_mode": request.task_mode,
+            # Caller-supplied metadata wins (e.g. orchestration_mode=controlled
+            # opts a session into the managed tool platform). autonomy_mode and
+            # deepagents_interrupt_on are normalized above, so they are not
+            # carried from raw caller metadata.
+            **{
+                key: value
+                for key, value in dict(request.metadata or {}).items()
+                if key not in {"autonomy_mode", "deepagents_interrupt_on"}
+            },
         }
         if request.scope_paths or request.scope_notes:
             from agent_session.task_scope import apply_task_scope_to_metadata
