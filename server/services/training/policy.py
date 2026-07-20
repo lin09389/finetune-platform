@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, HTTPException, WebSocket
+from fastapi import Depends, HTTPException, Request, WebSocket
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from core.config import Settings, get_settings
@@ -77,6 +77,37 @@ def authenticate_training_websocket(websocket: WebSocket) -> TokenPayload | None
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
 
 
+def authenticate_training_sse(request: Request) -> TokenPayload | None:
+    """Validate JWT for training SSE streams when auth is enabled.
+
+    Mirrors :func:`authenticate_training_websocket` but for FastAPI GET endpoints
+    (``EventSource`` API does not support custom headers, so ``?token=`` query
+    param is the primary transport; ``Authorization`` header also accepted for
+    non-browser clients like curl).
+    """
+    settings = get_settings()
+    if not settings.enable_auth:
+        return None
+
+    token: str | None = None
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+    if not token:
+        token = (request.query_params.get("token") or "").strip() or None
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "missing_authorization", "message": "Training stream requires authentication"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        return get_jwt_auth().verify_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
+
+
 def map_progress_status(raw: str | None, *, job_status: str | None = None) -> str:
     """Normalize job/event status into TrainingProgress vocabulary."""
     value = (raw or job_status or "idle").strip().lower()
@@ -91,6 +122,7 @@ def map_progress_status(raw: str | None, *, job_status: str | None = None) -> st
 
 __all__ = [
     "allow_skip_resource_check",
+    "authenticate_training_sse",
     "authenticate_training_websocket",
     "history_authority",
     "map_progress_status",
