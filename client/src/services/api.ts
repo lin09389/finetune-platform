@@ -16,6 +16,35 @@ const getApiBaseUrl = () => {
 // Export base URL for other modules.
 export const API_BASE_URL = getApiBaseUrl();
 
+/**
+ * Read JWT auth token from localStorage if available.
+ * Returns null when no token is stored (e.g. local dev with ENABLE_AUTH=false).
+ * Backend SSE/WS endpoints accept `?token=` query param since EventSource API
+ * does not support custom Authorization headers.
+ */
+const AUTH_TOKEN_STORAGE_KEY = 'trae_auth_token';
+
+export const getAuthToken = (): string | null => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Append `?token=...` (or `&token=...`) to a URL if an auth token is available.
+ * Returns the original URL unchanged when no token is stored, preserving
+ * backward compatibility with ENABLE_AUTH=false deployments.
+ */
+export const appendTokenToUrl = (url: string): string => {
+  const token = getAuthToken();
+  if (!token) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+};
+
 export const getAgentTerminalWebSocketUrl = (terminalId: string): string => {
   const base = API_BASE_URL.replace(/^http/i, 'ws').replace(/\/$/, '');
   return `${base}/agent-terminals/${encodeURIComponent(terminalId)}/ws`;
@@ -159,8 +188,11 @@ async function delay(ms: number): Promise<void> {
 
 function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
   const exponentialDelay = baseDelay * Math.pow(2, attempt);
-  const jitter = Math.random() * 100;
-  return Math.min(exponentialDelay + jitter, maxDelay);
+  // P2-1: ±20% proportional jitter — for large delays (e.g. 30s) this spreads
+  // reconnections across a 12s window, avoiding thundering-herd reconnect storms.
+  // Fixed 0-100ms jitter was insufficient for large base delays.
+  const jitter = exponentialDelay * 0.2 * (Math.random() * 2 - 1);
+  return Math.min(Math.max(100, exponentialDelay + jitter), maxDelay);
 }
 
 function isRetryableError(error: any): boolean {
@@ -2163,7 +2195,7 @@ export const subscribeTrainingProgress = (
   const config = { ...defaultRetryConfig, ...retryConfig };
 
   const connect = () => {
-    eventSource = new EventSource(`${API_BASE_URL}/training/progress/stream`);
+    eventSource = new EventSource(appendTokenToUrl(`${API_BASE_URL}/training/progress/stream`));
 
     eventSource.onmessage = (event) => {
       try {
@@ -2225,7 +2257,7 @@ export const subscribeTrainingLogs = (
     const url = suppressHistory
       ? `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=0`
       : `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=${history}`;
-    eventSource = new EventSource(url);
+    eventSource = new EventSource(appendTokenToUrl(url));
 
     eventSource.onmessage = (event) => {
       if (!event.data) return;
@@ -2250,7 +2282,8 @@ export const subscribeTrainingLogs = (
       eventSource = null;
 
       if (retryCount < maxRetries) {
-        const delay = Math.min(baseDelay * Math.pow(2, retryCount), 30000);
+        // P2-1: 复用 calculateBackoff 获得 ±20% jitter,避免多客户端同步重连
+        const delay = calculateBackoff(retryCount, baseDelay, 30000);
         retryCount++;
         suppressHistory = true;
         retryTimer = setTimeout(connect, delay);
@@ -2356,6 +2389,8 @@ export const subscribeTrainingEventsV2 = (
     const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams();
     if (lastEventId) params.set('last_event_id', lastEventId);
+    const authToken = getAuthToken();
+    if (authToken) params.set('token', authToken);
     const qs = params.toString();
     const wsUrl = `${wsProtocol}//${url.host}/training/v2/ws/${encodeURIComponent(taskId)}${qs ? `?${qs}` : ''}`;
     ws = new WebSocket(wsUrl);
@@ -2409,6 +2444,8 @@ export const subscribeTrainingEventsV2 = (
     const params = new URLSearchParams();
     if (options.taskId) params.set('task_id', options.taskId);
     if (lastEventId) params.set('last_event_id', lastEventId);
+    const authToken = getAuthToken();
+    if (authToken) params.set('token', authToken);
     const qs = params.toString();
     eventSource = new EventSource(`${API_BASE_URL}/training/v2/events/stream${qs ? `?${qs}` : ''}`);
     refreshHeartbeatTimeout();
