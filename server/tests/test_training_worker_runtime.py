@@ -62,6 +62,10 @@ def test_worker_executes_claimed_job_and_persists_terminal_record(tmp_path):
         return record
 
     worker = TrainingWorker(repo, settings=_settings(tmp_path), worker_id="worker-a", executor=executor)
+    # P0-3: dispatch 通过 self.executors.get(job.backend, self.executor) 派发,
+    # 对 backend="native" 任务会命中 self.executors["native"],绕过构造参数
+    # executor。必须直接 patch executors dict(同 PR25 修复模式)。
+    worker.executors["native"] = executor
     assert worker.run_once() is True
 
     job = repo.get_job("job")
@@ -79,6 +83,7 @@ def test_worker_failure_is_terminal_and_does_not_escape_poll_loop(tmp_path):
         raise RuntimeError("simulated CUDA OOM")
 
     worker = TrainingWorker(repo, settings=_settings(tmp_path), worker_id="worker-a", executor=executor)
+    worker.executors["native"] = executor  # 同上,绕过 dispatch 的 fallback
     assert worker.run_once() is True
     job = repo.get_job("job")
     assert job.status == "failed"
@@ -106,6 +111,7 @@ def test_worker_pipeline_events_are_persisted_for_control_plane_replay(tmp_path)
 
     try:
         worker = TrainingWorker(repo, settings=_settings(tmp_path), worker_id="worker-a", executor=executor)
+        worker.executors["native"] = executor  # 同上,绕过 dispatch 的 fallback
         assert worker.run_once() is True
     finally:
         reset_training_event_hub_v2()
@@ -128,6 +134,7 @@ def test_running_worker_observes_durable_cancellation_request(tmp_path):
         return record
 
     worker = TrainingWorker(repo, settings=_settings(tmp_path), worker_id="worker-a", executor=executor)
+    worker.executors["native"] = executor  # 同上,绕过 dispatch 的 fallback
     thread = threading.Thread(target=worker.run_once)
     thread.start()
     assert started.wait(2)
