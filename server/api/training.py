@@ -25,6 +25,7 @@ from services.training.orchestrator import resolve_dataset_file, start_training_
 from services.training.paths import resolve_training_metrics_file, resolve_training_output_dir as resolve_output_path
 from services.training.policy import (
     allow_skip_resource_check,
+    authenticate_training_sse,
     authenticate_training_websocket,
     require_training_operator,
 )
@@ -200,7 +201,8 @@ async def get_progress():
 @router.get("/progress/stream")
 async def progress_stream(
     timeout: int = Query(default=300, ge=30, le=3600),
-    heartbeat: int = Query(default=30, ge=10, le=120)
+    heartbeat: int = Query(default=30, ge=10, le=120),
+    _user=Depends(authenticate_training_sse),
 ):
     """SSE 进度流"""
     from core.training_gateway import get_training_gateway
@@ -225,6 +227,7 @@ async def stream_training_events_v2(
     sse_last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     timeout: int = Query(default=300, ge=30, le=3600),
     heartbeat: int = Query(default=15, ge=5, le=120),
+    _user=Depends(authenticate_training_sse),
 ):
     """训练事件流 V2（SSE）"""
     import time
@@ -482,19 +485,15 @@ async def start_swift_training(
     config: TrainingConfigInput,
     _user=Depends(require_training_operator),
 ):
-    """使用 SWIFT 框架启动训练（保持原有逻辑）"""
+    """使用 SWIFT 框架启动训练
+
+    P0-3: worker 模式下 SWIFT 任务下沉到持久化队列,与 native 共享
+    lease/heartbeat/recovery 语义;in_process 模式保持原有直调 SwiftBackend
+    的执行路径。
+    """
     from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
     settings = get_settings()
-    if _worker_mode():
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "SWIFT training is not available while TRAINING_EXECUTION_MODE=worker. "
-                "Use POST /training/start (native durable worker) or set "
-                "TRAINING_EXECUTION_MODE=in_process for SWIFT compatibility."
-            ),
-        )
     state = get_training_context().state
 
     swift_backend = get_swift_backend()
@@ -516,6 +515,25 @@ async def start_swift_training(
     dataset_file = resolve_dataset_file(settings, config.dataset_id)
     if not dataset_file:
         raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
+
+    # P0-3: in worker mode, route SWIFT through the durable queue so it shares
+    # lease/heartbeat/recovery with native tasks. The Worker dispatches to
+    # ``TrainingWorker._execute_swift`` based on ``job.backend == "swift"``.
+    if _worker_mode():
+        # Mark method with swift_ prefix so orchestrator infers backend="swift".
+        swift_config = TrainingConfigInput(**config.model_dump())
+        if not str(swift_config.method).startswith("swift"):
+            swift_config.method = f"swift_{swift_config.method}"
+        return start_training_task(
+            config=swift_config,
+            state=state,
+            settings=settings,
+            model_path=model_path,
+            dataset_file=dataset_file,
+            use_queue=False,
+            priority="normal",
+            backend="swift",
+        )
 
     resource_check = pre_training_resource_check(
         required_vram_gb=4.0 if config.method == "qlora" else 8.0,
@@ -791,7 +809,11 @@ async def get_failure_analytics():
 
 
 @router.get("/logs/stream/{task_id}")
-async def stream_training_logs(task_id: str, history: int = Query(default=50, ge=0, le=500)):
+async def stream_training_logs(
+    task_id: str,
+    history: int = Query(default=50, ge=0, le=500),
+    _user=Depends(authenticate_training_sse),
+):
     """SSE 流式传输训练日志"""
     if _worker_mode():
         repository = _training_job_repository()
