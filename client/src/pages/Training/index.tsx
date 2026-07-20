@@ -38,7 +38,12 @@ import HyperparameterPanel from './components/HyperparameterPanel';
 import TrainingDashboard from './components/TrainingDashboard';
 import { buildTrainingPreflightFingerprint } from './trainingInsights';
 import { useTrainingEventStreamV2 } from './useTrainingEventStreamV2';
+import { checkSwift } from '../../services/swiftApi';
 import layoutStyles from './Training.module.css';
+
+// P3-1: V2 SSE 流活跃度判定阈值。超过此阈值未收到 V2 事件则回退到轮询。
+// 20s 是经验值:V2 流通常每 1-5s 推送一次,20s 容忍网络抖动与短 stall。
+const V2_FRESHNESS_MS = 20_000;
 
 interface ChartDataPoint {
   step: number;
@@ -200,7 +205,8 @@ const TrainingPage: React.FC = () => {
   const [preflightFingerprint, setPreflightFingerprint] = useState<string | null>(null);
 
   const [useSwift, setUseSwift] = useState(false);
-  const swiftAvailable = false;
+  // P3-1: swiftAvailable 改为动态查询 /training/check-swift
+  const [swiftAvailable, setSwiftAvailable] = useState(false);
   const [precisionPreset, setPrecisionPreset] = useState<'max' | 'balanced' | 'fast'>('balanced');
   const [memoryPreset, setMemoryPreset] = useState<'auto' | '6gb' | '8gb' | '12gb'>('auto');
   const useFlashAttn = false;
@@ -237,6 +243,21 @@ const TrainingPage: React.FC = () => {
       datasetId: watchedDatasetId,
     });
   }, [setTrainingSelection, watchedDatasetId, watchedModelId]);
+
+  // P3-1: mount 时查询 SWIFT 可用性,失败保持 false 不影响 native 训练
+  useEffect(() => {
+    let cancelled = false;
+    checkSwift<{ available?: boolean }>()
+      .then((res) => {
+        if (!cancelled) setSwiftAvailable(Boolean(res?.available));
+      })
+      .catch(() => {
+        // 不可用保持 false,不影响 native 训练
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const syncTrainingCatalog = useCallback(async () => {
     if (backendStatus !== 'connected') return;
@@ -343,7 +364,7 @@ const TrainingPage: React.FC = () => {
   }, [lastV2EventAt]);
 
   const checkTrainingStatus = useCallback(async () => {
-    const recentV2Signal = Date.now() - lastV2EventAtRef.current < 20000;
+    const recentV2Signal = Date.now() - lastV2EventAtRef.current < V2_FRESHNESS_MS;
     try {
       const data = await getTrainingStatus();
       setBackendTraining(data.is_training);
