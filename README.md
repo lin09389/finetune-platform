@@ -262,6 +262,7 @@ Phase 16 是 Coding Agent 与训练助手核心闭环的大致完成点；Phase 
 - 并行 Coding 任务尚未默认拥有独立 Git Worktree，合并与回退体验仍在路线图中。
 - Trace-to-Train、公开扩展生态和团队版适配器尚未完成。
 - CUA、MCP、Gateway、Heartbeat 等仍是 Experimental，不应视为稳定默认能力。
+- **受管工具编排（controlled 模式）默认 opt-in**：生产默认 `legacy`（DeepAgents 内置工具）；controlled 需显式 `AGENT_TOOL_ORCHESTRATION_MODE=controlled` 或 session metadata `orchestration_mode=controlled` 启用，此时平台受管工具经 Tool Gateway 强制、legacy `execute` 入口被封堵。回滚 = 改回 `legacy`（仅影响新会话）。真实模型编码金路径尚未端到端回归，手动冒烟见 `server/scripts/run_controlled_build_smoke.py`。
 
 ## 文档入口
 

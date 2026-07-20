@@ -524,6 +524,22 @@ Only after controlled Build is stable:
 7. explicit Train/Hybrid migration;
 8. Workbench redesign and any SSE-to-WebSocket transport decision.
 
+## Status (2026-07-19)
+
+Task 9A-9D-1 landed (commits `4e6faea`..`29d80b1`):
+
+- 9A: read/search/git-read platform builtins registered.
+- 9B: write/edit platform builtins registered.
+- 9C: managed execute/run_tests + `PlatformShellBackend` controlled deny (resolves the Task-5 execute blocker for the platform backend).
+- 9D-1: `gateway_tools` adapter wraps the Tool Gateway as DeepAgents `StructuredTool`s; `_apply_controlled_cutover` substitutes them for the legacy built-ins with a startup gate that falls back to legacy on any missing exclusion.
+
+**Controlled mode is opt-in**: `settings.agent_tool_orchestration_mode` defaults to `legacy`; controlled requires explicit `metadata.orchestration_mode=controlled` or the `AGENT_TOOL_ORCHESTRATION_MODE=controlled` setting. Production default behaviour is unchanged. Rollback = set the mode back to `legacy` (affects only new sessions; running sessions keep their creation mode).
+
+**Current limitations**:
+- `task` and `write_todos` are excluded from the controlled catalog (Task-5 UNSUPPORTED); subagent orchestration is deferred to Task 12.
+- Real-model coding golden-path regression has not been run end-to-end; `server/scripts/run_controlled_build_smoke.py` is a manual smoke (not CI).
+- Phase routing (Task 11) is not yet implemented.
+
 ## Final acceptance
 
 - DeepAgents is still the only production model/tool iteration loop.

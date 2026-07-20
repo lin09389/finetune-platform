@@ -260,6 +260,7 @@ Phase 16 is the approximate completion point for the Coding Agent + training-ass
 - Parallel Coding tasks do not yet receive isolated Git worktrees by default.
 - Trace-to-Train, public extensions, and team-edition adapters are not complete.
 - CUA, MCP, Gateway, and Heartbeat remain Experimental.
+- **Managed tool orchestration (controlled mode) is opt-in**: production defaults to `legacy` (DeepAgents built-in tools); controlled requires explicit `AGENT_TOOL_ORCHESTRATION_MODE=controlled` or session metadata `orchestration_mode=controlled`, under which platform-managed tools are enforced through the Tool Gateway and the legacy `execute` entry is blocked. Roll back by setting the mode back to `legacy` (affects only new sessions). A real-model coding golden-path regression has not been run end-to-end; see `server/scripts/run_controlled_build_smoke.py` for a manual smoke.
 
 ## Documentation
 
