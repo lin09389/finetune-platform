@@ -25,6 +25,44 @@ logger = logging.getLogger(__name__)
 TrainingExecutor = Callable[[TrainingJob, threading.Event], dict[str, Any] | None]
 
 
+def _convert_config_to_swift(config: TrainingConfigInput, output_path: str) -> "SwiftTrainConfig":
+    """P0-3: Build a SwiftTrainConfig from a TrainingConfigInput.
+
+    Field defaults mirror the historical /start-swift endpoint mapping at
+    ``api/training.py`` so behaviour is preserved when SWIFT tasks sink into
+    the worker queue. Missing fields fall back to SwiftTrainConfig defaults.
+    """
+    from backends.swift_backend import SwiftTrainConfig
+
+    method = config.method
+    # Strip the "swift_" prefix that the API layer adds for backend disambiguation
+    if method.startswith("swift_"):
+        method = method[len("swift_"):]
+
+    return SwiftTrainConfig(
+        model_id=config.model_id,
+        dataset_id=config.dataset_id,
+        method=method,
+        learning_rate=config.learning_rate,
+        epochs=config.epochs,
+        batch_size=config.batch_size,
+        gradient_accumulation=config.gradient_accumulation,
+        max_seq_length=config.max_seq_length,
+        lora_rank=getattr(config, "rank", 8),
+        lora_alpha=getattr(config, "alpha", 16),
+        lora_dropout=0.05,
+        quantization_bit=config.quantization if method == "qlora" else 0,
+        output_dir=output_path,
+        save_steps=config.save_steps,
+        logging_steps=config.logging_steps,
+        warmup_steps=config.warmup_steps,
+        warmup_ratio=0.1,
+        weight_decay=0.01,
+        max_grad_norm=1.0,
+        val_size=0.0,
+    )
+
+
 class _DurableTrainingLogHandler(logging.Handler):
     def __init__(self, repository: TrainingJobRepository, task_id: str):
         super().__init__(level=logging.INFO)
@@ -59,6 +97,12 @@ class TrainingWorker:
         self.settings = settings or get_settings()
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self.executor = executor or self._execute_native
+        # P0-3: dispatch by job.backend — SWIFT tasks sink into the durable queue
+        # alongside native ones so they share lease/heartbeat/recovery semantics.
+        self.executors: dict[str, TrainingExecutor] = {
+            "native": self._execute_native,
+            "swift": self._execute_swift,
+        }
         self._stop = threading.Event()
         self._current_cancel = threading.Event()
 
@@ -112,7 +156,11 @@ class TrainingWorker:
         logging.getLogger().addHandler(durable_log_handler)
         error: str | None = None
         try:
-            record = self.executor(job, self._current_cancel) or dict(job.record)
+            # P0-3: dispatch to backend-specific executor (native or swift).
+            # Falls back to self.executor for backends not in the registry
+            # (preserves backward compatibility for custom executor injection).
+            executor = self.executors.get(job.backend, self.executor)
+            record = executor(job, self._current_cancel) or dict(job.record)
             status = str(record.get("status") or "completed")
             if status not in {"completed", "failed", "stopped", "cancelled", "interrupted"}:
                 status = "failed"
@@ -160,15 +208,42 @@ class TrainingWorker:
     def _monitor_job(self, job_id: str, monitor_stop: threading.Event) -> None:
         interval = self.settings.training_worker_heartbeat_seconds
         gpu_lease_seconds = max(float(self.settings.training_worker_lease_seconds) * 4.0, 60.0)
+        # P0-2: heartbeat resilience — exponential backoff + max consecutive failures
+        # guards against transient DB locks (sqlite3.OperationalError) silently
+        # killing the monitor thread and leaving the job without lease protection.
+        MAX_FAILURES = 5
+        BASE_BACKOFF = 1.0
+        MAX_BACKOFF = 30.0
+        consecutive_failures = 0
         while not monitor_stop.wait(interval):
-            self.repository.heartbeat_worker(self.worker_id)
-            if not self.repository.heartbeat(
-                job_id,
-                self.worker_id,
-                lease_seconds=self.settings.training_worker_lease_seconds,
-            ):
-                self._current_cancel.set()
-                return
+            try:
+                self.repository.heartbeat_worker(self.worker_id)
+                if not self.repository.heartbeat(
+                    job_id,
+                    self.worker_id,
+                    lease_seconds=self.settings.training_worker_lease_seconds,
+                ):
+                    self._current_cancel.set()
+                    return
+                consecutive_failures = 0  # success resets the backoff window
+            except Exception as exc:
+                consecutive_failures += 1
+                backoff = min(BASE_BACKOFF * (2 ** (consecutive_failures - 1)), MAX_BACKOFF)
+                logger.warning(
+                    "Heartbeat failed for %s (attempt %d/%d): %s; backing off %.1fs",
+                    job_id, consecutive_failures, MAX_FAILURES, exc, backoff,
+                )
+                if consecutive_failures >= MAX_FAILURES:
+                    logger.error(
+                        "Heartbeat failed %d consecutive times for %s, requesting cancel",
+                        consecutive_failures, job_id,
+                    )
+                    self._current_cancel.set()
+                    return
+                # Backoff — wait() returns True immediately if monitor_stop is set
+                if monitor_stop.wait(backoff):
+                    return
+                continue
             try:
                 from core.gpu_coordination import renew_training_gpu
 
@@ -219,6 +294,69 @@ class TrainingWorker:
         finally:
             cancellation_stop.set()
             cancellation_thread.join(timeout=1.0)
+            state.queue_training_state(False)
+            state.unregister_training_task(job.job_id)
+
+    def _execute_swift(self, job: TrainingJob, cancel_event: threading.Event) -> dict[str, Any]:
+        """P0-3: SWIFT executor sunk into the durable Worker queue.
+
+        Mirrors ``_execute_native``'s state-bridging contract (C5):
+        ``set_current_record`` + ``queue_training_state(True)`` + ``register_training_task``
+        so that progress/heartbeat/cancel observers see this task identically.
+        """
+        from backends.swift_backend import SwiftTrainConfig, get_swift_backend
+        from pathlib import Path
+
+        config = TrainingConfigInput(**job.config)
+        config.output_path = job.output_path
+        record = TrainingRecord(**job.record)
+        state = get_training_context().state
+        state.clear_stop_request()
+        state.set_current_record(record)
+        state.queue_training_state(True)
+        state.register_training_task(job.job_id, threading.current_thread())
+
+        swift_config = _convert_config_to_swift(config, job.output_path)
+        backend = get_swift_backend()
+        if not backend.is_available():
+            raise RuntimeError("SWIFT framework is not installed (pip install ms-swift -U)")
+
+        log_dir = Path(job.output_path) / "swift_logs"
+        if not backend.start_training(swift_config, log_dir, job.job_id):
+            raise RuntimeError(
+                "SWIFT start_training returned False — another SWIFT process may be running "
+                "(SwiftBackend is a singleton with a single process slot)"
+            )
+
+        try:
+            # Poll process status until exit or cancel. cancel_event is set by
+            # _monitor_job when the lease is lost or the user requests cancel.
+            while not cancel_event.wait(2.0):
+                status = backend.get_training_status()
+                if status.get("status") != "running":
+                    break
+            if cancel_event.is_set():
+                backend.stop_training()
+
+            final = backend.get_training_status()
+            final_status = final.get("status", "failed")
+            if final_status == "completed":
+                record.status = "completed"
+                record.end_time = __import__("datetime").datetime.now().isoformat()
+                record.checkpoint_path = str(Path(job.output_path) / "adapter_model")
+                record.adapter_path = record.checkpoint_path
+            elif final_status == "failed":
+                record.status = "failed"
+                record.end_time = __import__("datetime").datetime.now().isoformat()
+                log_tail = backend.get_log_tail(20)
+                record.error = "\n".join(log_tail) if log_tail else "SWIFT process exited non-zero"
+            else:
+                record.status = "failed"
+                record.end_time = __import__("datetime").datetime.now().isoformat()
+                record.error = f"SWIFT ended in unexpected status: {final_status}"
+            backend.cleanup()
+            return record.model_dump()
+        finally:
             state.queue_training_state(False)
             state.unregister_training_task(job.job_id)
 
