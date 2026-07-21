@@ -20,6 +20,7 @@ from agent_session.phase_controller import (
     apply_verification_outcome,
     controlled_phase_routing_requires_fail_closed,
     initial_build_phase_state,
+    parse_phase_state,
     queue_steering_message,
     restore_build_phase_state,
     serialize_phase_state,
@@ -246,3 +247,74 @@ def test_train_prompt_does_not_initialize_build_phase_routing(tmp_path: Path):
     assert response.status == "running"
     assert "phase_state" not in response.metadata
     assert "phase_tool_projection" not in response.metadata
+
+
+def test_phase_control_updates_on_whitelisted_events_and_dedupes(tmp_path: Path):
+    async def model_call(_messages: list[dict[str, str]]) -> str:
+        return json.dumps(_valid_goal_plan_payload(), ensure_ascii=False)
+
+    service = AgentSessionService(
+        AgentSessionRepository(str(tmp_path / "agents.db")),
+        model_call=model_call,
+    )
+    session = service.create_session(AgentSessionCreate(title="build", project_path=str(Path.cwd())))
+    service.start_prompt_background(session.id, AgentPromptRequest(content="run"), BackgroundTasks())
+    stored = service.repository.get_session(session.id)
+    assert stored
+    revision = stored["metadata"]["phase_state"]["revision"]
+
+    asked = service.repository.add_event(
+        session.id,
+        "permission_asked",
+        "approval needed",
+        {"session_id": session.id, "part_id": "agp_test", "status": "pending"},
+    )
+    service.event_service._notify_event(session.id, asked)
+    after_ask = service.repository.get_session(session.id)
+    assert after_ask["metadata"]["phase_state"]["lifecycle_status"] == "waiting_approval"
+    assert after_ask["metadata"]["phase_state"]["revision"] > revision
+
+    service.event_service._notify_event(session.id, asked)
+    after_dup = service.repository.get_session(session.id)
+    assert after_dup["metadata"]["phase_state"]["revision"] == after_ask["metadata"]["phase_state"]["revision"]
+
+    metadata = dict(after_dup["metadata"])
+    verify_state = parse_phase_state(metadata["phase_state"])
+    assert verify_state is not None
+    metadata["phase_state"] = serialize_phase_state(
+        verify_state.model_copy(update={"current_phase": "verify", "lifecycle_status": "active"})
+    )
+    service.repository.update_session(session.id, metadata=metadata)
+
+    failed = service.repository.add_event(
+        session.id,
+        "phase_verification_failed",
+        "verify failed",
+        {"session_id": session.id, "summary": "pytest failed"},
+    )
+    service.event_service._notify_event(session.id, failed)
+    after_fail = service.repository.get_session(session.id)
+    assert after_fail["metadata"]["phase_state"]["current_phase"] == "implement"
+    assert after_fail["metadata"]["phase_state"]["retry_counters"]["verify"] == 1
+
+
+def test_phase_control_restores_from_metadata_after_reload(tmp_path: Path):
+    async def model_call(_messages: list[dict[str, str]]) -> str:
+        return json.dumps(_valid_goal_plan_payload(), ensure_ascii=False)
+
+    repo = AgentSessionRepository(str(tmp_path / "agents.db"))
+    service = AgentSessionService(repo, model_call=model_call)
+    session = service.create_session(AgentSessionCreate(title="build", project_path=str(Path.cwd())))
+    service.start_prompt_background(session.id, AgentPromptRequest(content="run"), BackgroundTasks())
+
+    boundary = repo.add_event(
+        session.id,
+        "phase_boundary_complete",
+        "inspect done",
+        {"session_id": session.id, "summary": "inspect complete"},
+    )
+    service.event_service._notify_event(session.id, boundary)
+
+    reloaded = AgentSessionService(repo, model_call=model_call)
+    loaded = reloaded.get_session(session.id)
+    assert loaded.metadata["phase_state"]["current_phase"] == "plan"

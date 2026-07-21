@@ -625,3 +625,67 @@ def test_controlled_gateway_facts_clear_require_approval_for(tmp_path: Path):
     # below); here we assert the cutover produced a usable contract surface.
     tool_names = {getattr(t, "name", "") for t in (patched.tools or [])}
     assert "workspace.execute" in tool_names
+
+
+def test_controlled_cutover_applies_inspect_phase_gateway_filter(tmp_path: Path):
+    from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+    from agent_session.phase_controller import initial_build_phase_state, serialize_phase_state
+
+    registry = AgentRegistry()
+    runner = DeepAgentsSessionRunner.__new__(DeepAgentsSessionRunner)
+    runner.repository = _FakeRepo()
+    runner.notify_event = lambda *_a, **_k: None
+    runner.agent_registry = registry
+
+    inspect_state = initial_build_phase_state(
+        metadata={"goal_plan_status": "attached", "execution_plan": {"plan_id": "p1"}, "autonomy_mode": "safe_auto"},
+        session={"agent_id": "build", "metadata": {"autonomy_mode": "safe_auto"}},
+    )
+    metadata = {
+        "orchestration_mode": "controlled",
+        "autonomy_mode": "safe_auto",
+        "phase_state": serialize_phase_state(inspect_state),
+        "phase_tool_projection": {
+            "schema_version": "agent.execution.phase_projection.v1",
+            "phase": "inspect",
+            "routing_mode": "goal_plan",
+            "application": "next_runtime_contract",
+            "allowed_tools": ["read_file", "ls", "glob", "grep"],
+            "denied_tools": ["write_file", "edit_file", "execute"],
+            "blocked_reasons": [],
+            "goal_plan_scope_hints": [],
+            "tightening_proof": {},
+            "runtime_bound": True,
+        },
+    }
+    contract = _contract(metadata=metadata, project_path=str(tmp_path))
+    contract = contract.__class__(
+        **{
+            **contract.__dict__,
+            "phase_projection_application": "next_runtime_contract",
+            "phase_tool_projection": metadata["phase_tool_projection"],
+        }
+    )
+    patched = runner._apply_controlled_cutover(contract, "ctrl-session", str(tmp_path), "build", metadata)
+    gateway_names = {getattr(tool, "name", "") for tool in patched.tools or []}
+    assert "workspace.read_file" in gateway_names
+    assert "workspace.write_file" not in gateway_names
+    assert "workspace.edit_file" not in gateway_names
+    assert "workspace.execute" not in gateway_names
+
+
+def test_gateway_tool_structures_empty_allowlist_exposes_no_tools():
+    from tool_platform.builtins import platform_builtin_registry
+    from tool_platform.builtins.gateway_tools import build_gateway_tool_structures
+    from tool_platform.gateway import ToolGateway
+    from tool_platform.policy import ToolPolicyFacts
+
+    gateway = ToolGateway(platform_builtin_registry(), lambda *_a, **_k: None, handlers={})
+    tools = build_gateway_tool_structures(
+        gateway=gateway,
+        registry=platform_builtin_registry(),
+        facts=ToolPolicyFacts(runtime_kind="agent_session", enabled_capabilities=frozenset({"deepagents"})),
+        agent_id="build",
+        allowed_tool_names=frozenset(),
+    )
+    assert tools == []

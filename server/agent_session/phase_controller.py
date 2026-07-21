@@ -383,9 +383,9 @@ def apply_phase_control_event(state: PhaseState, event: dict[str, Any]) -> Phase
     if state.terminal:
         return state
 
-    if event_type == "verification_failed":
+    if event_type in {"verification_failed", "phase_verification_failed"}:
         return apply_verification_outcome(state, success=False, evidence=evidence)
-    if event_type == "verification_passed":
+    if event_type in {"verification_passed", "phase_verification_passed"}:
         return apply_verification_outcome(state, success=True, evidence=evidence)
     if event_type == "phase_boundary_complete":
         return advance_phase(state, reason="phase_boundary_complete", evidence=evidence, event_revision=event_revision)

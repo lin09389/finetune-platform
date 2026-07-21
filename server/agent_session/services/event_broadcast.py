@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from agent_session.events import TASK_CONTEXT_INITIALIZED_EVENT
 from agent_session.execution_plan_events import apply_execution_event_to_session
 from agent_session.models import AgentArtifactResponse, AgentSessionPreferences
+from agent_session.phase_control_events import apply_phase_control_event_to_session
 
 if TYPE_CHECKING:
     from agent_session.service import AgentSessionService
@@ -28,6 +29,12 @@ class EventBroadcastService:
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         apply_execution_event_to_session(self.service.repository, session_id, event)
+        apply_phase_control_event_to_session(
+            self.service.repository,
+            session_id,
+            event,
+            agent_registry=self.service.agent_registry,
+        )
         self._clear_recovery_latches_for_event(session_id, event)
         # Persist tool/recovery metrics before fan-out so live UI can read them
         # from the same event payload (and so workspace refresh is not racing).

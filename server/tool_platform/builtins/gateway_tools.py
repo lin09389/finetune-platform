@@ -73,12 +73,18 @@ def build_gateway_tool_structures(
     facts: ToolPolicyFacts,
     agent_id: str,
     enforcement_capability: DeepAgentsEnforcementCapability = DeepAgentsEnforcementCapability.HIDDEN_AND_ENFORCED,
+    allowed_tool_names: frozenset[str] | None = None,
 ) -> list[Any]:
     """Return DeepAgents ``StructuredTool`` wrappers for every visible platform tool.
 
     Each tool is exposed under its DeepAgents-compatible alias (e.g.
     ``read_file``) so the model-facing surface is seamless.  Invocations are
     routed through ``gateway.invoke`` with the session's policy facts.
+
+    ``allowed_tool_names``:
+    - ``None``: no phase filter (all registry-visible tools).
+    - empty frozenset: expose no gateway tools (fail-closed phase surface).
+    - non-empty: keep tools whose canonical name or DeepAgents alias is listed.
 
     The coroutine accepts the LLM-assigned ``tool_call_id`` (forwarded by
     :class:`_ToolCallIdAwareStructuredTool`) so that an interrupt/resume replay
@@ -87,9 +93,13 @@ def build_gateway_tool_structures(
     cache and every approval-bound tool would loop forever.
     """
     visible = registry.project(_projection_context(agent_id))
+    if allowed_tool_names is not None and not allowed_tool_names:
+        return []
     tools: list[Any] = []
 
     for definition in visible:
+        if allowed_tool_names is not None and not _definition_allowed(definition, allowed_tool_names):
+            continue
         meta = definition.meta
         # The StructuredTool is exposed under its namespaced canonical name
         # (e.g. ``workspace.read_file``), NOT its DeepAgents-compatible alias.
@@ -135,6 +145,13 @@ def build_gateway_tool_structures(
         )
 
     return tools
+
+
+def _definition_allowed(definition: Any, allowed_tool_names: frozenset[str]) -> bool:
+    meta = definition.meta
+    if meta.canonical_name in allowed_tool_names:
+        return True
+    return any(str(alias) in allowed_tool_names for alias in definition.aliases)
 
 
 __all__ = ["build_gateway_tool_structures"]

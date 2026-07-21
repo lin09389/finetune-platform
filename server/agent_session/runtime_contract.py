@@ -229,14 +229,12 @@ class AgentRuntimeContract:
         phase_application: Literal["none", "shadow", "next_runtime_contract", "blocked"] = "none"
         if phase_tool_projection is not None:
             phase_application = phase_tool_projection.application
-            if (
-                phase_application == "next_runtime_contract"
-                and orchestration_mode == "controlled"
-                and phase_tool_projection.allowed_tools
-                and not phase_tool_projection.blocked_reasons
-            ):
-                allowed = frozenset(phase_tool_projection.allowed_tools)
-                filtered_tools = _filter_named_tools(filtered_tools, allowed)
+            if phase_application == "next_runtime_contract" and orchestration_mode == "controlled":
+                if phase_tool_projection.application == "blocked":
+                    filtered_tools = []
+                else:
+                    allowed = frozenset(phase_tool_projection.allowed_tools)
+                    filtered_tools = _filter_named_tools(filtered_tools, allowed)
         return cls(
             runtime_kind="agent_session",
             session_id=session_id,

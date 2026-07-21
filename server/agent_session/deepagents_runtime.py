@@ -24,6 +24,7 @@ from .deepagents_events import DeepAgentsEventMapper
 from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .model_adapter import get_chat_model
 from .permission import permission_policy_for_agent
+from .phase_tool_router import parse_phase_tool_projection
 from .runtime import (
     build_deep_agent_runtime,
     prepare_deepagents_files,
@@ -624,11 +625,19 @@ class DeepAgentsSessionRunner:
         # where a SuspendedApprovalAdapter never grants and the model retries.
         interrupt_on = _controlled_interrupt_on(runtime.registry, facts)
         gateway_facts = facts.model_copy(update={"require_approval_for": frozenset()})
+        allowed_tool_names: frozenset[str] | None = None
+        if getattr(contract, "phase_projection_application", "none") == "next_runtime_contract":
+            projection = parse_phase_tool_projection(
+                getattr(contract, "phase_tool_projection", None) or (contract.metadata or {}).get("phase_tool_projection")
+            )
+            if projection is not None:
+                allowed_tool_names = frozenset(projection.allowed_tools)
         gateway_tools = build_gateway_tool_structures(
             gateway=runtime.gateway,
             registry=runtime.registry,
             facts=gateway_facts,
             agent_id=agent_id,
+            allowed_tool_names=allowed_tool_names,
         )
         return _replace_contract_for_controlled(
             contract,
