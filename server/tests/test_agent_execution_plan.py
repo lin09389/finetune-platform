@@ -152,3 +152,17 @@ def test_repair_execution_plan_fixes_bad_invariants():
     assert repaired_duplicate["status"] == "pending"
     assert repaired_duplicate["recovery_action"] is None
     assert repaired_duplicate["recovery_attempts"] == 0
+
+
+def test_validate_execution_plan_warns_on_invalid_goal_plan():
+    plan = build_initial_execution_plan(
+        session={"id": "s1", "agent_id": "build", "status": "running"},
+        policy=_policy(),
+        goal="运行",
+        status="running",
+    )
+    plan["goal_plan"] = {"schema_version": "agent.goal.plan.v1", "goal": "incomplete"}
+
+    warnings = validate_execution_plan(plan)
+
+    assert any("goal_plan invalid" in item for item in warnings)

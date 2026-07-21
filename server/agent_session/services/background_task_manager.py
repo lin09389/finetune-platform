@@ -10,8 +10,13 @@ from typing import TYPE_CHECKING, Any
 from fastapi import BackgroundTasks
 
 from agent_session.errors import AgentConfigurationError
-from agent_session.execution_plan import build_initial_execution_plan
 from agent_session.failure_guard import AgentLoopGuardTriggered
+from agent_session.goal_planner import (
+    GOAL_PLAN_STATUS_ATTACHED,
+    GOAL_PLAN_STATUS_FAILED,
+    attach_goal_plan_before_build_prompt_sync,
+    build_goal_plan_diagnostics,
+)
 from agent_session.models import AgentPromptRequest, AgentSessionResponse
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.services.utils import ensure_failed_metadata
@@ -130,12 +135,45 @@ class BackgroundTaskManagerService:
                 checkpointer=True,
                 agent_registry=self.service.agent_registry,
             )
-            metadata["execution_plan"] = build_initial_execution_plan(
-                session={**session, "provider": effective_provider, "model": effective_model},
+            metadata = attach_goal_plan_before_build_prompt_sync(
+                self.service.model_call_coordinator,
+                metadata=metadata,
+                session={
+                    **session,
+                    "provider": effective_provider,
+                    "model": effective_model,
+                    "metadata": metadata,
+                },
                 policy=policy,
-                goal=request.content,
-                status="running",
+                user_goal=request.content,
+                plan_status="running",
             )
+            goal_plan_status = str(metadata.get("goal_plan_status") or "")
+            if goal_plan_status == GOAL_PLAN_STATUS_ATTACHED:
+                self.service.event_service._event(
+                    session_id,
+                    "goal_plan_attached",
+                    "已生成结构化 Goal Plan，Build 将按该计划推进。",
+                    {
+                        "session_id": session_id,
+                        "summary": "已生成结构化 Goal Plan，Build 将按该计划推进。",
+                        "goal_plan_status": goal_plan_status,
+                        "schema_version": (metadata.get("execution_plan") or {}).get("goal_plan", {}).get("schema_version"),
+                    },
+                )
+            elif goal_plan_status == GOAL_PLAN_STATUS_FAILED:
+                diagnostics = dict(metadata.get("goal_plan_diagnostics") or build_goal_plan_diagnostics(error="unknown", attempts=0))
+                self.service.event_service._event(
+                    session_id,
+                    "goal_plan_failed",
+                    str(diagnostics.get("summary") or "Goal Plan 生成失败，将继续现有 Build 流程。"),
+                    {
+                        "session_id": session_id,
+                        "summary": diagnostics.get("summary"),
+                        "goal_plan_status": goal_plan_status,
+                        "goal_plan_diagnostics": diagnostics,
+                    },
+                )
             if request.active_context or request.explicit_context:
                 metadata["deep_context"] = {
                     "active_context": request.active_context,
@@ -637,7 +675,7 @@ class BackgroundTaskManagerService:
                 logger.exception("Failed to persist Agent shutdown interruption for session %s", session_id)
 
         deadline = asyncio.get_running_loop().time() + max(timeout_seconds, 0.0)
-        for session_id, (loop, task) in task_records.items():
+        for _session_id, (loop, task) in task_records.items():
             if not task.done():
                 loop.call_soon_threadsafe(task.cancel)
         for thread in thread_records.values():

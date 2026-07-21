@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from .goal_plan import GoalPlanValidationError, normalize_goal_plan_document, parse_goal_plan
 from .runtime_policy import AgentRuntimePolicy
 
 PLAN_SCHEMA_VERSION = "agent.execution.plan.v1"
@@ -28,6 +29,7 @@ def build_initial_execution_plan(
     policy: AgentRuntimePolicy,
     goal: str,
     status: str = "running",
+    goal_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = _now()
     session_id = str(session.get("id") or "")
@@ -70,7 +72,7 @@ def build_initial_execution_plan(
             output_contract=policy.output_contract,
         ),
     ]
-    return {
+    plan = {
         **policy.execution_plan.model_dump(),
         "schema_version": PLAN_SCHEMA_VERSION,
         "plan_id": f"plan_{session_id}" if session_id else f"plan_{agent_id}",
@@ -83,6 +85,10 @@ def build_initial_execution_plan(
         "created_at": now,
         "updated_at": now,
     }
+    normalized_goal_plan = normalize_goal_plan_document(goal_plan)
+    if normalized_goal_plan is not None:
+        plan["goal_plan"] = normalized_goal_plan
+    return plan
 
 
 def normalize_execution_plan(
@@ -102,6 +108,12 @@ def normalize_execution_plan(
         plan.setdefault("status", "planned")
         plan["current_node_id"] = plan.get("current_node_id") or _current_node_id(plan["nodes"])
         plan["updated_at"] = _now()
+        if "goal_plan" in raw:
+            normalized_goal_plan = normalize_goal_plan_document(raw.get("goal_plan"))
+            if normalized_goal_plan is not None:
+                plan["goal_plan"] = normalized_goal_plan
+            else:
+                plan.pop("goal_plan", None)
         return plan
     return build_initial_execution_plan(
         session=session,
@@ -154,6 +166,12 @@ def validate_execution_plan(plan: Any) -> list[str]:
             warnings.append(f"edge source missing node: {source}")
         if target and target not in ids:
             warnings.append(f"edge target missing node: {target}")
+    goal_plan_raw = plan.get("goal_plan")
+    if goal_plan_raw is not None:
+        try:
+            parse_goal_plan(goal_plan_raw)
+        except GoalPlanValidationError as exc:
+            warnings.append(f"goal_plan invalid: {exc}")
     return warnings
 
 

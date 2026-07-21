@@ -1,20 +1,44 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
-from fastapi import BackgroundTasks
-
 from agent_session.execution_plan_events import apply_execution_event
 from agent_session.failure_guard import AgentLoopGuardTriggered
-from agent_session.models import AgentExecutionPlanRecoverRequest, AgentPromptRequest, AgentSessionCreate
+from agent_session.models import (
+    AgentExecutionPlanRecoverRequest,
+    AgentPromptRequest,
+    AgentSessionCreate,
+)
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+from fastapi import BackgroundTasks
 
 
 def _service(tmp_path: Path) -> AgentSessionService:
-    return AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    async def model_call(_messages: list[dict[str, str]]) -> str:
+        return json.dumps(
+            {
+                "schema_version": "agent.goal.plan.v1",
+                "goal": "recover execution plan",
+                "constraints": ["preserve recovery semantics"],
+                "phases": [{"id": "recover", "title": "Recover", "summary": "restore the plan", "order": 0}],
+                "work_unit_candidates": [
+                    {"id": "recover_node", "phase_id": "recover", "title": "Recover node", "summary": "retry the failed node"}
+                ],
+                "dependencies": [],
+                "file_scopes": [{"path": "server/agent_session/", "mode": "read_write"}],
+                "verification_requirements": [
+                    {"id": "tests", "description": "run recovery tests", "command": None, "required": True}
+                ],
+                "risk_summaries": [{"id": "recovery", "summary": "preserve existing state", "severity": "medium"}],
+                "retry_policy": {"max_replan_attempts": 1, "max_phase_retries": 1},
+            }
+        )
+
+    return AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")), model_call=model_call)
 
 
 def _session_with_plan(service: AgentSessionService, tmp_path: Path) -> str:
