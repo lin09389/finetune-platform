@@ -689,3 +689,33 @@ def test_gateway_tool_structures_empty_allowlist_exposes_no_tools():
         allowed_tool_names=frozenset(),
     )
     assert tools == []
+
+
+def test_controlled_cutover_blocked_projection_exposes_no_gateway_tools(tmp_path: Path):
+    from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+
+    runner = DeepAgentsSessionRunner.__new__(DeepAgentsSessionRunner)
+    runner.repository = _FakeRepo()
+    runner.notify_event = lambda *_a, **_k: None
+    runner.agent_registry = AgentRegistry()
+
+    metadata = {
+        "orchestration_mode": "controlled",
+        "autonomy_mode": "safe_auto",
+        "phase_tool_projection": {
+            "schema_version": "agent.execution.phase_projection.v1",
+            "phase": "inspect",
+            "routing_mode": "controlled",
+            "application": "blocked",
+            "allowed_tools": [],
+            "denied_tools": [],
+            "blocked_reasons": ["missing_provider"],
+            "goal_plan_scope_hints": [],
+            "tightening_proof": {"fail_closed": True},
+            "runtime_bound": False,
+        },
+    }
+    contract = _contract(metadata=metadata, project_path=str(tmp_path))
+    patched = runner._apply_controlled_cutover(contract, "ctrl-session", str(tmp_path), "build", metadata)
+
+    assert patched.tools == []

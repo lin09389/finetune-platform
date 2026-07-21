@@ -15,6 +15,8 @@ from agent_session.phase_controller import (
 from agent_session.tool_projection import compile_session_tool_projection
 
 PHASE_PROJECTION_SCHEMA_VERSION = "agent.execution.phase_projection.v1"
+PHASE_BOUNDARY_DRIVER_KEY = "phase_boundary_driver"
+SUPPORTED_PHASE_BOUNDARY_DRIVERS = frozenset({"typed_work_unit.v1"})
 
 PhaseProjectionApplication = Literal["none", "shadow", "next_runtime_contract", "blocked"]
 
@@ -161,8 +163,15 @@ def compile_phase_tool_projection(
             denied.append(name)
 
     application: PhaseProjectionApplication
-    if orchestration_mode == "controlled":
+    boundary_driver = str(metadata.get(PHASE_BOUNDARY_DRIVER_KEY) or "").strip()
+    if orchestration_mode == "controlled" and boundary_driver in SUPPORTED_PHASE_BOUNDARY_DRIVERS:
         application = "next_runtime_contract"
+    elif orchestration_mode == "controlled":
+        # Until a durable work-unit boundary producer exists, applying the
+        # Inspect projection would permanently strand a Build session without
+        # write/execute tools. Keep the projection diagnostic-only; Task 12
+        # opts into binding by persisting a supported boundary-driver fact.
+        application = "shadow"
     elif orchestration_mode == "shadow" or routing_mode in {"goal_plan", "execution_plan_fallback", "shadow"}:
         application = "shadow"
     else:
@@ -181,6 +190,7 @@ def compile_phase_tool_projection(
             "intersection": "phase_candidates∩manifest∩policy_snapshot",
             "goal_plan_authority": "diagnostic_only",
             "phase_kinds": sorted(kind.value for kind in phase_kinds),
+            "phase_boundary_driver": boundary_driver or "unavailable",
         },
         runtime_bound=application == "next_runtime_contract",
     )
@@ -248,8 +258,10 @@ def bootstrap_build_phase_routing(
 
 
 __all__ = [
+    "PHASE_BOUNDARY_DRIVER_KEY",
     "PHASE_CANDIDATE_KINDS",
     "PHASE_PROJECTION_SCHEMA_VERSION",
+    "SUPPORTED_PHASE_BOUNDARY_DRIVERS",
     "PhaseProjectionApplication",
     "PhaseToolProjection",
     "compile_phase_tool_projection",

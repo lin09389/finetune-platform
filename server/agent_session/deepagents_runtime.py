@@ -626,12 +626,16 @@ class DeepAgentsSessionRunner:
         interrupt_on = _controlled_interrupt_on(runtime.registry, facts)
         gateway_facts = facts.model_copy(update={"require_approval_for": frozenset()})
         allowed_tool_names: frozenset[str] | None = None
-        if getattr(contract, "phase_projection_application", "none") == "next_runtime_contract":
+        phase_application = getattr(contract, "phase_projection_application", "none")
+        if phase_application == "blocked":
+            allowed_tool_names = frozenset()
+        elif phase_application == "next_runtime_contract":
             projection = parse_phase_tool_projection(
                 getattr(contract, "phase_tool_projection", None) or (contract.metadata or {}).get("phase_tool_projection")
             )
-            if projection is not None:
-                allowed_tool_names = frozenset(projection.allowed_tools)
+            # A missing/invalid projection at an asserted enforcement boundary
+            # is not permission to expose the full registry.
+            allowed_tool_names = frozenset(projection.allowed_tools) if projection is not None else frozenset()
         gateway_tools = build_gateway_tool_structures(
             gateway=runtime.gateway,
             registry=runtime.registry,

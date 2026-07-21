@@ -135,6 +135,71 @@ def test_controlled_missing_facts_fail_closed():
     assert "missing_autonomy_mode" in reasons
 
 
+def test_controlled_phase_projection_stays_shadow_without_boundary_driver():
+    registry = AgentRegistry()
+    metadata = {
+        "autonomy_mode": "safe_auto",
+        "orchestration_mode": "controlled",
+        "execution_plan": {"plan_id": "plan_s1"},
+    }
+    session = {
+        "agent_id": "build",
+        "metadata": metadata,
+        "project_path": str(Path.cwd()),
+        "provider": "openai",
+        "model": "gpt-4.1",
+    }
+    state = initial_build_phase_state(metadata=metadata, session=session)
+
+    projection = compile_phase_tool_projection(
+        agent_registry=registry,
+        agent_id="build",
+        metadata=metadata,
+        session=session,
+        phase_state=state,
+        orchestration_mode="controlled",
+        provider="openai",
+        model="gpt-4.1",
+    )
+
+    assert projection.application == "shadow"
+    assert projection.runtime_bound is False
+    assert projection.tightening_proof["phase_boundary_driver"] == "unavailable"
+
+
+def test_controlled_phase_projection_binds_only_with_typed_boundary_driver():
+    registry = AgentRegistry()
+    metadata = {
+        "autonomy_mode": "safe_auto",
+        "orchestration_mode": "controlled",
+        "phase_boundary_driver": "typed_work_unit.v1",
+        "execution_plan": {"plan_id": "plan_s1"},
+    }
+    session = {
+        "agent_id": "build",
+        "metadata": metadata,
+        "project_path": str(Path.cwd()),
+        "provider": "openai",
+        "model": "gpt-4.1",
+    }
+    state = initial_build_phase_state(metadata=metadata, session=session)
+
+    projection = compile_phase_tool_projection(
+        agent_registry=registry,
+        agent_id="build",
+        metadata=metadata,
+        session=session,
+        phase_state=state,
+        orchestration_mode="controlled",
+        provider="openai",
+        model="gpt-4.1",
+    )
+
+    assert projection.application == "next_runtime_contract"
+    assert projection.runtime_bound is True
+    assert projection.tightening_proof["phase_boundary_driver"] == "typed_work_unit.v1"
+
+
 def test_goal_plan_does_not_expand_manifest_permissions():
     registry = AgentRegistry()
     metadata = {
@@ -198,6 +263,43 @@ def test_shadow_projection_does_not_bind_runtime_tools(tmp_path: Path):
     assert "execute" in tool_names
     assert contract.phase_projection_application == "shadow"
     assert contract.phase_tool_projection["runtime_bound"] is False
+
+
+def test_blocked_projection_clears_contract_tools(tmp_path: Path):
+    contract = AgentRuntimeContract.for_agent_session(
+        session={
+            "id": "s1",
+            "project_path": str(tmp_path),
+            "agent_id": "build",
+            "metadata": {
+                "autonomy_mode": "safe_auto",
+                "orchestration_mode": "controlled",
+                "phase_state": serialize_phase_state(_state()),
+                "phase_tool_projection": {
+                    "schema_version": "agent.execution.phase_projection.v1",
+                    "phase": "inspect",
+                    "routing_mode": "controlled",
+                    "application": "blocked",
+                    "allowed_tools": [],
+                    "denied_tools": [],
+                    "blocked_reasons": ["missing_provider"],
+                    "goal_plan_scope_hints": [],
+                    "tightening_proof": {"fail_closed": True},
+                    "runtime_bound": False,
+                },
+            },
+        },
+        goal="g",
+        model=object(),
+        agent_registry=AgentRegistry(),
+        tools=[type("T", (), {"name": "execute"})(), type("T2", (), {"name": "read_file"})()],
+        middleware=[],
+        subagents=[],
+        checkpointer=False,
+    )
+
+    assert contract.tools == []
+    assert contract.phase_projection_application == "blocked"
 
 
 def test_build_prompt_continues_when_goal_plan_failed_and_initializes_phase_routing(tmp_path: Path):
@@ -318,3 +420,27 @@ def test_phase_control_restores_from_metadata_after_reload(tmp_path: Path):
     reloaded = AgentSessionService(repo, model_call=model_call)
     loaded = reloaded.get_session(session.id)
     assert loaded.metadata["phase_state"]["current_phase"] == "plan"
+
+
+def test_summary_completed_marks_phase_state_terminal(tmp_path: Path):
+    async def model_call(_messages: list[dict[str, str]]) -> str:
+        return json.dumps(_valid_goal_plan_payload(), ensure_ascii=False)
+
+    service = AgentSessionService(
+        AgentSessionRepository(str(tmp_path / "agents.db")),
+        model_call=model_call,
+    )
+    session = service.create_session(AgentSessionCreate(title="build", project_path=str(Path.cwd())))
+    service.start_prompt_background(session.id, AgentPromptRequest(content="run"), BackgroundTasks())
+
+    completed = service.repository.add_event(
+        session.id,
+        "summary_completed",
+        "build finished",
+        {"session_id": session.id, "summary": "done"},
+    )
+    service.event_service._notify_event(session.id, completed)
+
+    stored = service.repository.get_session(session.id)
+    assert stored["metadata"]["phase_state"]["terminal"] is True
+    assert stored["metadata"]["phase_state"]["lifecycle_status"] == "completed"

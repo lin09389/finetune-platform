@@ -27,6 +27,7 @@ PHASE_CONTROL_EVENT_TYPES = frozenset(
         "phase_verification_failed",
         "phase_verification_passed",
         "steering_queued",
+        "session_completed",
         "session_failed",
         "summary_completed",
     }
@@ -58,6 +59,13 @@ def _map_runtime_event_to_phase_event(event: dict[str, Any]) -> dict[str, Any] |
                 "payload": payload,
             }
         return None
+    if event_type == "summary_completed":
+        return {
+            "event_type": "session_completed",
+            "id": event.get("id"),
+            "message": event.get("message"),
+            "payload": payload,
+        }
     if event_type in PHASE_CONTROL_EVENT_TYPES:
         return event
     return None
