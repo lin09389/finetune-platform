@@ -9,6 +9,8 @@ from .agent_registry import AgentRegistry
 from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_manifest_for_agent
 from .execution_context import AgentDefinition
 from .permission import AgentRuntimePermissionPolicy, permission_policy_for_agent
+from .phase_controller import parse_phase_state
+from .phase_tool_router import parse_phase_tool_projection
 from .runtime_policy import AgentRuntimePolicy, build_agent_runtime_policy, enabled_skill_paths
 from .tool_projection import compile_session_tool_projection
 
@@ -171,6 +173,9 @@ class AgentRuntimeContract:
     runtime_policy: AgentRuntimePolicy | None = None
     orchestration_mode: OrchestrationMode = "legacy"
     tool_projection: Any = None
+    phase_state: dict[str, Any] | None = None
+    phase_tool_projection: dict[str, Any] | None = None
+    phase_projection_application: Literal["none", "shadow", "next_runtime_contract", "blocked"] = "none"
 
     @classmethod
     def for_agent_session(
@@ -218,6 +223,20 @@ class AgentRuntimeContract:
             checkpointer=True,
             agent_registry=agent_registry,
         )
+        filtered_tools = permission_policy.filter_named_tools(tools)
+        phase_state = parse_phase_state(metadata.get("phase_state"))
+        phase_tool_projection = parse_phase_tool_projection(metadata.get("phase_tool_projection"))
+        phase_application: Literal["none", "shadow", "next_runtime_contract", "blocked"] = "none"
+        if phase_tool_projection is not None:
+            phase_application = phase_tool_projection.application
+            if (
+                phase_application == "next_runtime_contract"
+                and orchestration_mode == "controlled"
+                and phase_tool_projection.allowed_tools
+                and not phase_tool_projection.blocked_reasons
+            ):
+                allowed = frozenset(phase_tool_projection.allowed_tools)
+                filtered_tools = _filter_named_tools(filtered_tools, allowed)
         return cls(
             runtime_kind="agent_session",
             session_id=session_id,
@@ -231,7 +250,7 @@ class AgentRuntimeContract:
             org_id=org_id,
             agent=agent,
             metadata=metadata,
-            tools=permission_policy.filter_named_tools(tools),
+            tools=filtered_tools,
             permissions=permission_policy.filesystem_permissions(),
             middleware=middleware,
             skills=enabled_skill_paths(runtime_policy),
@@ -244,6 +263,9 @@ class AgentRuntimeContract:
             runtime_policy=runtime_policy,
             orchestration_mode=orchestration_mode,
             tool_projection=tool_projection,
+            phase_state=phase_state.model_dump(mode="json") if phase_state else None,
+            phase_tool_projection=phase_tool_projection.model_dump(mode="json") if phase_tool_projection else None,
+            phase_projection_application=phase_application,
         )
 
     @classmethod
@@ -282,6 +304,17 @@ class AgentRuntimeContract:
             graph_thread_id=runtime_policy.execution_plan.thread_id,
             runtime_policy=runtime_policy,
         )
+
+
+def _filter_named_tools(tools: list[Any], allowed_names: frozenset[str]) -> list[Any]:
+    filtered: list[Any] = []
+    for tool in tools:
+        name = getattr(tool, "name", None)
+        if name is None and isinstance(tool, dict):
+            name = tool.get("name")
+        if name is not None and str(name) in allowed_names:
+            filtered.append(tool)
+    return filtered
 
 
 def normalize_enabled_skill_sources(value: Any) -> list[str] | None:

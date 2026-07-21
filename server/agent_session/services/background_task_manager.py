@@ -18,6 +18,8 @@ from agent_session.goal_planner import (
     build_goal_plan_diagnostics,
 )
 from agent_session.models import AgentPromptRequest, AgentSessionResponse
+from agent_session.phase_tool_router import bootstrap_build_phase_routing
+from agent_session.runtime_contract import resolve_orchestration_mode
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.services.utils import ensure_failed_metadata
 from agent_session.state import ensure_session_state
@@ -172,6 +174,41 @@ class BackgroundTaskManagerService:
                         "summary": diagnostics.get("summary"),
                         "goal_plan_status": goal_plan_status,
                         "goal_plan_diagnostics": diagnostics,
+                    },
+                )
+            if agent_id == "build" and str(metadata.get("task_mode") or session.get("task_mode") or "build") not in {
+                "train",
+                "hybrid",
+            }:
+                metadata = bootstrap_build_phase_routing(
+                    metadata=metadata,
+                    session={
+                        **session,
+                        "provider": effective_provider,
+                        "model": effective_model,
+                        "metadata": metadata,
+                    },
+                    agent_registry=self.service.agent_registry,
+                    orchestration_mode=resolve_orchestration_mode(metadata),
+                    provider=effective_provider,
+                    model=effective_model,
+                )
+                phase_projection = metadata.get("phase_tool_projection") or {}
+                self.service.event_service._event(
+                    session_id,
+                    "phase_routing_initialized",
+                    "Build phase routing initialized.",
+                    {
+                        "session_id": session_id,
+                        "summary": "Build phase routing initialized.",
+                        "phase_state": metadata.get("phase_state"),
+                        "phase_tool_projection": {
+                            "phase": phase_projection.get("phase"),
+                            "routing_mode": phase_projection.get("routing_mode"),
+                            "application": phase_projection.get("application"),
+                            "allowed_tools": phase_projection.get("allowed_tools"),
+                            "blocked_reasons": phase_projection.get("blocked_reasons"),
+                        },
                     },
                 )
             if request.active_context or request.explicit_context:
