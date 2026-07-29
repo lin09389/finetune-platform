@@ -6,6 +6,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [architecture-reference.md](architecture-reference.md) | 架构参考：后端/前端目录树详解、25 条核心设计模式与 API 端点全表（自根 AGENTS.md 迁出） |
 | [PLATFORM_RUNTIME_FOUNDATION.md](PLATFORM_RUNTIME_FOUNDATION.md) | 平台运行时基础 |
 | [backend-application-profiles.md](backend-application-profiles.md) | 后端应用装配边界（combined / agent / finetune） |
 | [dependency-profiles.md](dependency-profiles.md) | 依赖 profile 拆分与 `uv` extras 说明 |
