@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class FileSandbox:
 
         return path
 
-    def read_file(self, file_path: str, max_size: int = None) -> str:
+    def read_file(self, file_path: str, max_size: int | None = None) -> str:
         if max_size is None:
             max_size = self.MAX_FILE_SIZE
 
@@ -160,7 +161,7 @@ class FileSandbox:
         if not dir_path.is_dir():
             raise ValueError(f"不是目录：{directory}")
 
-        files = []
+        files: list[dict[str, Any]] = []
         for item in dir_path.glob(pattern):
             if item.name.startswith('.'):
                 continue

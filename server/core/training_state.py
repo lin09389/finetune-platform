@@ -231,7 +231,9 @@ class TrainingState:
                         if hasattr(self._progress, key):
                             setattr(self._progress, key, value)
             elif update.update_type == 'history_add':
-                self._add_to_history_internal(update.data.get('record'))
+                record = update.data.get('record')
+                if record is not None:
+                    self._add_to_history_internal(record)
         except Exception as e:
             logger.error(f"应用状态更新失败：{e}")
 
@@ -481,7 +483,7 @@ def create_training_state(outputs_dir: Path) -> TrainingState:
     return TrainingState(history_file)
 
 
-def get_training_state(outputs_dir: Path = None) -> TrainingState:
+def get_training_state(outputs_dir: Path | None = None) -> TrainingState:
     """获取训练状态实例"""
     global _training_state
 

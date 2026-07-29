@@ -23,16 +23,24 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from security.runtime_policy import assert_credential_plaintext_fallback_allowed
+
+if TYPE_CHECKING:
+    from security.encryption_storage import EncryptionManager
 
 try:
     import resource
     HAS_RESOURCE = True
 except ImportError:
     HAS_RESOURCE = False
-    resource = None
+    resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+# 凭证加密降级明文事件的稳定日志标识（用于日志关联/告警检索）
+CREDENTIAL_ENCRYPTION_FALLBACK_EVENT = "credential_encryption_fallback_plaintext"
 
 
 DANGEROUS_COMMANDS: set[str] = {
@@ -355,19 +363,29 @@ class CredentialManager:
     安全存储和管理敏感凭证
     """
 
-    def __init__(self, storage_path: Path | None = None):
+    def __init__(self, storage_path: Path | None = None, settings: Any | None = None):
         self.storage_path = storage_path or Path("data/credentials")
         self.storage_path.mkdir(parents=True, exist_ok=True)
+        self._settings = settings
 
         self._credentials: dict[str, Credential] = {}
         self._encryption_key: bytes | None = None
         # 初始化加密管理器用于凭证值加密
+        self._encryption: EncryptionManager | None
         try:
-            from security.encryption_storage import EncryptionManager
-            self._encryption = EncryptionManager()
-        except Exception:
+            from security.encryption_storage import EncryptionManager as _RuntimeEncryptionManager
+            self._encryption = _RuntimeEncryptionManager()
+        except Exception as e:
             self._encryption = None
-            logger.warning("凭证加密不可用，凭证将以明文存储")
+            # production/staging fail-closed：拒绝明文降级（与 JWT/推理密钥语义一致）
+            assert_credential_plaintext_fallback_allowed(
+                self._settings, source="CredentialManager"
+            )
+            logger.warning(
+                "凭证加密不可用，凭证将以明文存储 [event=%s reason=%s]",
+                CREDENTIAL_ENCRYPTION_FALLBACK_EVENT,
+                e,
+            )
 
     def set_encryption_key(self, key: bytes):
         """设置加密密钥"""
@@ -438,12 +456,23 @@ class CredentialManager:
     def _persist_credential(self, credential: Credential):
         """持久化凭证（值字段加密存储）"""
         file_path = self.storage_path / f"{credential.credential_id}.json"
+        # 加密不可用时，production/staging 在写盘前 fail-closed（不进入吞异常的 try）
+        if self._encryption is None:
+            assert_credential_plaintext_fallback_allowed(
+                self._settings, source="CredentialManager._persist_credential"
+            )
         try:
             data = credential.to_dict(include_value=True)
             # 加密凭证值
             if self._encryption and "value" in data:
                 data["value"] = self._encryption.encrypt(data["value"])
                 data["_encrypted"] = True
+            elif "value" in data:
+                logger.warning(
+                    "凭证以明文持久化 [event=%s credential_id=%s]",
+                    CREDENTIAL_ENCRYPTION_FALLBACK_EVENT,
+                    credential.credential_id,
+                )
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -723,8 +752,9 @@ class SandboxManager:
     def list_sandboxes(self) -> list[dict[str, Any]]:
         """列出所有沙箱"""
         return [
-            self.get_sandbox_info(sandbox_id)
+            info
             for sandbox_id in self._executors
+            if (info := self.get_sandbox_info(sandbox_id)) is not None
         ]
 
 

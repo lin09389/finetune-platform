@@ -45,6 +45,15 @@ jobs:
       - name: Ruff (focused gate)
         run: uv run ruff check server --select W291,W293,I001,UP015,UP012 --output-format=github
 
+      # Blocking: server/security/ is fully ruff-clean and must stay that way.
+      - name: Ruff (server/security blocking gate)
+        run: uv run --extra dev --extra agent python -m ruff check server/security/ --output-format=github
+
+      # Blocking: server/security/ (plus its followed core/memory imports) is
+      # mypy-clean and must stay that way.
+      - name: MyPy (server/security blocking gate)
+        run: uv run --extra dev --extra agent python -m mypy server/security/
+
       # Advisory (non-blocking): the full ruff surface still reports
       # pre-existing violations (I001/W293/UP*, 200+) beyond the focused
       # blocking gate above. Kept advisory until the backlog is remediated.

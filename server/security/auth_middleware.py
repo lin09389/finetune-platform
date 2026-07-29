@@ -235,7 +235,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         self.jwt_enabled = jwt_enabled
 
         if rate_limit_enabled:
-            self.rate_limiter_middleware = RateLimitMiddleware(
+            self.rate_limiter_middleware: RateLimitMiddleware | None = RateLimitMiddleware(
                 app,
                 enabled=True,
                 whitelist_ips=rate_limit_whitelist_ips
@@ -244,7 +244,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             self.rate_limiter_middleware = None
 
         if jwt_enabled:
-            self.jwt_middleware = JWTAuthMiddleware(
+            self.jwt_middleware: JWTAuthMiddleware | None = JWTAuthMiddleware(
                 app,
                 enabled=True,
                 exclude_paths=jwt_exclude_paths or {'/api/login', '/api/register', '/health'},

@@ -34,7 +34,7 @@ def get_vram_usage(use_cache: bool = True) -> float:
         if use_cache:
             with _vram_cache_lock:
                 if current_time - _vram_cache["time"] < VRAM_CACHE_TTL:
-                    return _vram_cache["value"]
+                    return float(_vram_cache["value"])
 
         import torch
 
@@ -46,7 +46,7 @@ def get_vram_usage(use_cache: bool = True) -> float:
                     _vram_cache["value"] = value
                     _vram_cache["time"] = current_time
 
-            return value
+            return float(value)
     except Exception as e:
         logger.debug(f"获取 VRAM 使用量失败：{e}")
     return 0.0
@@ -60,7 +60,7 @@ def get_available_memory() -> float | None:
         if torch.cuda.is_available():
             total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
             allocated = torch.cuda.memory_allocated(0) / (1024 ** 3)
-            return total - allocated
+            return float(total - allocated)
     except Exception as e:
         logger.debug(f"获取可用内存失败：{e}")
     return None
@@ -82,7 +82,7 @@ def pre_training_resource_check(
     Returns:
         检查结果和建议
     """
-    result = {
+    result: dict[str, Any] = {
         "passed": True,
         "available_vram": 0.0,
         "required_vram": required_vram_gb,
@@ -164,7 +164,7 @@ def safe_filename(filename: str) -> str:
     return filename.strip()
 
 
-def format_bytes(size: int) -> str:
+def format_bytes(size: float) -> str:
     """格式化字节大小为人类可读格式"""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
         if size < 1024.0:

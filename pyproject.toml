@@ -239,6 +239,7 @@ module = [
     "transformers.*",
     "torch.*",
     "playwright.*",
+    "redis.*",
 ]
 ignore_missing_imports = true
 

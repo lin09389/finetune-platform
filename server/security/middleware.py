@@ -9,6 +9,7 @@
 """
 import json
 import logging
+from typing import Any
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -103,7 +104,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 class ResponseMaskingMiddleware(BaseHTTPMiddleware):
     """响应脱敏中间件"""
 
-    def __init__(self, app: ASGIApp, sensitive_fields: set[str] = None):
+    # 与 SecurityMiddleware 共用同一套敏感字段集合
+    SENSITIVE_FIELDS: set[str] = SecurityMiddleware.SENSITIVE_FIELDS
+
+    def __init__(self, app: ASGIApp, sensitive_fields: set[str] | None = None):
         super().__init__(app)
         self.sensitive_fields = sensitive_fields or set()
         logger.info("响应脱敏中间件已初始化")
@@ -146,7 +150,7 @@ class ResponseMaskingMiddleware(BaseHTTPMiddleware):
         return data
 
     def _mask_dict(self, data: dict) -> dict:
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
 
@@ -175,6 +179,6 @@ def create_security_middleware(app: ASGIApp, enabled: bool = True) -> SecurityMi
 
 def create_response_masking_middleware(
     app: ASGIApp,
-    additional_fields: set[str] = None
+    additional_fields: set[str] | None = None
 ) -> ResponseMaskingMiddleware:
     return ResponseMaskingMiddleware(app, sensitive_fields=additional_fields)

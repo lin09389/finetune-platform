@@ -33,7 +33,7 @@ jobs:
 
       - name: Install backend dependencies
         run: |
-          uv sync --frozen --extra dev
+          uv sync --frozen --extra dev --extra agent
 
       - name: Run smoke tests
         run: |

@@ -260,7 +260,8 @@ class MemoryFileStore:
         meta_path = self._meta_path(path)
         if meta_path.exists():
             try:
-                return json.loads(meta_path.read_text(encoding="utf-8"))
+                meta: dict[str, Any] = json.loads(meta_path.read_text(encoding="utf-8"))
+                return meta
             except Exception:
                 logger.warning("Invalid memory metadata, repairing: %s", meta_path)
         return self._write_meta(path, scope, namespace, writable=scope != MemoryScope.ORG, version=1)
@@ -593,7 +594,7 @@ class MemoryService:
             source=str(memory.get("source") or "compat"),
             metadata=memory.get("metadata") or {},
         )
-        return file_record["id"]
+        return str(file_record["id"])
 
     def get_memory(self, memory_id: str, user_id: str = DEFAULT_USER_ID, increment_access: bool = True) -> dict[str, Any] | None:
         _ = user_id, increment_access

@@ -176,7 +176,7 @@ class AuditLogger:
             resource_id=resource_id,
             action=action,
             details=mask(details or {}),
-            result=mask(result) if isinstance(result, (dict, list, str)) else result,
+            result=mask(result) if isinstance(result, dict | list | str) else result,
             error_message=mask(error_message) if error_message else None,
             duration_ms=duration_ms,
             metadata=mask(metadata or {}),

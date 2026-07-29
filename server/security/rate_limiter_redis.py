@@ -44,7 +44,7 @@ class RedisRateLimiter:
         self.window_seconds = window_seconds
         self.ban_threshold = ban_threshold
         self.ban_duration = ban_duration
-        self._redis = None
+        self._redis: Any = None
         self._memory_store: dict[str, list] = {}
         self._memory_bans: dict[str, float] = {}
 
@@ -157,7 +157,7 @@ class RedisRateLimiter:
     async def is_banned(self, key: str) -> bool:
         if self._redis:
             try:
-                return await self._redis.exists(f"banned:{key}") > 0
+                return bool(await self._redis.exists(f"banned:{key}") > 0)
             except Exception as e:
                 logger.error(f"Redis 检查封禁失败: {e}")
                 return self._check_memory_ban(key)

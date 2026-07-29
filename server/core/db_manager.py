@@ -63,7 +63,7 @@ class DatabaseConnectionPool:
     确保并发请求的协程拥有各自独立的事务环境，避免事务覆盖和死锁。
     """
 
-    def __init__(self, db_path: str = None, max_connections: int = 50):
+    def __init__(self, db_path: str | None = None, max_connections: int = 50):
         # Resolve against server base_dir so API/worker/CLI share one absolute DB
         # regardless of process CWD (Phase 4 ops hygiene).
         if db_path is None:
@@ -372,7 +372,7 @@ def dynamic_update(
         raise ValueError(f"非法表名: {table!r}")
     if not _SAFE_COLUMN_RE.match(pk_col):
         raise ValueError(f"非法主键列名: {pk_col!r}")
-    validate_column_names(fields.keys(), allowed)
+    validate_column_names(list(fields.keys()), allowed)
     assignments = ", ".join(f"{k} = ?" for k in fields)
     sql = f"UPDATE {table} SET {assignments} WHERE {pk_col} = ?"
     values = [_serialize_value(v) for v in fields.values()] + [pk_val]
@@ -436,7 +436,7 @@ def _resolve_pool_db_path(db_path: str | None) -> str:
         return str(candidate.resolve())
 
 
-def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
+def get_db_pool(db_path: str | None = None) -> DatabaseConnectionPool:
     """获取数据库连接池实例（按路径缓存）"""
     global _db_pools
     db_path = _resolve_pool_db_path(db_path)
@@ -481,7 +481,7 @@ def close_all_pools():
 
 
 @contextmanager
-def get_db_connection(db_path: str = None):
+def get_db_connection(db_path: str | None = None):
     """
     获取数据库连接的便捷函数
 

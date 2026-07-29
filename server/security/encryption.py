@@ -101,7 +101,7 @@ class SecureStorage:
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode('utf-8'))
             decrypted = self.cipher.decrypt(encrypted)
-            return decrypted.decode('utf-8')
+            return decrypted.decode('utf-8')  # type: ignore[no-any-return]
         except Exception as e:
             logger.error(f"解密失败：{e}")
             raise
@@ -238,7 +238,8 @@ class SecureStorage:
         key_data = vault.get(f"api_key:{key_id}")
         if not key_data:
             raise KeyError(f"API Key 不存在：{key_id}")
-        return key_data.get('provider', 'unknown')
+        provider: str = key_data.get('provider', 'unknown')
+        return provider
 
     def get_key_data(self, key_id: str) -> dict:
         """
@@ -311,7 +312,8 @@ class SecureStorage:
         if self.vault_file.exists():
             try:
                 with open(self.vault_file, encoding='utf-8') as f:
-                    return json.load(f)
+                    data: dict[str, Any] = json.load(f)
+                    return data
             except Exception as e:
                 logger.error(f"加载保险库失败：{e}")
                 return {}

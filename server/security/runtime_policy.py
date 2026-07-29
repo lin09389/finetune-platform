@@ -85,6 +85,26 @@ def require_configured_jwt_secret(
     )
 
 
+def assert_credential_plaintext_fallback_allowed(
+    settings: Any | None = None,
+    *,
+    source: str = "CredentialManager",
+) -> None:
+    """Reject plaintext credential persistence in production/staging.
+
+    Development keeps the plaintext fallback (with event-tagged logging) when
+    credential encryption fails to initialize; production/staging fail closed,
+    matching JWT_SECRET_KEY / INFERENCE_INTERNAL_API_KEY semantics.
+    """
+    if not is_production_environment(settings):
+        return
+    raise RuntimeError(
+        f"{source}: credential encryption is unavailable; refusing plaintext "
+        "credential persistence in production/staging "
+        "(fix EncryptionManager initialization / key storage)"
+    )
+
+
 def assert_inference_internal_key_safe(settings: Any | None = None) -> None:
     """Reject the hard-coded dev inference key outside development."""
     cfg = _settings_obj(settings)

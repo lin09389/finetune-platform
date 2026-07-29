@@ -68,7 +68,7 @@ class TokenPayload:
     jti: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        data = {
+        data: dict[str, Any] = {
             'user_id': self.user_id,
             'username': self.username,
             'role': self.role.value,

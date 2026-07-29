@@ -3,6 +3,7 @@
 使用 Fernet 对称加密保护敏感数据
 """
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -42,7 +43,7 @@ class EncryptionManager:
     KEY_FILE_NAME = ".encryption_key"
     MIN_ITERATIONS = 100000
 
-    def __init__(self, storage_path: Path = None, password: str = None):
+    def __init__(self, storage_path: Path | None = None, password: str | None = None):
         """
         初始化加密管理器
 
@@ -53,7 +54,7 @@ class EncryptionManager:
         self.storage_path = storage_path or Path.home() / ".finetune" / "security"
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
-        self._fernet: Any | None = None
+        self._fernet: Fernet | None = None
         self._key: bytes | None = None
         self._password = password
 
@@ -80,10 +81,8 @@ class EncryptionManager:
         with open(key_file, "wb") as f:
             f.write(self._key)
 
-        try:
+        with contextlib.suppress(NotImplementedError, OSError):
             os.chmod(key_file, 0o600)
-        except (NotImplementedError, OSError):
-            pass
         logger.info("已生成新的加密密钥")
 
     def _load_key(self, key_file: Path):
@@ -94,7 +93,7 @@ class EncryptionManager:
         self._fernet = Fernet(self._key)
         logger.info("已加载加密密钥")
 
-    def _derive_key_from_password(self, password: str, salt: bytes = None) -> tuple:
+    def _derive_key_from_password(self, password: str, salt: bytes | None = None) -> tuple:
         """从密码派生密钥"""
         if salt is None:
             salt = os.urandom(16)
@@ -163,7 +162,8 @@ class EncryptionManager:
     def decrypt_dict(self, ciphertext: str) -> dict[str, Any]:
         """解密字典"""
         json_str = self.decrypt(ciphertext)
-        return json.loads(json_str)
+        data: dict[str, Any] = json.loads(json_str)
+        return data
 
     def is_encrypted(self, value: str) -> bool:
         """检查值是否已加密"""
@@ -215,7 +215,7 @@ class SecureCredentialStorage:
 
     CREDENTIALS_FILE = "credentials.enc"
 
-    def __init__(self, storage_path: Path = None):
+    def __init__(self, storage_path: Path | None = None):
         """
         初始化安全凭证存储
 
@@ -258,14 +258,12 @@ class SecureCredentialStorage:
             with open(cred_file, "w", encoding="utf-8") as f:
                 f.write(encrypted_data)
 
-            try:
+            with contextlib.suppress(NotImplementedError, OSError):
                 os.chmod(cred_file, 0o600)
-            except (NotImplementedError, OSError):
-                pass
         except Exception as e:
             logger.error(f"保存凭证失败: {e}")
 
-    def store(self, key: str, value: str, metadata: dict[str, Any] = None) -> bool:
+    def store(self, key: str, value: str, metadata: dict[str, Any] | None = None) -> bool:
         """
         存储凭证
 

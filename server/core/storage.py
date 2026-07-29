@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 import logging
@@ -53,7 +54,7 @@ def _json_dumps(value: Any) -> str:
 
 
 def _json_loads(value: str | bytes | None, default: Any = None) -> Any:
-    if value in (None, ""):
+    if value is None or value == "":
         return {} if default is None else default
     try:
         return json.loads(value)
@@ -712,7 +713,7 @@ class ChatRepository:
                 "UPDATE chat_sessions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
                 (_utcnow(), session_id),
             )
-        return cursor.rowcount > 0
+        return bool(cursor.rowcount > 0)
 
 
 class ShareRepository:
@@ -771,7 +772,7 @@ class ShareRepository:
     def delete_share(self, share_id: str) -> bool:
         with get_db_pool(self.db_path).get_connection() as conn:
             cursor = conn.execute("DELETE FROM chat_shares WHERE share_id = ?", (share_id,))
-        return cursor.rowcount > 0
+        return bool(cursor.rowcount > 0)
 
     def increment_view_count(self, share_id: str) -> int:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -952,7 +953,7 @@ def process_json_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[st
 
 def process_storage_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[str, Any]:
     """Reconcile pending vector operations."""
-    vector_result = {"enabled": False, "attempted": 0, "ready": 0, "failed": 0, "deleted": 0}
+    vector_result: dict[str, Any] = {"enabled": False, "attempted": 0, "ready": 0, "failed": 0, "deleted": 0}
     try:
         from memory.memory_service import get_memory_service
 
@@ -1090,7 +1091,7 @@ class MemoryRepository:
             ).fetchall()
         return [self._row_to_memory(row) for row in rows]
 
-    def search_text(self, query: str, user_id: str = "default", top_k: int = 5, memory_type: str | None = None) -> list[dict[str, Any]]:
+    def search_text(self, query: str, user_id: str = "default", top_k: int = 5, memory_type: str | None = None) -> builtins.list[dict[str, Any]]:
         query = (query or "").strip()
         if not query:
             return self.list(user_id=user_id, memory_type=memory_type, limit=top_k)
@@ -1112,7 +1113,7 @@ class MemoryRepository:
         user_id: str,
         top_k: int,
         memory_type: str | None,
-    ) -> list[dict[str, Any]]:
+    ) -> builtins.list[dict[str, Any]]:
         fts_query = " OR ".join(part.replace('"', '""') for part in query.split()) or query.replace('"', '""')
         params: list[Any] = [fts_query, user_id]
         type_clause = ""
@@ -1146,7 +1147,7 @@ class MemoryRepository:
         user_id: str,
         top_k: int,
         memory_type: str | None,
-    ) -> list[dict[str, Any]]:
+    ) -> builtins.list[dict[str, Any]]:
         params: list[Any] = [user_id, f"%{query}%"]
         type_clause = ""
         if memory_type:
@@ -1177,7 +1178,7 @@ class MemoryRepository:
                 (_utcnow(), _utcnow(), memory_id, user_id),
             )
             self._delete_fts(conn, memory_id)
-        return cursor.rowcount > 0
+        return bool(cursor.rowcount > 0)
 
     def clear_user(self, user_id: str = "default") -> int:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -1187,9 +1188,9 @@ class MemoryRepository:
             )
             if _memory_fts_available(conn):
                 conn.execute("DELETE FROM memory_items_fts WHERE user_id = ?", (user_id,))
-        return cursor.rowcount
+        return int(cursor.rowcount)
 
-    def pending_vectors(self, limit: int = 100) -> list[dict[str, Any]]:
+    def pending_vectors(self, limit: int = 100) -> builtins.list[dict[str, Any]]:
         with get_db_pool(self.db_path).get_connection() as conn:
             rows = conn.execute(
                 """

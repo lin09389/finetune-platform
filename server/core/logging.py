@@ -45,7 +45,7 @@ def setup_logging(
     logger.handlers.clear()
 
     if enable_json:
-        formatter = CustomJsonFormatter(
+        formatter: logging.Formatter = CustomJsonFormatter(
             '%(asctime)s %(levelname)s %(name)s %(message)s'
         )
     else:

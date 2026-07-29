@@ -27,7 +27,7 @@ class DataMasker:
     MASK_PARTIAL = 'partial'
     MASK_NONE = 'none'
 
-    def __init__(self, mode: str = None):
+    def __init__(self, mode: str | None = None):
         if mode is None:
             mode = os.environ.get('SECURITY_MASK_MODE', 'auto')
 
@@ -189,7 +189,7 @@ class DataMasker:
         if sensitive_keys:
             default_sensitive.update(sensitive_keys)
 
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
 
@@ -211,7 +211,7 @@ class DataMasker:
         if not data:
             return data
 
-        result = []
+        result: list[Any] = []
         for item in data:
             if isinstance(item, dict):
                 result.append(self.mask_dict(item, sensitive_keys))

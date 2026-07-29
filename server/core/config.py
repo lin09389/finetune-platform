@@ -414,7 +414,7 @@ class Settings(BaseSettings):
     @inference_backend.setter
     def inference_backend(self, value: str):
         """设置推理后端"""
-        self.inference_engine = value
+        self.inference_engine = value  # type: ignore[assignment]
 
 
 settings = Settings()
