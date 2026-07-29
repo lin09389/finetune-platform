@@ -44,15 +44,22 @@ jobs:
       - name: Ruff (focused gate)
         run: uv run ruff check server --select W291,W293,I001,UP015,UP012 --output-format=github
 
-      - name: Ruff (full lint - advisory)
+      # Advisory (non-blocking): the full ruff surface still reports
+      # pre-existing violations (I001/W293/UP*, 200+) beyond the focused
+      # blocking gate above. Kept advisory until the backlog is remediated.
+      - name: Ruff (full lint) [advisory / non-blocking]
         run: uv run ruff check server --output-format=github
         continue-on-error: true
 
-      - name: Black format check
+      # Advisory (non-blocking): server/ is not yet black-clean; enforcing
+      # would fail CI. Kept advisory until formatting is normalized repo-wide.
+      - name: Black format check [advisory / non-blocking]
         run: uv run black --check server
         continue-on-error: true
 
-      - name: MyPy type check
+      # Advisory (non-blocking): mypy still reports type errors across server/.
+      # Kept advisory until the type-annotation backlog is cleared.
+      - name: MyPy type check [advisory / non-blocking]
         run: uv run mypy server --ignore-missing-imports --no-error-summary
         continue-on-error: true
 
@@ -76,13 +83,35 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      # Minimal-dependency test caliber (documented in AGENTS.md 「测试」):
+      # dev + agent extras only. Heavy/desktop extras (training/inference/cua:
+      # torch, aiohttp, pynput) are NOT installed, so the tests listed under
+      # "Coverage boundary" below are excluded here and must be run locally
+      # with `uv sync --frozen --extra all --extra dev`.
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra dev
+          uv sync --frozen --extra dev --extra agent
 
+      # Coverage boundary under minimal deps (single source of truth: the
+      # --ignore/--deselect args below; AGENTS.md 「测试」 links here):
+      # - test_cua.py, test_architecture_cleanup.py: import pynput (cua extra;
+      #   also unusable on headless runners)
+      # - test_openai_compatible_api.py: imports aiohttp (inference extra)
+      # - test_inference_service_boundary.py (2 tests) and
+      #   test_phase0_capability_fact_source.py::test_inference_capabilities_backend_aware_tool_facts
+      #   require torch at runtime
+      # NOTE: --deselect nodeids are relative to pytest rootdir (server/, per
+      # server/pytest.ini); --ignore paths are filesystem paths.
       - name: Run unit tests
         run: |
-          uv run pytest server/tests/ -v --tb=short -m "not integration and not e2e" --cov=server --cov-report=xml --cov-report=term-missing
+          uv run pytest server/tests/ -v --tb=short -m "not integration and not e2e" \
+            --ignore=server/tests/test_cua.py \
+            --ignore=server/tests/test_architecture_cleanup.py \
+            --ignore=server/tests/test_openai_compatible_api.py \
+            --deselect "tests/test_inference_service_boundary.py::test_native_inference_service_requires_internal_authentication" \
+            --deselect "tests/test_inference_service_boundary.py::test_native_inference_capability_contract" \
+            --deselect "tests/test_phase0_capability_fact_source.py::test_inference_capabilities_backend_aware_tool_facts" \
+            --cov=server --cov-report=xml --cov-report=term-missing
 
       - name: Run smoke tests (always)
         if: always()
@@ -116,9 +145,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      # Same minimal caliber as backend-test; integration tests must not
+      # depend on training/inference/cua extras (see AGENTS.md 「测试」).
       - name: Install dependencies
         run: |
-          uv sync --frozen --extra dev
+          uv sync --frozen --extra dev --extra agent
 
       - name: Run integration tests
         run: |
@@ -152,9 +183,10 @@ jobs:
       - name: TypeScript check
         run: cd client && npm run typecheck
 
+      # Blocking gate: eslint errors fail CI. Warnings (e.g. no-explicit-any)
+      # are reported but do not fail the run, so enforcement is safe today.
       - name: Lint
         run: cd client && npm run lint
-        continue-on-error: true
 
       - name: Run tests
         run: cd client && npx vitest run --reporter=basic
@@ -166,8 +198,11 @@ jobs:
         run: cd client && npm run build
 
   # ── Security ─────────────────────────────────────────────────────
+  # Advisory (non-blocking): dependency vulnerability scan is informational
+  # and depends on external feeds (safety DB / network); kept non-blocking to
+  # avoid flaky gating. Findings are surfaced in the job log for triage.
   security:
-    name: Security Scan
+    name: Security Scan [advisory / non-blocking]
     runs-on: ubuntu-latest
     needs: lint
     continue-on-error: true

@@ -97,46 +97,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy-staging:
-    name: Deploy to Staging
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    environment: staging
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-
-    steps:
-      - name: Deploy to staging environment
-        run: |
-          echo "Deploying to staging environment..."
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
-
-  deploy-production:
-    name: Deploy to Production
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    environment: production
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Deploy to production environment
-        run: |
-          echo "Deploying to production environment..."
-          echo "Version: ${{ github.ref_name }}"
-
-  post-deploy-verify:
-    name: Verify Deployment
-    needs: [deploy-staging, deploy-production]
-    runs-on: ubuntu-latest
-    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Run Docker release verification
-        run: |
-          python scripts/verify_docker_release.py --api-url https://staging.example.com --wait 30 || true
+  # Delivery surface: this repository has no hosted staging/production environment
+  # to deploy to. CD's real, automated delivery is the container image published
+  # above to ${REGISTRY}/${IMAGE_NAME} on ghcr.io. Operators self-host it via
+  # docker-compose.yml; desktop (Electron) distribution is packaged and signed
+  # through a separate release-operations workflow (see docs/desktop-packaging.md).
+  #
+  # Earlier revisions carried deploy-staging / deploy-production / post-deploy-verify
+  # jobs that were non-functional scaffolding: they only echoed messages and ran
+  # scripts/verify_docker_release.py against a fabricated placeholder host behind a
+  # trailing shell guard that swallowed every failure, so they could never actually
+  # fail. They have been removed rather than left as misleading placeholders.
+  #
+  # To verify a real stack, run `docker compose up` and then
+  # scripts/verify_docker_release.py, which targets localhost by default and exits
+  # non-zero when any core surface is unreachable.
