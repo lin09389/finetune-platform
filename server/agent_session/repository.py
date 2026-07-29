@@ -8,10 +8,41 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from tool_platform.models import jsonable, redact_json
+
+from agent_session.work_unit import (
+    WORK_UNIT_TERMINAL_STATUSES,
+    WorkUnit,
+    WorkUnitResult,
+    parse_work_unit,
+    require_work_unit_status_transition,
+    serialize_work_unit,
+    serialize_work_unit_result,
+)
 from core.db_manager import dynamic_update, get_db_pool, validate_column_names
 from core.storage import APP_DB_PATH
 
 logger = logging.getLogger(__name__)
+
+LEGACY_SUBTASK_RECORD_KIND = "legacy_async_subtask"
+WORK_UNIT_RECORD_KIND = "typed_work_unit"
+WORK_UNIT_ENVELOPE_SCHEMA_VERSION = 1
+
+
+class WorkUnitRepositoryError(ValueError):
+    """Base class for fail-closed typed WorkUnit persistence errors."""
+
+
+class WorkUnitIdentityConflict(WorkUnitRepositoryError):
+    """Raised when a stable WorkUnit ID is reused for different content."""
+
+
+class WorkUnitStateConflict(WorkUnitRepositoryError):
+    """Raised when an attempt, child revision, or status CAS fails."""
+
+
+class WorkUnitEventConflict(WorkUnitRepositoryError):
+    """Raised when a durable event ID is reused for different content."""
 
 
 def _now() -> str:
@@ -58,6 +89,55 @@ def _subtask_event_row(row: Any | None) -> dict[str, Any] | None:
     if "payload_json" in data:
         data["payload"] = _load(data.pop("payload_json"))
     return data
+
+
+def _work_unit_envelope(work_unit: WorkUnit) -> dict[str, Any]:
+    return {
+        "schema_version": WORK_UNIT_ENVELOPE_SCHEMA_VERSION,
+        "type": WORK_UNIT_RECORD_KIND,
+        "work_unit": serialize_work_unit(work_unit),
+    }
+
+
+def _parse_work_unit_envelope(raw: object) -> WorkUnit:
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema_version") != WORK_UNIT_ENVELOPE_SCHEMA_VERSION
+        or raw.get("type") != WORK_UNIT_RECORD_KIND
+    ):
+        raise WorkUnitIdentityConflict("invalid typed WorkUnit envelope")
+    try:
+        return parse_work_unit(raw.get("work_unit"))
+    except Exception as exc:
+        raise WorkUnitIdentityConflict("invalid typed WorkUnit payload") from exc
+
+
+def _validate_work_unit_record(data: dict[str, Any] | None) -> WorkUnit:
+    if data is None or data.get("record_kind") != WORK_UNIT_RECORD_KIND:
+        raise WorkUnitIdentityConflict("typed WorkUnit record is missing")
+    work_unit = _parse_work_unit_envelope(data.get("input_json"))
+    if (
+        data.get("id") != work_unit.work_unit_id
+        or data.get("parent_session_id") != work_unit.parent_session_id
+        or data.get("plan_fingerprint") != work_unit.plan_fingerprint
+    ):
+        raise WorkUnitIdentityConflict("typed WorkUnit row binding is invalid")
+    return work_unit
+
+
+def _safe_work_unit_event_payload(
+    *,
+    work_unit_id: str,
+    attempt: int,
+    payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    safe_payload = jsonable(redact_json(payload or {}))
+    return {
+        "schema_version": 1,
+        "work_unit_id": work_unit_id,
+        "attempt": attempt,
+        "data": safe_payload,
+    }
 
 
 class AgentSessionRepository:
@@ -109,6 +189,9 @@ class AgentSessionRepository:
                     child_session_id TEXT,
                     agent_name TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    record_kind TEXT NOT NULL DEFAULT 'legacy_async_subtask',
+                    plan_fingerprint TEXT,
+                    work_unit_attempt INTEGER NOT NULL DEFAULT 0,
                     input_json TEXT NOT NULL DEFAULT '{}',
                     result_json TEXT NOT NULL DEFAULT '{}',
                     error TEXT,
@@ -179,6 +262,9 @@ class AgentSessionRepository:
             "cancelled_at": "TEXT",
             "restart_count": "INTEGER NOT NULL DEFAULT 0",
             "previous_child_session_ids": "TEXT NOT NULL DEFAULT '[]'",
+            "record_kind": "TEXT NOT NULL DEFAULT 'legacy_async_subtask'",
+            "plan_fingerprint": "TEXT",
+            "work_unit_attempt": "INTEGER NOT NULL DEFAULT 0",
         }
         with get_db_pool(self.db_path).get_connection() as conn:
             rows = conn.execute("PRAGMA table_info(agent_subtasks)").fetchall()
@@ -187,6 +273,17 @@ class AgentSessionRepository:
                 if column not in existing:
                     validate_column_names([column])
                     conn.execute(f"ALTER TABLE agent_subtasks ADD COLUMN {column} {definition}")
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_agent_subtasks_work_unit_plan
+                ON agent_subtasks(
+                    record_kind,
+                    parent_session_id,
+                    plan_fingerprint,
+                    created_at
+                )
+                """
+            )
 
     def _ensure_subtask_event_columns(self) -> None:
         expected = {
@@ -592,19 +689,491 @@ class AgentSessionRepository:
                 return events[index + 1 :]
         return events
 
+    @staticmethod
+    def _work_unit_row_in_transaction(
+        conn: sqlite3.Connection,
+        work_unit_id: str,
+    ) -> dict[str, Any] | None:
+        row = conn.execute(
+            """
+            SELECT * FROM agent_subtasks
+            WHERE id = ? AND record_kind = ?
+            """,
+            (work_unit_id, WORK_UNIT_RECORD_KIND),
+        ).fetchone()
+        return _subtask_row(row)
+
+    @staticmethod
+    def _ensure_work_unit_event_once(
+        conn: sqlite3.Connection,
+        *,
+        event_id: str,
+        work_unit_id: str,
+        parent_session_id: str,
+        child_session_id: str | None,
+        attempt: int,
+        event_type: str,
+        status: str | None,
+        payload: dict[str, Any] | None,
+    ) -> bool:
+        safe_payload = _safe_work_unit_event_payload(
+            work_unit_id=work_unit_id,
+            attempt=attempt,
+            payload=payload,
+        )
+        message = event_type
+        existing_row = conn.execute(
+            "SELECT * FROM agent_subtask_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        existing = _subtask_event_row(existing_row)
+        if existing is not None:
+            expected = {
+                "task_id": work_unit_id,
+                "parent_session_id": parent_session_id,
+                "child_session_id": child_session_id,
+                "event_type": event_type,
+                "status": status,
+                "message": message,
+                "payload": safe_payload,
+            }
+            if any(existing.get(key) != value for key, value in expected.items()):
+                raise WorkUnitEventConflict(
+                    f"event ID {event_id} is already bound to different content"
+                )
+            return False
+        conn.execute(
+            """
+            INSERT INTO agent_subtask_events
+                (
+                    id, task_id, parent_session_id, child_session_id,
+                    event_type, status, message, payload_json, created_at
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                work_unit_id,
+                parent_session_id,
+                child_session_id,
+                event_type,
+                status,
+                message,
+                _json(safe_payload),
+                _now(),
+            ),
+        )
+        return True
+
+    def create_work_unit_if_absent(self, work_unit: WorkUnit) -> dict[str, Any]:
+        if not isinstance(work_unit, WorkUnit):
+            raise TypeError("work_unit must be a validated WorkUnit")
+        envelope = _work_unit_envelope(work_unit)
+        now = _now()
+
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                parent = conn.execute(
+                    "SELECT id, agent_id FROM agent_sessions WHERE id = ?",
+                    (work_unit.parent_session_id,),
+                ).fetchone()
+                if parent is None or str(parent["agent_id"]) != "build":
+                    raise WorkUnitIdentityConflict(
+                        "typed WorkUnit parent must be an existing Build session"
+                    )
+                existing_row = conn.execute(
+                    "SELECT * FROM agent_subtasks WHERE id = ?",
+                    (work_unit.work_unit_id,),
+                ).fetchone()
+                existing = _subtask_row(existing_row)
+                if existing is not None:
+                    existing_unit = _validate_work_unit_record(existing)
+                    if existing_unit != work_unit:
+                        raise WorkUnitIdentityConflict(
+                            f"WorkUnit ID {work_unit.work_unit_id} has different content"
+                        )
+                    return existing
+                conn.execute(
+                    """
+                    INSERT INTO agent_subtasks
+                        (
+                            id, parent_session_id, child_session_id, agent_name,
+                            status, record_kind, plan_fingerprint,
+                            work_unit_attempt, input_json, result_json, error,
+                            created_at, updated_at, last_checked_at, started_at,
+                            completed_at, cancelled_at, restart_count,
+                            previous_child_session_ids
+                        )
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, 0, ?, '{}', NULL, ?, ?, NULL,
+                            NULL, NULL, NULL, 0, '[]')
+                    """,
+                    (
+                        work_unit.work_unit_id,
+                        work_unit.parent_session_id,
+                        work_unit.owner,
+                        "planned",
+                        WORK_UNIT_RECORD_KIND,
+                        work_unit.plan_fingerprint,
+                        _json(envelope),
+                        now,
+                        now,
+                    ),
+                )
+                created_row = conn.execute(
+                    "SELECT * FROM agent_subtasks WHERE id = ?",
+                    (work_unit.work_unit_id,),
+                ).fetchone()
+                return _subtask_row(created_row) or {}
+
+        return self.run_write_with_retry(operation)
+
+    def get_work_unit_record(self, work_unit_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM agent_subtasks
+                WHERE id = ? AND record_kind = ?
+                """,
+                (work_unit_id, WORK_UNIT_RECORD_KIND),
+            ).fetchone()
+        data = _subtask_row(row)
+        if data is not None:
+            _validate_work_unit_record(data)
+        return data
+
+    def list_work_unit_records(
+        self,
+        parent_session_id: str,
+        *,
+        plan_fingerprint: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = """
+            SELECT * FROM agent_subtasks
+            WHERE parent_session_id = ? AND record_kind = ?
+        """
+        params: tuple[Any, ...] = (
+            parent_session_id,
+            WORK_UNIT_RECORD_KIND,
+        )
+        if plan_fingerprint is not None:
+            query += " AND plan_fingerprint = ?"
+            params = (*params, plan_fingerprint)
+        query += " ORDER BY created_at ASC, rowid ASC"
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        records = [_subtask_row(row) or {} for row in rows]
+        for record in records:
+            _validate_work_unit_record(record)
+        return records
+
+    def advance_work_unit_attempt(
+        self,
+        work_unit_id: str,
+        *,
+        expected_attempt: int,
+        event_id: str,
+    ) -> dict[str, Any]:
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                record = self._work_unit_row_in_transaction(conn, work_unit_id)
+                work_unit = _validate_work_unit_record(record)
+                next_attempt = expected_attempt + 1
+                event_payload = {
+                    "previous_attempt": expected_attempt,
+                    "attempt": next_attempt,
+                }
+                inserted = self._ensure_work_unit_event_once(
+                    conn,
+                    event_id=event_id,
+                    work_unit_id=work_unit_id,
+                    parent_session_id=work_unit.parent_session_id,
+                    child_session_id=None,
+                    attempt=next_attempt,
+                    event_type="work_unit_attempt_advanced",
+                    status=None,
+                    payload=event_payload,
+                )
+                if not inserted:
+                    return record or {}
+                current_attempt = int(record["work_unit_attempt"])
+                if current_attempt != expected_attempt:
+                    raise WorkUnitStateConflict(
+                        "WorkUnit attempt compare-and-swap failed"
+                    )
+                if str(record["status"]) in WORK_UNIT_TERMINAL_STATUSES:
+                    raise WorkUnitStateConflict(
+                        "terminal WorkUnit attempts cannot advance"
+                    )
+                if next_attempt > work_unit.budget.max_attempts:
+                    raise WorkUnitStateConflict(
+                        "WorkUnit attempt budget is exhausted"
+                    )
+                previous_child_ids = list(
+                    record.get("previous_child_session_ids") or []
+                )
+                current_child_id = record.get("child_session_id")
+                if current_child_id and current_child_id not in previous_child_ids:
+                    previous_child_ids.append(current_child_id)
+                conn.execute(
+                    """
+                    UPDATE agent_subtasks
+                    SET work_unit_attempt = ?,
+                        child_session_id = NULL,
+                        previous_child_session_ids = ?,
+                        updated_at = ?
+                    WHERE id = ? AND record_kind = ? AND work_unit_attempt = ?
+                    """,
+                    (
+                        next_attempt,
+                        _json(previous_child_ids),
+                        _now(),
+                        work_unit_id,
+                        WORK_UNIT_RECORD_KIND,
+                        expected_attempt,
+                    ),
+                )
+                updated = self._work_unit_row_in_transaction(conn, work_unit_id)
+                return updated or {}
+
+        return self.run_write_with_retry(operation)
+
+    def bind_work_unit_child_once(
+        self,
+        work_unit_id: str,
+        *,
+        attempt: int,
+        child_session_id: str,
+        event_id: str,
+    ) -> dict[str, Any]:
+        if not child_session_id.strip():
+            raise WorkUnitStateConflict("child_session_id is required")
+
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                record = self._work_unit_row_in_transaction(conn, work_unit_id)
+                work_unit = _validate_work_unit_record(record)
+                inserted = self._ensure_work_unit_event_once(
+                    conn,
+                    event_id=event_id,
+                    work_unit_id=work_unit_id,
+                    parent_session_id=work_unit.parent_session_id,
+                    child_session_id=child_session_id,
+                    attempt=attempt,
+                    event_type="work_unit_child_bound",
+                    status=None,
+                    payload={"child_session_id": child_session_id},
+                )
+                if not inserted:
+                    return record or {}
+                if int(record["work_unit_attempt"]) != attempt:
+                    raise WorkUnitStateConflict(
+                        "child revision attempt does not match current WorkUnit"
+                    )
+                current_child_id = record.get("child_session_id")
+                if current_child_id not in {None, child_session_id}:
+                    raise WorkUnitStateConflict(
+                        "a different child revision is already active"
+                    )
+                if current_child_id is None:
+                    conn.execute(
+                        """
+                        UPDATE agent_subtasks
+                        SET child_session_id = ?, updated_at = ?
+                        WHERE id = ? AND record_kind = ?
+                          AND work_unit_attempt = ?
+                          AND child_session_id IS NULL
+                        """,
+                        (
+                            child_session_id,
+                            _now(),
+                            work_unit_id,
+                            WORK_UNIT_RECORD_KIND,
+                            attempt,
+                        ),
+                    )
+                updated = self._work_unit_row_in_transaction(conn, work_unit_id)
+                return updated or {}
+
+        return self.run_write_with_retry(operation)
+
+    def transition_work_unit(
+        self,
+        work_unit_id: str,
+        *,
+        expected_attempt: int,
+        target_status: str,
+        event_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None,
+        result: WorkUnitResult | None = None,
+        expected_child_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                record = self._work_unit_row_in_transaction(conn, work_unit_id)
+                work_unit = _validate_work_unit_record(record)
+                inserted = self._ensure_work_unit_event_once(
+                    conn,
+                    event_id=event_id,
+                    work_unit_id=work_unit_id,
+                    parent_session_id=work_unit.parent_session_id,
+                    child_session_id=expected_child_session_id,
+                    attempt=expected_attempt,
+                    event_type=event_type,
+                    status=target_status,
+                    payload=payload,
+                )
+                if not inserted:
+                    return record or {}
+                if int(record["work_unit_attempt"]) != expected_attempt:
+                    raise WorkUnitStateConflict(
+                        "WorkUnit transition attempt is stale"
+                    )
+                if (
+                    expected_child_session_id is not None
+                    and record.get("child_session_id")
+                    != expected_child_session_id
+                ):
+                    raise WorkUnitStateConflict(
+                        "WorkUnit transition child revision is stale"
+                    )
+                current_status = str(record["status"])
+                try:
+                    require_work_unit_status_transition(
+                        current_status,
+                        target_status,
+                    )
+                except ValueError as exc:
+                    raise WorkUnitStateConflict(str(exc)) from exc
+                result_json: dict[str, Any] = (
+                    record.get("result_json") or {}
+                )
+                if result is not None:
+                    if (
+                        result.work_unit_id != work_unit_id
+                        or result.attempt != expected_attempt
+                    ):
+                        raise WorkUnitStateConflict(
+                            "WorkUnit result identity or attempt is stale"
+                        )
+                    result_json = serialize_work_unit_result(result)
+                elif target_status in {"completed", "degraded"}:
+                    raise WorkUnitStateConflict(
+                        "terminal WorkUnit transitions require a typed result"
+                    )
+                now = _now()
+                completed_at = (
+                    now
+                    if target_status in {"completed", "degraded"}
+                    else record.get("completed_at")
+                )
+                cancelled_at = (
+                    now
+                    if target_status == "cancelled"
+                    else record.get("cancelled_at")
+                )
+                conn.execute(
+                    """
+                    UPDATE agent_subtasks
+                    SET status = ?, result_json = ?, updated_at = ?,
+                        completed_at = ?, cancelled_at = ?
+                    WHERE id = ? AND record_kind = ? AND work_unit_attempt = ?
+                    """,
+                    (
+                        target_status,
+                        _json(result_json),
+                        now,
+                        completed_at,
+                        cancelled_at,
+                        work_unit_id,
+                        WORK_UNIT_RECORD_KIND,
+                        expected_attempt,
+                    ),
+                )
+                updated = self._work_unit_row_in_transaction(conn, work_unit_id)
+                return updated or {}
+
+        return self.run_write_with_retry(operation)
+
+    def add_work_unit_event_once(
+        self,
+        *,
+        event_id: str,
+        work_unit_id: str,
+        attempt: int,
+        event_type: str,
+        payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        def operation() -> dict[str, Any]:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                record = self._work_unit_row_in_transaction(conn, work_unit_id)
+                work_unit = _validate_work_unit_record(record)
+                current_attempt = int(record["work_unit_attempt"])
+                if attempt < 0 or attempt > current_attempt:
+                    raise WorkUnitStateConflict(
+                        "WorkUnit event attempt is ahead of durable state"
+                    )
+                self._ensure_work_unit_event_once(
+                    conn,
+                    event_id=event_id,
+                    work_unit_id=work_unit_id,
+                    parent_session_id=work_unit.parent_session_id,
+                    child_session_id=record.get("child_session_id"),
+                    attempt=attempt,
+                    event_type=event_type,
+                    status=None,
+                    payload=payload,
+                )
+                event_row = conn.execute(
+                    "SELECT * FROM agent_subtask_events WHERE id = ?",
+                    (event_id,),
+                ).fetchone()
+                return _subtask_event_row(event_row) or {}
+
+        return self.run_write_with_retry(operation)
+
+    def list_work_unit_events(
+        self,
+        work_unit_id: str,
+    ) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            typed = conn.execute(
+                """
+                SELECT id FROM agent_subtasks
+                WHERE id = ? AND record_kind = ?
+                """,
+                (work_unit_id, WORK_UNIT_RECORD_KIND),
+            ).fetchone()
+            if typed is None:
+                return []
+            rows = conn.execute(
+                """
+                SELECT * FROM agent_subtask_events
+                WHERE task_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (work_unit_id,),
+            ).fetchall()
+        return [_subtask_event_row(row) or {} for row in rows]
+
     def create_subtask(self, data: dict[str, Any]) -> dict[str, Any]:
         now = _now()
         task_id = data.get("id") or f"agt_{uuid.uuid4().hex}"
+        if str(task_id).startswith("wu_"):
+            raise WorkUnitIdentityConflict(
+                "the wu_ ID prefix is reserved for typed WorkUnits"
+            )
         with get_db_pool(self.db_path).get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO agent_subtasks
                     (
                         id, parent_session_id, child_session_id, agent_name, status,
+                        record_kind, plan_fingerprint, work_unit_attempt,
                         input_json, result_json, error, created_at, updated_at, last_checked_at,
                         started_at, completed_at, cancelled_at, restart_count, previous_child_session_ids
                     )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -612,6 +1181,9 @@ class AgentSessionRepository:
                     data.get("child_session_id"),
                     data.get("agent_name"),
                     data.get("status") or "pending",
+                    LEGACY_SUBTASK_RECORD_KIND,
+                    None,
+                    0,
                     _json(data.get("input_json") or {}),
                     _json(data.get("result_json") or {}),
                     data.get("error"),
@@ -651,32 +1223,63 @@ class AgentSessionRepository:
             updates["previous_child_session_ids"] = _json(updates["previous_child_session_ids"])
         updates["updated_at"] = _now()
         with get_db_pool(self.db_path).get_connection() as conn:
+            current = conn.execute(
+                "SELECT record_kind FROM agent_subtasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if current is not None and current["record_kind"] != LEGACY_SUBTASK_RECORD_KIND:
+                raise WorkUnitStateConflict(
+                    "typed WorkUnits require the dedicated CAS update methods"
+                )
             dynamic_update(conn, "agent_subtasks", "id", task_id, updates, self._SUBTASK_UPDATABLE)
-        return self.get_subtask(task_id) or {}
+            row = conn.execute(
+                """
+                SELECT * FROM agent_subtasks
+                WHERE id = ? AND record_kind = ?
+                """,
+                (task_id, LEGACY_SUBTASK_RECORD_KIND),
+            ).fetchone()
+        return _subtask_row(row) or {}
 
     def get_subtask(self, task_id: str) -> dict[str, Any] | None:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
-            row = conn.execute("SELECT * FROM agent_subtasks WHERE id = ?", (task_id,)).fetchone()
+            row = conn.execute(
+                """
+                SELECT * FROM agent_subtasks
+                WHERE id = ? AND record_kind = ?
+                """,
+                (task_id, LEGACY_SUBTASK_RECORD_KIND),
+            ).fetchone()
         return _subtask_row(row)
 
     def list_subtasks(self, parent_session_id: str, status_filter: str | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM agent_subtasks WHERE parent_session_id = ?"
-        params: tuple[Any, ...] = (parent_session_id,)
+        query = """
+            SELECT * FROM agent_subtasks
+            WHERE parent_session_id = ? AND record_kind = ?
+        """
+        params: tuple[Any, ...] = (
+            parent_session_id,
+            LEGACY_SUBTASK_RECORD_KIND,
+        )
         if status_filter and status_filter != "all":
             query += " AND status = ?"
-            params = (parent_session_id, status_filter)
+            params = (
+                parent_session_id,
+                LEGACY_SUBTASK_RECORD_KIND,
+                status_filter,
+            )
         query += " ORDER BY created_at ASC, rowid ASC"
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_subtask_row(row) or {} for row in rows]
 
     def list_all_subtasks(self, statuses: set[str] | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM agent_subtasks"
-        params: tuple[Any, ...] = ()
+        query = "SELECT * FROM agent_subtasks WHERE record_kind = ?"
+        params: tuple[Any, ...] = (LEGACY_SUBTASK_RECORD_KIND,)
         if statuses:
             placeholders = ", ".join("?" for _ in statuses)
-            query += f" WHERE status IN ({placeholders})"
-            params = tuple(sorted(statuses))
+            query += f" AND status IN ({placeholders})"
+            params = (LEGACY_SUBTASK_RECORD_KIND, *tuple(sorted(statuses)))
         query += " ORDER BY created_at ASC, rowid ASC"
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -696,6 +1299,14 @@ class AgentSessionRepository:
         event_id = f"aste_{uuid.uuid4().hex}"
         now = _now()
         with get_db_pool(self.db_path).get_connection() as conn:
+            task_row = conn.execute(
+                "SELECT record_kind FROM agent_subtasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if task_row is not None and task_row["record_kind"] != LEGACY_SUBTASK_RECORD_KIND:
+                raise WorkUnitStateConflict(
+                    "typed WorkUnit events require add_work_unit_event_once"
+                )
             conn.execute(
                 """
                 INSERT INTO agent_subtask_events
@@ -708,25 +1319,56 @@ class AgentSessionRepository:
 
     def get_subtask_event(self, event_id: str) -> dict[str, Any] | None:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
-            row = conn.execute("SELECT * FROM agent_subtask_events WHERE id = ?", (event_id,)).fetchone()
+            row = conn.execute(
+                """
+                SELECT event.*
+                FROM agent_subtask_events AS event
+                JOIN agent_subtasks AS task ON task.id = event.task_id
+                WHERE event.id = ? AND task.record_kind = ?
+                """,
+                (event_id, LEGACY_SUBTASK_RECORD_KIND),
+            ).fetchone()
         return _subtask_event_row(row)
 
     def list_subtask_events(self, task_id: str, limit: int | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM agent_subtask_events WHERE task_id = ? ORDER BY created_at ASC, rowid ASC"
-        params: tuple[Any, ...] = (task_id,)
+        query = """
+            SELECT event.*
+            FROM agent_subtask_events AS event
+            JOIN agent_subtasks AS task ON task.id = event.task_id
+            WHERE event.task_id = ? AND task.record_kind = ?
+            ORDER BY event.created_at ASC, event.rowid ASC
+        """
+        params: tuple[Any, ...] = (task_id, LEGACY_SUBTASK_RECORD_KIND)
         if limit is not None:
             query += " LIMIT ?"
-            params = (task_id, max(1, int(limit)))
+            params = (
+                task_id,
+                LEGACY_SUBTASK_RECORD_KIND,
+                max(1, int(limit)),
+            )
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_subtask_event_row(row) or {} for row in rows]
 
     def list_parent_subtask_events(self, parent_session_id: str, limit: int | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM agent_subtask_events WHERE parent_session_id = ? ORDER BY created_at ASC, rowid ASC"
-        params: tuple[Any, ...] = (parent_session_id,)
+        query = """
+            SELECT event.*
+            FROM agent_subtask_events AS event
+            JOIN agent_subtasks AS task ON task.id = event.task_id
+            WHERE event.parent_session_id = ? AND task.record_kind = ?
+            ORDER BY event.created_at ASC, event.rowid ASC
+        """
+        params: tuple[Any, ...] = (
+            parent_session_id,
+            LEGACY_SUBTASK_RECORD_KIND,
+        )
         if limit is not None:
             query += " LIMIT ?"
-            params = (parent_session_id, max(1, int(limit)))
+            params = (
+                parent_session_id,
+                LEGACY_SUBTASK_RECORD_KIND,
+                max(1, int(limit)),
+            )
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_subtask_event_row(row) or {} for row in rows]
@@ -734,20 +1376,44 @@ class AgentSessionRepository:
     def summarize_subtask_metrics(self, parent_session_id: str) -> dict[str, Any]:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             status_rows = conn.execute(
-                "SELECT status, COUNT(*) AS count FROM agent_subtasks WHERE parent_session_id = ? GROUP BY status",
-                (parent_session_id,),
+                """
+                SELECT status, COUNT(*) AS count
+                FROM agent_subtasks
+                WHERE parent_session_id = ? AND record_kind = ?
+                GROUP BY status
+                """,
+                (parent_session_id, LEGACY_SUBTASK_RECORD_KIND),
             ).fetchall()
             event_row = conn.execute(
-                "SELECT COUNT(*) AS count FROM agent_subtask_events WHERE parent_session_id = ?",
-                (parent_session_id,),
+                """
+                SELECT COUNT(*) AS count
+                FROM agent_subtask_events AS event
+                JOIN agent_subtasks AS task ON task.id = event.task_id
+                WHERE event.parent_session_id = ? AND task.record_kind = ?
+                """,
+                (parent_session_id, LEGACY_SUBTASK_RECORD_KIND),
             ).fetchone()
             recovery_row = conn.execute(
-                "SELECT COUNT(*) AS count FROM agent_subtask_events WHERE parent_session_id = ? AND event_type = 'recovered'",
-                (parent_session_id,),
+                """
+                SELECT COUNT(*) AS count
+                FROM agent_subtask_events AS event
+                JOIN agent_subtasks AS task ON task.id = event.task_id
+                WHERE event.parent_session_id = ?
+                  AND task.record_kind = ?
+                  AND event.event_type = 'recovered'
+                """,
+                (parent_session_id, LEGACY_SUBTASK_RECORD_KIND),
             ).fetchone()
             last_event_row = conn.execute(
-                "SELECT * FROM agent_subtask_events WHERE parent_session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
-                (parent_session_id,),
+                """
+                SELECT event.*
+                FROM agent_subtask_events AS event
+                JOIN agent_subtasks AS task ON task.id = event.task_id
+                WHERE event.parent_session_id = ? AND task.record_kind = ?
+                ORDER BY event.created_at DESC, event.rowid DESC
+                LIMIT 1
+                """,
+                (parent_session_id, LEGACY_SUBTASK_RECORD_KIND),
             ).fetchone()
         by_status = {str(row["status"] or "unknown"): int(row["count"] or 0) for row in status_rows}
         total = sum(by_status.values())
