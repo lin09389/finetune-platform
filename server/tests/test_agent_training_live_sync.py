@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-
 from agent_session.repository import AgentSessionRepository
 from agent_session.training_run_sync import (
     LocalSQLiteTrainingEventSource,

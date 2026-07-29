@@ -23,7 +23,6 @@ from pydantic import ValidationError
 from core.config import Settings
 from core.training_state import TrainingProgress
 
-
 # ---------------------------------------------------------------------------
 # PR5: TrainingQueue running snapshot recovery
 # ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ def test_recover_from_state_marks_stale_running_tasks_as_cancelled(tmp_path):
     """PR5: 进程重启后,_load_state 把 running 快照中的任务标记为 CANCELLED(< 24h)
     或 FAILED(> 24h)。
     """
-    from core.training_queue import TrainingQueue, TaskStatus
+    from core.training_queue import TaskStatus, TrainingQueue
 
     state_file = tmp_path / "queue_state.json"
     now = datetime.now()

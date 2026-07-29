@@ -304,8 +304,9 @@ class TrainingWorker:
         ``set_current_record`` + ``queue_training_state(True)`` + ``register_training_task``
         so that progress/heartbeat/cancel observers see this task identically.
         """
-        from backends.swift_backend import SwiftTrainConfig, get_swift_backend
         from pathlib import Path
+
+        from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
         config = TrainingConfigInput(**job.config)
         config.output_path = job.output_path

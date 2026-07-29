@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "agent_training_live_sync.json"
 TERMINAL_STATUSES = {"completed", "failed", "missing"}
 UNSAFE_KEYWORDS = ("path", "worker", "raw_event", "token", "secret", "prompt")

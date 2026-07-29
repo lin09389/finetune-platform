@@ -11,7 +11,11 @@ from agent_session.multi_file import (
     format_multi_file_card_lines,
     multi_file_correction_blurb,
 )
-from agent_session.session_progress import build_completion_gate, build_working_state_card, empty_tool_metrics
+from agent_session.session_progress import (
+    build_completion_gate,
+    build_working_state_card,
+    empty_tool_metrics,
+)
 
 
 def test_companion_candidates_for_python_and_ts():

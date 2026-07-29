@@ -10,13 +10,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from security.jwt_auth import Role
 from workspace import path_policy
 from workspace.path_policy import (
     require_valid_project_path,
     resolve_default_project_path,
     validate_agent_project_path,
 )
-from security.jwt_auth import Role
 
 
 def _settings(base_dir: Path, agent_default: str | None = None) -> SimpleNamespace:

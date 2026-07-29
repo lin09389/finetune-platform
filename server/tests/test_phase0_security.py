@@ -24,7 +24,6 @@ from security.runtime_policy import (
     require_configured_jwt_secret,
 )
 
-
 # ---------------------------------------------------------------------------
 # JWT secret fail-closed
 # ---------------------------------------------------------------------------
@@ -180,6 +179,7 @@ async def test_get_agent_session_user_dev_with_flag_ok(monkeypatch):
 
 def test_factory_local_agent_fallback_respects_policy(monkeypatch):
     from apps import factory as factory_mod
+
     from core import config as config_mod
 
     monkeypatch.setattr(config_mod.settings, "environment", "production")
@@ -313,9 +313,9 @@ def test_assert_inference_key_dev_default_warns(caplog):
 def test_gpu_lease_training_blocks_inference(tmp_path, monkeypatch):
     monkeypatch.delenv("GPU_COORDINATION", raising=False)
     from core.gpu_coordination import (
+        TRAINING_HOLDER,
         GpuCoordinationError,
         GpuCoordinator,
-        TRAINING_HOLDER,
         assert_inference_gpu_available,
         reset_gpu_coordinator,
     )
@@ -334,8 +334,8 @@ def test_gpu_lease_training_blocks_inference(tmp_path, monkeypatch):
 def test_gpu_lease_inference_blocks_training(tmp_path, monkeypatch):
     monkeypatch.delenv("GPU_COORDINATION", raising=False)
     from core.gpu_coordination import (
-        GpuCoordinationError,
         INFERENCE_HOLDER,
+        GpuCoordinationError,
         assert_training_gpu_available,
         reset_gpu_coordinator,
     )
@@ -354,8 +354,9 @@ def test_gpu_coordination_disable_only_non_production(monkeypatch):
 
 
 def test_vram_precheck_consults_gpu_coordination(monkeypatch, tmp_path):
-    from core.gpu_coordination import TRAINING_HOLDER, reset_gpu_coordinator
     from training_engine import model_loader
+
+    from core.gpu_coordination import TRAINING_HOLDER, reset_gpu_coordinator
 
     coord = reset_gpu_coordinator(tmp_path / "gpu_lease3.json")
     coord.claim(TRAINING_HOLDER, owner="other-worker")
@@ -380,8 +381,8 @@ def test_vram_precheck_consults_gpu_coordination(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_scheduler_ensure_model_refuses_when_training_holds(tmp_path, monkeypatch):
     """Real entry: ModelScheduler._ensure_model_loaded returns False under training lease."""
-    from core.gpu_coordination import TRAINING_HOLDER, reset_gpu_coordinator
     from api.inference.scheduler import BackendType, ModelScheduler
+    from core.gpu_coordination import TRAINING_HOLDER, reset_gpu_coordinator
 
     coord = reset_gpu_coordinator(tmp_path / "gpu_lease4.json")
     coord.claim(TRAINING_HOLDER, owner="train-w")
@@ -417,13 +418,13 @@ async def test_scheduler_ensure_model_refuses_when_training_holds(tmp_path, monk
 @pytest.mark.asyncio
 async def test_scheduler_releases_inference_lease_on_unload(tmp_path, monkeypatch):
     """Unload last model must release inference lease so training can claim."""
+    from api.inference.scheduler import BackendType, ModelInfo, ModelScheduler, ModelStatus
     from core.gpu_coordination import (
         INFERENCE_HOLDER,
         TRAINING_HOLDER,
         assert_training_gpu_available,
         reset_gpu_coordinator,
     )
-    from api.inference.scheduler import BackendType, ModelInfo, ModelScheduler, ModelStatus
 
     coord = reset_gpu_coordinator(tmp_path / "gpu_lease_release.json")
     coord.claim(INFERENCE_HOLDER, owner="inference:m1")
@@ -456,8 +457,13 @@ async def test_scheduler_releases_inference_lease_on_unload(tmp_path, monkeypatc
 
 def test_training_pipeline_cleanup_releases_gpu_lease(tmp_path, monkeypatch):
     """Shipped pipeline cleanup must release training holder."""
-    from core.gpu_coordination import TRAINING_HOLDER, assert_inference_gpu_available, reset_gpu_coordinator
-    from training_engine.pipeline import TrainingPipeline, TrainingPhase
+    from training_engine.pipeline import TrainingPhase, TrainingPipeline
+
+    from core.gpu_coordination import (
+        TRAINING_HOLDER,
+        assert_inference_gpu_available,
+        reset_gpu_coordinator,
+    )
 
     coord = reset_gpu_coordinator(tmp_path / "gpu_lease_train_release.json")
     coord.claim(TRAINING_HOLDER, owner="training:task-1")

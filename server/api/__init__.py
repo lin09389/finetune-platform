@@ -10,7 +10,6 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-
 _ROUTER_EXPORTS: dict[str, tuple[str, str]] = {
     "agent_session_permissions": ("api.agent_sessions", "permission_router"),
     "agent_sessions": ("api.agent_sessions", "router"),

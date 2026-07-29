@@ -6,13 +6,13 @@ import logging
 from pathlib import Path
 
 import pytest
-
 from agent_session.task_scope import path_in_scope
 from agent_session.trajectory import (
     TrajectoryGuardMiddleware,
     TrajectoryStateStore,
     _workspace_rel_for_refresh,
 )
+
 from context.deepagents import (
     MAX_TOTAL_CONTEXT_FILE_TOKENS,
     _apply_total_token_budget,

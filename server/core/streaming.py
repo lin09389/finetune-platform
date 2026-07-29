@@ -3,6 +3,7 @@
 优化的 SSE 流式响应实现，支持批量推送、背压控制和延迟监控
 """
 import asyncio
+
 try:
     import orjson
     def _json_dumps(data: dict) -> str:

@@ -1,6 +1,6 @@
+import main
 from fastapi.testclient import TestClient
 
-import main
 import security.jwt_auth
 
 

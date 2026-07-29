@@ -12,21 +12,25 @@ import time
 from datetime import datetime
 from typing import Any
 
+from agent_session.project_chat import (
+    DeepAgentsProjectChatRunner,
+    ProjectChatResult,
+    can_use_deepagents_project_chat,
+)
+from agent_session.service import AgentSessionService
+from cloud_models import CloudModelService, CloudProviderRepository
+from cloud_models.resolver import resolve_provider
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ai.gateway import list_providers
 from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
-from agent_session.service import AgentSessionService
-from agent_session.project_chat import DeepAgentsProjectChatRunner, ProjectChatResult, can_use_deepagents_project_chat
 from context.deepagents import build_deepagents_context_pack
 from security.audit_log import audit_logger
 from security.auth_middleware import get_current_user_optional
 from security.encryption import secure_storage
 from security.jwt_auth import TokenPayload
-from cloud_models import CloudModelService, CloudProviderRepository
-from cloud_models.resolver import resolve_provider
 
 logger = logging.getLogger(__name__)
 
@@ -440,8 +444,8 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
     context_options = request.context or {}
     session_options = request.session or {}
 
-    from context.builder import get_context_builder
     from context.budget import ContextBuildOptions
+    from context.builder import get_context_builder
 
     project_path = context_options.get("project_path")
     use_project_context = bool(context_options.get("use_context", False))

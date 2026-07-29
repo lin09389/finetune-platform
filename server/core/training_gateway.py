@@ -7,8 +7,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from core.config import Settings, get_settings, settings
 from services.training.policy import allow_skip_resource_check, map_progress_status
+
+from core.config import Settings, get_settings, settings
 
 TERMINAL_PROGRESS_STATUSES = frozenset(
     {"completed", "failed", "stopped", "cancelled", "interrupted"}

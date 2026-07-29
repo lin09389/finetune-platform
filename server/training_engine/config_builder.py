@@ -181,7 +181,11 @@ def degrade_training_config(config: TrainingConfigInput, model_path: str | None 
     estimate_path = model_path or config.model_id
 
     try:
-        from training_engine.model_loader import _estimate_model_params, _read_model_hidden_and_layers, estimate_training_vram
+        from training_engine.model_loader import (
+            _estimate_model_params,
+            _read_model_hidden_and_layers,
+            estimate_training_vram,
+        )
 
         param_count = _estimate_model_params(estimate_path)
         hidden_size, num_layers = _read_model_hidden_and_layers(estimate_path)

@@ -181,8 +181,8 @@ class JWTAuth:
         issuer: str = "finetune-platform",
         db_path: str | None = None,
     ):
-        from security.runtime_policy import require_configured_jwt_secret
         from core.storage import APP_DB_PATH, resolve_storage_path
+        from security.runtime_policy import require_configured_jwt_secret
 
         # Fail-closed: never silently mint a random secret (multi-worker inconsistency).
         self.secret_key = require_configured_jwt_secret(secret_key, source="JWTAuth")
@@ -217,8 +217,9 @@ class JWTAuth:
             """)
 
     def _load_users_from_db(self) -> dict[str, dict]:
-        from core.db_manager import get_db_pool
         import json as _json
+
+        from core.db_manager import get_db_pool
         pool = get_db_pool(self._db_path)
         users: dict[str, dict] = {}
         with pool.get_readonly_connection() as conn:
@@ -364,7 +365,7 @@ class JWTAuth:
         if payload.permissions:
             raise ValueError("无效的 Refresh Token")
 
-        if payload.jti:
+        if payload.jti and payload.exp:
             self.blacklist.add(payload.jti, payload.exp)
 
         return self.create_token_pair(
@@ -375,7 +376,7 @@ class JWTAuth:
     def logout(self, access_token: str, refresh_token: str | None = None):
         try:
             payload = self.verify_token(access_token, check_blacklist=False)
-            if payload.jti:
+            if payload.jti and payload.exp:
                 self.blacklist.add(payload.jti, payload.exp)
         except jwt.InvalidTokenError:
             pass
@@ -383,7 +384,7 @@ class JWTAuth:
         if refresh_token:
             try:
                 payload = self.verify_token(refresh_token, check_blacklist=False)
-                if payload.jti:
+                if payload.jti and payload.exp:
                     self.blacklist.add(payload.jti, payload.exp)
             except jwt.InvalidTokenError:
                 pass

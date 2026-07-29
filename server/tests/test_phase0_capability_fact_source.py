@@ -11,8 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
-
 from agent_session.model_capabilities import (
     LOCAL_INFERENCE_BACKENDS,
     agent_model_tool_calling_status,
@@ -25,6 +23,7 @@ from agent_session.model_capabilities import (
 from agent_session.models import AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+from fastapi.testclient import TestClient
 
 
 class _Settings:

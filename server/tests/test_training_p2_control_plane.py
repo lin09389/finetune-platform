@@ -8,8 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from training_worker.repository import TrainingJobRepository
-
 from services.training.paths import resolve_training_metrics_file, resolve_training_output_dir
 from services.training.policy import (
     allow_skip_resource_check,
@@ -17,6 +15,7 @@ from services.training.policy import (
     history_authority,
     map_progress_status,
 )
+from training_worker.repository import TrainingJobRepository
 
 
 def _enqueue(repo: TrainingJobRepository, job_id: str, **kwargs):
@@ -221,6 +220,7 @@ def test_ws_auth_skipped_when_auth_disabled(monkeypatch):
 @pytest.mark.asyncio
 async def test_require_training_operator_admin_when_auth_on(monkeypatch):
     from services.training.policy import require_training_operator
+
     from security.jwt_auth import Role, TokenPayload
 
     monkeypatch.setattr(

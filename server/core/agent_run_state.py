@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 RuntimeKind = Literal["agent_session"]
 CanonicalRunStatus = Literal[
     "idle",

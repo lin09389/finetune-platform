@@ -26,7 +26,7 @@ class LlamaCppBackend(InferenceBackend):
 
     def __init__(self, config: dict[str, Any] = None):
         super().__init__(config or {})
-        
+
         config = config or {}
         self.n_gpu_layers = config.get("n_gpu_layers", -1)
         self.n_ctx = config.get("n_ctx", 2048)
@@ -36,7 +36,7 @@ class LlamaCppBackend(InferenceBackend):
         self.lora_path = config.get("lora_path", None)
         self.verbose = config.get("verbose", False)
         self.runtime_policy: dict[str, Any] = {}
-        
+
         self._llm: Llama | None = None
         self._model_name = ""
 
@@ -77,7 +77,7 @@ class LlamaCppBackend(InferenceBackend):
             self._llm = await asyncio.to_thread(_load_sync)
             self._model_name = model_name
             self._is_loaded = True
-            
+
             logger.info(f"Llama.cpp model loaded: {model_name}")
             return True
 
@@ -92,7 +92,7 @@ class LlamaCppBackend(InferenceBackend):
             if self._llm:
                 del self._llm
                 self._llm = None
-            
+
             import gc
             gc.collect()
 
@@ -203,7 +203,7 @@ class LlamaCppBackend(InferenceBackend):
                     text = chunk["choices"][0]["text"]
                     if text:
                         yield text
-                    
+
                     if chunk["choices"][0].get("finish_reason") is not None:
                         break
                 except StopIteration:
@@ -322,7 +322,7 @@ class LlamaCppBackend(InferenceBackend):
                         text = chunk["choices"][0]["delta"]["content"]
                         if text:
                             yield text
-                    
+
                     if chunk["choices"][0].get("finish_reason") is not None:
                         break
                 except StopIteration:
@@ -350,9 +350,9 @@ class LlamaCppBackend(InferenceBackend):
         """计算 token 数量"""
         if not self._llm:
             return len(text) // 4
-            
+
         def _count():
             # llama-cpp-python 使用 tokenize 计算 token
             return len(self._llm.tokenize(text.encode("utf-8")))
-            
+
         return await asyncio.to_thread(_count)

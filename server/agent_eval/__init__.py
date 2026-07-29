@@ -4,6 +4,7 @@ The package deliberately does not import ``agent_session``.  Real executions
 are supplied by an adapter so this module never becomes a second Agent loop.
 """
 
+from .agent_session_adapter import AgentSessionServiceEvaluationAdapter
 from .loader import (
     CatalogLoadError,
     default_catalog_path,
@@ -33,7 +34,6 @@ from .real_model import (
     RealModelOptInRequired,
     RealModelServerDisabled,
 )
-from .agent_session_adapter import AgentSessionServiceEvaluationAdapter
 from .runner import DeterministicEvaluationRunner, EvaluationInputError
 
 __all__ = [

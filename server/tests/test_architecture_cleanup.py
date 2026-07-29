@@ -35,7 +35,9 @@ from api.chat_branch import (  # noqa: E402
     list_branches,
     merge_branch,
     switch_branch,
-)  # noqa: E402
+)
+
+# noqa: E402
 from api.cua import (  # noqa: E402
     RecordLoadRequest,
     RecordSaveRequest,
@@ -43,7 +45,9 @@ from api.cua import (  # noqa: E402
     get_action_recorder,
     load_recorded_actions,
     save_recorded_actions,
-)  # noqa: E402
+)
+
+# noqa: E402
 from cua.recorder import RecordedAction  # noqa: E402
 from security.jwt_auth import Role, TokenPayload  # noqa: E402
 

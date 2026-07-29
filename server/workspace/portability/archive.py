@@ -18,7 +18,6 @@ from pydantic import ValidationError
 
 from .schemas import ChecksumsDocument, TaskContextsDocument, WorkspaceManifestV1
 
-
 MANIFEST_ENTRY = "manifest.json"
 TASK_CONTEXTS_ENTRY = "contexts/tasks.json"
 CHECKSUMS_ENTRY = "checksums.json"

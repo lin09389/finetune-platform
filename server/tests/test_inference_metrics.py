@@ -7,10 +7,11 @@ from fastapi.testclient import TestClient
 server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, server_dir)
 
-from core.performance import PerformanceMetrics, PerformanceMonitor, StreamingMetrics
-from api.inference import routes as inference_routes
-from api.device import get_device_info
 from main import app
+
+from api.device import get_device_info
+from api.inference import routes as inference_routes
+from core.performance import PerformanceMetrics, PerformanceMonitor, StreamingMetrics
 
 pytestmark = pytest.mark.usefixtures("inference_in_process")
 

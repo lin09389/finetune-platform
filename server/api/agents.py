@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
-from fastapi import APIRouter, HTTPException, Query, Depends
 
 from agent_session.agent_registry import AgentRegistry
 from agent_session.models import AgentSkillRegistryResponse
 from agent_session.runtime import describe_skill_registry
 from agent_session.runtime_policy import build_agent_definition_policy, build_agent_runtime_policy
 from agent_session.service import AgentSessionService
+from fastapi import APIRouter, Depends, HTTPException, Query
+
 from api.agent_sessions import get_agent_session_service, get_agent_session_user
-from security.jwt_auth import TokenPayload
 from core.db_manager import run_sync
+from security.jwt_auth import TokenPayload
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 _registry: AgentRegistry | None = None

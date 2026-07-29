@@ -6,10 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_openai import ChatOpenAI
-
 from agent_session.model_adapter import (
     OPENAI_COMPAT_PROVIDERS,
     ProviderAdapterError,
@@ -19,6 +15,9 @@ from agent_session.model_adapter import (
     normalize_openai_compat_base_url,
     resolve_official_model_spec,
 )
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_openai import ChatOpenAI
 
 
 def _context(provider: str, model: str, metadata: dict | None = None) -> SimpleNamespace:

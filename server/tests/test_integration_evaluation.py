@@ -1,11 +1,13 @@
 import asyncio
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 from fastapi import FastAPI
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from api import evaluation
+
 
 class DummySettings:
     def __init__(self, root: Path):
@@ -16,7 +18,7 @@ class DummySettings:
 def test_app(tmp_path: Path, monkeypatch):
     settings = DummySettings(tmp_path)
     monkeypatch.setattr(evaluation, "get_settings", lambda: settings)
-    
+
     app = FastAPI()
     app.include_router(evaluation.router, prefix="/evaluation")
     return app
@@ -26,14 +28,14 @@ async def test_sse_stream_receives_updates_incrementally(test_app, tmp_path: Pat
     run_id = "test_run_123"
     path = tmp_path / "outputs" / "evaluations" / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     payload = {
         "run_id": run_id,
         "status": "running",
         "cases": []
     }
     await evaluation._write_run_payload(run_id, payload)
-        
+
     async def simulate_background_flush():
         await asyncio.sleep(0.5)
         for i in range(1, 4):
@@ -49,7 +51,7 @@ async def test_sse_stream_receives_updates_incrementally(test_app, tmp_path: Pat
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         bg_task = asyncio.create_task(simulate_background_flush())
-        
+
         events = []
         async with client.stream("GET", f"/evaluation/runs/{run_id}/stream") as response:
             assert response.status_code == 200
@@ -59,9 +61,9 @@ async def test_sse_stream_receives_updates_incrementally(test_app, tmp_path: Pat
                     events.append(data)
                     if data.get("status") == "completed":
                         break
-        
+
         await bg_task
-        
+
         assert len(events) >= 3
         assert len(events[-1]["cases"]) == 3
         assert events[-1]["status"] == "completed"
@@ -71,7 +73,7 @@ async def test_standalone_judge_workflow(test_app, tmp_path: Path, monkeypatch):
     run_id = "test_run_456"
     path = tmp_path / "outputs" / "evaluations" / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     payload = {
         "run_id": run_id,
         "scenario": "qa_assistant",
@@ -90,23 +92,23 @@ async def test_standalone_judge_workflow(test_app, tmp_path: Path, monkeypatch):
         ]
     }
     await evaluation._write_run_payload(run_id, payload)
-        
+
     async def mock_run_model_inference_batch_with_retry(*args, **kwargs):
         # Select the fine-tuned answer in the deterministic blind A/B ordering.
         prompts = kwargs.get("prompts")
         import hashlib
 
-        swapped = hashlib.sha256("Hello".encode("utf-8")).digest()[0] % 2 == 1
+        swapped = hashlib.sha256(b"Hello").digest()[0] % 2 == 1
         winner = "a" if swapped else "b"
         return [json.dumps({"winner": winner, "reason": "better"})] * len(prompts)
-        
+
     monkeypatch.setattr(evaluation, "run_model_inference_batch_with_retry", mock_run_model_inference_batch_with_retry)
-        
+
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(f"/evaluation/runs/{run_id}/judge", json={"judge_model": "gpt-4"})
         assert resp.status_code == 200
-        
+
         # Poll till status complete
         for _ in range(50):
             resp = await client.get(f"/evaluation/runs/{run_id}")

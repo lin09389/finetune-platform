@@ -2,18 +2,17 @@
 模型加载模块单元测试
 测试目标模块解析、缓存键构建、配置对象、显存估算等纯逻辑
 """
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-
 from training_engine.model_loader import (
     ModelLoadConfig,
     _build_cache_key,
-    _resolve_target_modules,
     _estimate_vram_required,
+    _resolve_target_modules,
 )
 
 

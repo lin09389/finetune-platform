@@ -19,10 +19,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import StreamingResponse
 from services.training.orchestrator import resolve_dataset_file, start_training_task
-from services.training.paths import resolve_training_metrics_file, resolve_training_output_dir as resolve_output_path
+from services.training.paths import resolve_training_metrics_file
+from services.training.paths import resolve_training_output_dir as resolve_output_path
 from services.training.policy import (
     allow_skip_resource_check,
     authenticate_training_sse,

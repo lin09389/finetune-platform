@@ -12,8 +12,8 @@ from typing import Protocol
 
 from .loader import resolve_fixture_directory
 from .models import (
-    EvaluationReport,
     DecisionSource,
+    EvaluationReport,
     FailureAttribution,
     LiveExecutionBudget,
     LiveExecutionResult,

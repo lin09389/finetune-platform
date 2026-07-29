@@ -10,7 +10,11 @@ from api.inference.pipeline import get_local_inference_pipeline
 from api.inference.scheduler import BackendType, get_scheduler
 from core.offline_cache import get_offline_cache
 from inference_service.callbacks import CancellationToken, ProgressCallback
-from inference_service.types import LocalInferenceProgress, LocalInferenceRequest, LocalInferenceResponse
+from inference_service.types import (
+    LocalInferenceProgress,
+    LocalInferenceRequest,
+    LocalInferenceResponse,
+)
 
 
 class LocalInferenceService:

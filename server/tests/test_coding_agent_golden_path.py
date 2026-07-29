@@ -16,8 +16,8 @@ from agent_session.trajectory import (
     score_trajectory,
     trajectory_policy_for_agent,
 )
-from workspace.path_policy import validate_agent_project_path
 
+from workspace.path_policy import validate_agent_project_path
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "coding_agent_golden_path.json"
 REQUIRED_SCENARIO_KINDS = {

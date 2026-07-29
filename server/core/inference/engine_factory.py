@@ -190,7 +190,7 @@ def register_default_engines() -> None:
     """注册默认引擎"""
     from .huggingface_engine import HuggingFaceEngine
     from .ollama_engine import OllamaEngine
-    
+
     try:
         from .llama_cpp_engine import LlamaCppEngine
         InferenceEngineFactory.register("llama-cpp", LlamaCppEngine)

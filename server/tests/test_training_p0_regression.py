@@ -20,13 +20,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from training_engine.schemas import TrainingConfigInput
 from training_worker.repository import TrainingJobRepository
 from training_worker.worker import TrainingWorker
 
 from core.config import Settings
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -91,9 +89,9 @@ def test_authenticate_training_sse_skips_when_auth_disabled(monkeypatch):
 def test_authenticate_training_sse_rejects_missing_token_when_enabled(monkeypatch):
     """PR1: ENABLE_AUTH=true + no token → HTTPException 401."""
     from fastapi import HTTPException
+    from services.training.policy import authenticate_training_sse
 
     from core.config import settings
-    from services.training.policy import authenticate_training_sse
 
     monkeypatch.setattr(settings, "enable_auth", True)
 
@@ -108,8 +106,9 @@ def test_authenticate_training_sse_rejects_missing_token_when_enabled(monkeypatc
 
 def test_authenticate_training_sse_accepts_token_query_param(monkeypatch):
     """PR1: ENABLE_AUTH=true + ?token=xxx → verifies via jwt_auth."""
-    from core.config import settings
     from services.training import policy as policy_mod
+
+    from core.config import settings
 
     monkeypatch.setattr(settings, "enable_auth", True)
 
@@ -130,8 +129,9 @@ def test_authenticate_training_sse_accepts_token_query_param(monkeypatch):
 
 def test_authenticate_training_sse_accepts_authorization_header(monkeypatch):
     """PR1: ENABLE_AUTH=true + Authorization: Bearer xxx → verifies."""
-    from core.config import settings
     from services.training import policy as policy_mod
+
+    from core.config import settings
 
     monkeypatch.setattr(settings, "enable_auth", True)
 

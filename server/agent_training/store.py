@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
 import json
-from pathlib import Path
 import sqlite3
+from collections import OrderedDict
+from pathlib import Path
 from threading import Lock
 
 from agent_training.models import TrainingProposal

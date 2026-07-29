@@ -1,8 +1,8 @@
 import pytest
-
-from api.inference.backends.base import GenerationResult
 from inference_service.service import LocalInferenceService
 from inference_service.types import LocalInferenceRequest
+
+from api.inference.backends.base import GenerationResult
 
 
 @pytest.mark.asyncio

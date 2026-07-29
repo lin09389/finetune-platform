@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from agent_session.diagnostics import AgentFrontendDiagnosticsRepository
+from agent_session.models import AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
-from agent_session.models import AgentSessionCreate
+from fastapi.testclient import TestClient
+from main import app
+
 from api.agent_sessions import (
     get_agent_frontend_diagnostics_repository,
     get_agent_session_service,
     get_agent_session_user,
 )
-from main import app
 from security.jwt_auth import Role, TokenPayload
 
 

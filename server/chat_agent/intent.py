@@ -4,10 +4,10 @@ import json
 import re
 from typing import Any, Literal
 
-from ai.providers import resolve_saved_provider
-from security.encryption import secure_storage
 from cloud_models import CloudProviderRepository
 
+from ai.providers import resolve_saved_provider
+from security.encryption import secure_storage
 
 IntentMode = Literal["chat", "agent"]
 IntentSource = Literal["local_rule", "cloud", "fallback", "manual"]

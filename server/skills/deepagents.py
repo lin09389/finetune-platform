@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 MAX_SKILL_MD_BYTES = 10 * 1024 * 1024
 MAX_DESCRIPTION_LENGTH = 1024
 SKILL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")

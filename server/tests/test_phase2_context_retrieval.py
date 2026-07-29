@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import pytest
 
 from context.budget import ContextBudget
+from context.code_indexer import CodeIndexer
 from context.deepagents import build_deepagents_context_pack
 from context.knowledge_binding import resolve_agent_knowledge_collection
-from context.pack import ContextPack, ContextSource
-from context.code_indexer import CodeIndexer
-from context.service import ContextService
 from context.models import ContextResult
+from context.pack import ContextPack, ContextSource
+from context.service import ContextService
 
 
 def test_resolve_agent_knowledge_session_override_disables():

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
-import asyncio
+from agent_session.service import AgentSessionService
+from agent_session.terminal_manager import terminal_manager
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from agent_session.terminal_manager import terminal_manager
-from agent_session.service import AgentSessionService
-from api.agent_sessions import _user_can_access_session, get_agent_session_service, get_agent_session_user
+from api.agent_sessions import (
+    _user_can_access_session,
+    get_agent_session_service,
+    get_agent_session_user,
+)
 from core.db_manager import run_sync
 from security.jwt_auth import TokenPayload
 

@@ -1,6 +1,8 @@
 """Step 1: working-state card, tool metrics, completion gate."""
 from __future__ import annotations
 
+from agent_session.agent_registry import AgentRegistry
+from agent_session.runtime_contract import build_system_prompt
 from agent_session.session_progress import (
     WORKING_STATE_SECTION_TITLE,
     apply_tool_event,
@@ -10,8 +12,6 @@ from agent_session.session_progress import (
     empty_tool_metrics,
     reset_tool_metrics,
 )
-from agent_session.runtime_contract import build_system_prompt
-from agent_session.agent_registry import AgentRegistry
 
 
 def test_apply_tool_event_counts_start_fail_and_verify():

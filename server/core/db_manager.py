@@ -22,7 +22,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Callable, Any, TypeVar
+from typing import Any, Callable, List, TypeVar
 
 import anyio
 

@@ -13,7 +13,6 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 MAX_TASK_CONTEXTS = 100
 MAX_RESOURCE_REFERENCES = 500
 MAX_TASK_PLAN_STEPS = 100

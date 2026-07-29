@@ -28,6 +28,7 @@ def _request(headers: dict[str, str] | None = None) -> Request:
 
 def test_trace_middleware_accepts_legacy_header_and_resets_context():
     from apps.factory import trace_middleware
+
     from core.tracing import correlation_id_var, trace_id_var, user_id_var
 
     async def endpoint(_request):
@@ -47,6 +48,7 @@ def test_trace_middleware_accepts_legacy_header_and_resets_context():
 
 def test_correlation_header_takes_precedence_and_context_resets_on_error():
     from apps.factory import trace_middleware
+
     from core.tracing import correlation_id_var, trace_id_var
 
     async def endpoint(_request):
@@ -72,6 +74,7 @@ def test_correlation_header_takes_precedence_and_context_resets_on_error():
 
 def test_request_logging_contains_only_safe_structured_fields(caplog):
     from apps.factory import logging_middleware
+
     from core.tracing import correlation_id_var
 
     token = correlation_id_var.set("corr-safe")

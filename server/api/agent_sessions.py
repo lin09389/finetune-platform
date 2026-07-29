@@ -31,10 +31,10 @@ from agent_session.models import (
     AgentWorkspaceResponse,
 )
 from agent_session.service import AgentSessionService
-from api.workspace import AgentWorkspaceNotFoundError
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
+from api.workspace import AgentWorkspaceNotFoundError
 from core.config import settings
 from core.db_manager import run_sync
 from security.audit_log import audit_logger

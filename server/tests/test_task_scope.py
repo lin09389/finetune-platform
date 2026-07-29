@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from agent_session.task_scope import (
     apply_task_scope_to_metadata,
     build_task_scope,
@@ -15,6 +14,7 @@ from agent_session.task_scope import (
     path_in_scope,
     resolve_scope_paths,
 )
+
 from context.deepagents import build_deepagents_context_pack
 
 
@@ -95,7 +95,10 @@ def test_scope_prompt_section():
 
 
 def test_recommend_verify_commands_python_and_client(tmp_path: Path):
-    from agent_session.task_scope import format_verify_recommendations_section, recommend_verify_commands
+    from agent_session.task_scope import (
+        format_verify_recommendations_section,
+        recommend_verify_commands,
+    )
 
     (tmp_path / "server" / "tests").mkdir(parents=True)
     (tmp_path / "server" / "foo").mkdir(parents=True)

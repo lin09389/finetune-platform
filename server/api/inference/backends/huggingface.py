@@ -226,9 +226,10 @@ class HuggingFaceBackend(InferenceBackend):
 
         config = config or GenerationConfig()
 
+        from threading import Thread
+
         import torch
         from transformers import TextIteratorStreamer
-        from threading import Thread
 
         input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
         streamer = TextIteratorStreamer(self._tokenizer, skip_prompt=True, skip_special_tokens=True)

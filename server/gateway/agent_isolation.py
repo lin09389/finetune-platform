@@ -62,7 +62,7 @@ class WorkspaceManager:
             if not config_path.exists():
                 continue
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     config = json.load(f)
                 workspace = AgentWorkspace(
                     agent_id=config["agent_id"],

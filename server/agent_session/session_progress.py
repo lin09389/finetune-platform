@@ -806,7 +806,10 @@ def build_completion_gate(metadata: dict[str, Any] | None, *, status: str | None
     }
     # Phase B4: multi-file path-level verify + companion hints.
     try:
-        from agent_session.multi_file import apply_multi_file_completion_rules, build_multi_file_state
+        from agent_session.multi_file import (
+            apply_multi_file_completion_rules,
+            build_multi_file_state,
+        )
 
         workspace = meta.get("workspace") if isinstance(meta.get("workspace"), dict) else {}
         multi = build_multi_file_state(

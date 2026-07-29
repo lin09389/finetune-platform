@@ -1,8 +1,8 @@
+import asyncio
 import json
 import os
 import sys
 import time
-import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,9 +10,10 @@ from fastapi.testclient import TestClient
 server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, server_dir)
 
-from api.inference.backends.base import GenerationConfig
-from api.inference import routes as inference_routes
 from main import app
+
+from api.inference import routes as inference_routes
+from api.inference.backends.base import GenerationConfig
 
 pytestmark = pytest.mark.usefixtures("inference_in_process")
 
@@ -84,7 +85,7 @@ async def test_chat_stream_ttft_latency(monkeypatch):
     monkeypatch.setattr(inference_routes, "get_scheduler", lambda: scheduler)
 
     from api.inference.routes import chat_stream
-    from api.types import ChatRequest, Message, InferenceOptions
+    from api.types import ChatRequest, InferenceOptions, Message
 
     # 直接调用路由函数，绕过 httpx.ASGITransport 的缓冲问题
     request = ChatRequest(
@@ -93,26 +94,26 @@ async def test_chat_stream_ttft_latency(monkeypatch):
         options=InferenceOptions(backend="huggingface", max_tokens=32),
         memory={"enabled": False, "auto_retrieve": False},
     )
-    
+
     # 模拟环境依赖
     monkeypatch.setattr(inference_routes.settings, "ollama_fast_mode", False)
-    
+
     response = await chat_stream(request)
     # response 此时是一个 StreamingResponse
-    
+
     first_token_time = None
     start_time = time.time()
-    
+
     # 提取内部的 generator
     async for chunk in response.body_iterator:
         if "delta" in chunk:
             if first_token_time is None:
                 first_token_time = time.time()
                 break # 拿到首字就可以退出了，没必要等完全生成
-                
+
     assert first_token_time is not None
     ttft = first_token_time - start_time
-    
+
     # 断言首字延迟在合理范围内，证明是真正的流式
     # fake backend 需要 0.1s 产出首字，再加上微小的系统开销，0.5s 是合理的上限
     assert ttft < 0.5, f"TTFT was too slow: {ttft}s, possible fake streaming"

@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.training.policy import history_authority
+
 from core.config import get_settings
 from core.training_context import get_training_context
 from core.training_state import TrainingRecord
-from services.training.policy import history_authority
 
 
 def _record_from_durable_job(job: Any) -> TrainingRecord:

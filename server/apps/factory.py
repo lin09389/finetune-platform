@@ -490,8 +490,9 @@ async def api_info():
         build_agent_model_runtime_payload,
         saved_cloud_agent_model_configured,
     )
-    from security.encryption import secure_storage
     from cloud_models import CloudProviderRepository
+
+    from security.encryption import secure_storage
 
     cloud_model_configured = saved_cloud_agent_model_configured(CloudProviderRepository(secure_storage))
 

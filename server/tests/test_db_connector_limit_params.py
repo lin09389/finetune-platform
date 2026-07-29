@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 from rag.structured.db_connector import ConnectionConfig, MySQLConnector, PostgreSQLConnector

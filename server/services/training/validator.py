@@ -1,8 +1,6 @@
 """
 训练验证服务 - 配置校验、资源估算、预检
 """
-from core.config import Settings
-from core.logging import get_logger
 from training_engine.dataset_formatter import detect_dataset_sample_format
 from training_engine.schemas import (
     RELEASE_EXPERIMENTAL_FEATURE_MESSAGES,
@@ -10,6 +8,9 @@ from training_engine.schemas import (
     TrainingPreflightCheck,
     ValidationResult,
 )
+
+from core.config import Settings
+from core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -83,7 +84,11 @@ class TrainingValidator:
     @staticmethod
     def _estimate_vram(model_id: str, method: str, batch_size: int, max_seq_length: int) -> float:
         """估算 VRAM 需求 - 委托给统一的 estimate_training_vram 函数"""
-        from training_engine.model_loader import _estimate_model_params, _read_model_hidden_and_layers, estimate_training_vram
+        from training_engine.model_loader import (
+            _estimate_model_params,
+            _read_model_hidden_and_layers,
+            estimate_training_vram,
+        )
 
         param_count = _estimate_model_params(model_id)
         hidden_size, num_layers = _read_model_hidden_and_layers(model_id)
@@ -240,7 +245,11 @@ class TrainingValidator:
 
 def estimate_preflight_required_vram(config: TrainingConfigInput) -> float:
     """预检 VRAM 需求估算 - 委托给统一函数"""
-    from training_engine.model_loader import _estimate_model_params, _read_model_hidden_and_layers, estimate_training_vram
+    from training_engine.model_loader import (
+        _estimate_model_params,
+        _read_model_hidden_and_layers,
+        estimate_training_vram,
+    )
 
     param_count = _estimate_model_params(config.model_id)
     hidden_size, num_layers = _read_model_hidden_and_layers(config.model_id)

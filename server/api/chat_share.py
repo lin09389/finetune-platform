@@ -12,8 +12,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.chat.session import Session, get_session_manager
-from core.storage import ChatShareRepository, json_fallback_enabled
 from core.db_manager import run_sync
+from core.storage import ChatShareRepository, json_fallback_enabled
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 

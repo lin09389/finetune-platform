@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from context.deepagents import build_deepagents_context_pack
 from context.pack import ContextBudget, ContextPack, ContextSource
 from context.workspace_inventory import build_workspace_inventory, extract_goal_tokens

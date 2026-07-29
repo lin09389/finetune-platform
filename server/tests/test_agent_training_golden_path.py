@@ -16,8 +16,11 @@ from agent_session.training_tools import (  # noqa: E402
     grant_approved_training_submissions,
     training_tools_enabled_for_session,
 )
-from agent_training.models import TrainingProposal, TrainingRunSummary, TrainingSubmission  # noqa: E402
-
+from agent_training.models import (  # noqa: E402
+    TrainingProposal,
+    TrainingRunSummary,
+    TrainingSubmission,
+)
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "agent_training_golden_path.json"
 

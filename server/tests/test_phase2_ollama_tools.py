@@ -7,7 +7,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from agent_session.model_capabilities import (
+    agent_model_tool_calling_status,
+    build_inference_tool_calling_features,
+    local_agent_tool_calling_status,
+    local_endpoint_backend_tool_calling_status,
+)
 from fastapi.testclient import TestClient
+from main import app
 
 from api.inference.backends.base import GenerationResult
 from api.inference.openai_tool_bridge import (
@@ -17,13 +24,6 @@ from api.inference.openai_tool_bridge import (
     openai_messages_to_ollama,
     request_requires_tools,
 )
-from agent_session.model_capabilities import (
-    agent_model_tool_calling_status,
-    build_inference_tool_calling_features,
-    local_agent_tool_calling_status,
-    local_endpoint_backend_tool_calling_status,
-)
-from main import app
 
 client = TestClient(app)
 pytestmark = pytest.mark.usefixtures("inference_in_process")
@@ -359,12 +359,11 @@ def test_capability_facts_ollama_endpoint_true_others_false():
 
 def test_ollama_service_chat_model_disables_streaming_for_tool_calling(monkeypatch):
     """Regression: tool-bound Agent path must not stream tools to /v1 (unsupported_stream_tools)."""
-    from agent_session.model_adapter import get_chat_model
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import HumanMessage, AIMessage
-    from langchain_core.outputs import ChatResult, ChatGeneration
-
     import agent_session.model_adapter as adapter
+    from agent_session.model_adapter import get_chat_model
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_openai import ChatOpenAI
 
     monkeypatch.setattr(adapter.settings, "inference_execution_mode", "service", raising=False)
     monkeypatch.setattr(adapter.settings, "inference_service_url", "http://127.0.0.1:8020", raising=False)
@@ -424,6 +423,7 @@ def test_session_model_configuration_ollama_service_tool_supported(tmp_path, mon
     from agent_session.models import AgentSessionCreate
     from agent_session.repository import AgentSessionRepository
     from agent_session.service import AgentSessionService
+
     from core.config import settings as real_settings
 
     monkeypatch.setattr(real_settings, "inference_execution_mode", "service", raising=False)

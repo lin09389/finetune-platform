@@ -423,6 +423,7 @@ def test_resume_and_cancel_require_one_time_official_approval_grants():
 
 def test_build_manifest_does_not_list_training_tools():
     from pathlib import Path
+
     import yaml
 
     manifest = yaml.safe_load(

@@ -5,15 +5,15 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.terminal_manager import TerminalSession, terminal_manager
+from fastapi.testclient import TestClient
+from main import app
+from starlette.websockets import WebSocketDisconnect
+
 from api.agent_sessions import get_agent_session_service, get_agent_session_user
 from core.config import settings
-from main import app
 from memory.memory_service import reset_memory_service
 from security.jwt_auth import Role, TokenPayload
 from workspace import local_paths as workspace_local_paths

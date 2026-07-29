@@ -12,12 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agent_session.repository import AgentSessionRepository
+from agent_session.service import AgentSessionService
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from agent_session.repository import AgentSessionRepository
-from agent_session.service import AgentSessionService
 from api.agent_sessions import get_agent_session_service
 from api.workspace import (
     Workspace,
@@ -35,9 +35,15 @@ from workspace.portability.archive import (
     UnsafeWorkspaceArchiveError,
     UnsupportedWorkspaceManifestVersion,
 )
-from workspace.portability.providers import AgentSessionTaskContextProvider, LocalWorkspaceManifestProvider
+from workspace.portability.providers import (
+    AgentSessionTaskContextProvider,
+    LocalWorkspaceManifestProvider,
+)
 from workspace.portability.repository import WorkspacePortabilityRepository
-from workspace.portability.service import WorkspacePortabilitySecretError, WorkspacePortabilityServiceError
+from workspace.portability.service import (
+    WorkspacePortabilitySecretError,
+    WorkspacePortabilityServiceError,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

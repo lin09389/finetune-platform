@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agent_session.repository import AgentSessionRepository
 from agent_session.services.session_lifecycle import SessionLifecycleService
+
 from workspace.portability.providers import AgentSessionTaskContextProvider
 from workspace.portability.repository import WorkspacePortabilityRepository
 

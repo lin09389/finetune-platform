@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
-from agent_session.model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
+from agent_session.model_adapter import (
+    ProviderAdapterError,
+    get_chat_model,
+    resolve_official_model_spec,
+)
 from agent_session.models import AgentSessionCreate, AgentSessionResponse
+from pydantic import ValidationError
 
 
 def test_agent_session_create_round_trips_workspace_task_context():

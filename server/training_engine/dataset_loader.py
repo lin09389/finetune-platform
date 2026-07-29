@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from core.logging import get_logger
-from training_engine.dataset_formatter import _detect_and_format, _mask_before_assistant, _mask_before_response
+from training_engine.dataset_formatter import (
+    _detect_and_format,
+    _mask_before_assistant,
+    _mask_before_response,
+)
 
 logger = get_logger(__name__)
 

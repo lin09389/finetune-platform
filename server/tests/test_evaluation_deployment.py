@@ -87,7 +87,7 @@ def test_structured_evaluation_metrics(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    
+
     import time
     for _ in range(50):
         response = TestClient(app).get(f"/evaluation/runs/{run_id}")
@@ -134,7 +134,7 @@ def test_evaluation_runs_real_inference_when_outputs_missing(tmp_path: Path, mon
 
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    
+
     import time
     for _ in range(50):
         response = TestClient(app).get(f"/evaluation/runs/{run_id}")
@@ -183,7 +183,7 @@ def test_evaluation_auto_merges_adapter_for_real_inference(tmp_path: Path, monke
 
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    
+
     import time
     for _ in range(50):
         response = TestClient(app).get(f"/evaluation/runs/{run_id}")

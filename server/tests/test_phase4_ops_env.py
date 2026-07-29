@@ -7,16 +7,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.model_adapter import (
+    ProviderAdapterError,
     get_chat_model,
     get_last_chat_model_resolution,
-    ProviderAdapterError,
 )
-from agent_session.models import AgentSessionCreate, AgentPromptRequest
+from agent_session.models import AgentPromptRequest, AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+
 from core.config import settings
 from core.db_manager import get_db_pool
 from core.runtime_env import is_virtualenv, package_available, probe_agent_runtime_environment

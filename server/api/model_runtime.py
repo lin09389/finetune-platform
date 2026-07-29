@@ -13,11 +13,11 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, Literal
 
+from agent_session.model_capabilities import local_agent_tool_calling_status
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.model_center import get_model_suggestions, list_local_models
-from agent_session.model_capabilities import local_agent_tool_calling_status
 from api.models import get_models_list
 from core.config import get_settings
 from core.hardware_profile import build_hardware_profile

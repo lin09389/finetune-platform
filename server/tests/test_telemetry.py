@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 
 def test_registry_renders_low_cardinality_prometheus_004_metrics():
-    from core.telemetry import LocalTelemetryRegistry, PROMETHEUS_CONTENT_TYPE
+    from core.telemetry import PROMETHEUS_CONTENT_TYPE, LocalTelemetryRegistry
 
     registry = LocalTelemetryRegistry(max_series=8)
     registry.record_http_request(method="GET", status_code=200, duration_seconds=0.125, profile="agent")
@@ -40,9 +40,9 @@ def test_registry_bounds_series_and_is_thread_safe():
 
 
 def test_metrics_route_is_available_from_common_behavior_for_every_profile(monkeypatch):
+    import apps.factory as factory_module
     from apps.factory import _register_common_behavior
     from apps.profiles import ApplicationProfile
-    import apps.factory as factory_module
 
     # Non-production keeps local scrapers working without a JWT. Production
     # gates /metrics behind auth when ENABLE_AUTH is on.
@@ -60,9 +60,9 @@ def test_metrics_route_is_available_from_common_behavior_for_every_profile(monke
 
 
 def test_metrics_requires_auth_in_production_when_auth_is_enabled(monkeypatch):
+    import apps.factory as factory_module
     from apps.factory import _register_common_behavior
     from apps.profiles import ApplicationProfile
-    import apps.factory as factory_module
 
     monkeypatch.setattr(factory_module.settings, "enable_auth", True)
     monkeypatch.setattr(factory_module.settings, "environment", "production")

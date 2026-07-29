@@ -33,6 +33,7 @@ from agent_session.training_tools import (
 from agent_training.models import training_activity_from_tool_result
 from agent_training.service import AgentTrainingService
 from agent_training.store import TrainingProposalStore
+
 from core.training_state import TrainingRecord
 
 

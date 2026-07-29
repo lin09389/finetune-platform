@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-
 from chat_agent.models import ChatAgentIntentRequest, ChatAgentIntentResponse
 from chat_agent.service import ChatAgentService
+from fastapi import APIRouter, Depends, HTTPException
+
 from api.agent_sessions import get_agent_session_user
 from security.jwt_auth import TokenPayload
 

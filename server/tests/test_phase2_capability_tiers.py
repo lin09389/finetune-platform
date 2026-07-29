@@ -116,8 +116,9 @@ def test_register_profile_skips_experimental_when_disabled(monkeypatch):
     """Registration path must not expose experimental routes when disabled."""
     from apps.profiles import ApplicationProfile
     from apps.routers import register_profile_routers
-    from core import config as config_mod
     from fastapi import FastAPI
+
+    from core import config as config_mod
 
     monkeypatch.setattr(config_mod.settings, "enable_experimental_capabilities", False)
 
@@ -139,8 +140,9 @@ def test_register_profile_skips_experimental_when_disabled(monkeypatch):
 def test_register_profile_mounts_experimental_when_enabled(monkeypatch):
     from apps.profiles import ApplicationProfile
     from apps.routers import register_profile_routers
-    from core import config as config_mod
     from fastapi import FastAPI
+
+    from core import config as config_mod
 
     monkeypatch.setattr(config_mod.settings, "enable_experimental_capabilities", True)
 
@@ -198,8 +200,8 @@ def test_api_info_and_experimental_status_on_shipped_app():
 
 
 def test_experimental_isolation_middleware_registered():
-    from apps.factory import experimental_isolation_middleware
     from apps.combined import app
+    from apps.factory import experimental_isolation_middleware
 
     # Middleware stack includes our isolation function
     names = []

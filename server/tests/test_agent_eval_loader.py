@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import shutil
 from pathlib import Path
 
 import pytest
-
 from agent_eval import (
     CatalogLoadError,
     default_catalog_path,

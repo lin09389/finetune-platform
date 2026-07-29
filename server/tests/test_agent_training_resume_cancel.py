@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from agent_session.permission import permission_policy_for_agent
 from agent_session.execution_context import AgentDefinition
+from agent_session.permission import permission_policy_for_agent
 from agent_training.errors import AgentTrainingError
 from agent_training.service import AgentTrainingService
 from services.training.resume_identity import ResumeIdentityError, validate_resume_identity

@@ -123,6 +123,7 @@ async def health():
 @app.get("/internal/capabilities")
 async def capabilities():
     from agent_session.model_capabilities import build_inference_tool_calling_features
+
     from api.inference.openai_routes import list_models
     from api.inference.routes import list_backends
 
@@ -159,8 +160,8 @@ async def capabilities():
     }
 
 
-from api.inference.routes import router as inference_router  # noqa: E402
 from api.inference.openai_routes import router as openai_router  # noqa: E402
+from api.inference.routes import router as inference_router  # noqa: E402
 from api.inference_engine import router as inference_engine_router  # noqa: E402
 from api.model_runtime import router as model_runtime_router  # noqa: E402
 

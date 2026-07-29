@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.inference.backends.base import GenerationResult
 from api.inference import routes
+from api.inference.backends.base import GenerationResult
 from api.inference.scheduler import ModelScheduler
 
 

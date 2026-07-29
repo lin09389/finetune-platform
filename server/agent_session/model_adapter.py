@@ -16,14 +16,14 @@ from .deepagents_compat import patch_torch_pytree_for_transformers
 
 patch_torch_pytree_for_transformers()
 
+from cloud_models import CloudProviderRepository  # noqa: E402
 from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
 
 from core.config import settings  # noqa: E402
 from security.encryption import secure_storage  # noqa: E402
-from cloud_models import CloudProviderRepository  # noqa: E402
 
-from .model_capabilities import local_agent_tool_calling_status  # noqa: E402
 from .execution_context import RuntimeExecutionContext  # noqa: E402
+from .model_capabilities import local_agent_tool_calling_status  # noqa: E402
 
 cloud_provider_repository = CloudProviderRepository(secure_storage)
 

@@ -77,7 +77,7 @@ class LlamaCppEngine(BaseInferenceEngine):
                 self.unload_model(self.default_model)
 
             logger.info(f"正在加载 GGUF 模型: {model_id}, GPU layers: {self.n_gpu_layers}")
-            
+
             load_kwargs = {
                 "model_path": model_id,
                 "n_gpu_layers": self.n_gpu_layers,
@@ -111,14 +111,14 @@ class LlamaCppEngine(BaseInferenceEngine):
         if self._llm:
             del self._llm
             self._llm = None
-            
+
         if model_id in self._loaded_models:
             del self._loaded_models[model_id]
-            
+
         # 强制释放内存
         import gc
         gc.collect()
-        
+
         try:
             import torch
             if torch.cuda.is_available():
@@ -154,7 +154,7 @@ class LlamaCppEngine(BaseInferenceEngine):
                 )
 
             output = await asyncio.to_thread(_do_generate)
-            
+
             text = output["choices"][0]["text"]
             tokens_generated = output["usage"]["completion_tokens"]
             finish_reason = output["choices"][0].get("finish_reason", "stop")
@@ -175,7 +175,7 @@ class LlamaCppEngine(BaseInferenceEngine):
         messages = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
-            
+
         for msg in request.messages:
             messages.append({"role": msg.role, "content": msg.content})
 
@@ -191,7 +191,7 @@ class LlamaCppEngine(BaseInferenceEngine):
                 )
 
             output = await asyncio.to_thread(_do_chat)
-            
+
             text = output["choices"][0]["message"]["content"]
             tokens_generated = output["usage"]["completion_tokens"]
             finish_reason = output["choices"][0].get("finish_reason", "stop")
@@ -222,7 +222,7 @@ class LlamaCppEngine(BaseInferenceEngine):
             )
 
         streamer = await asyncio.to_thread(_do_stream)
-        
+
         # 封装流式迭代器
         tokens_so_far = 0
         while True:
@@ -231,7 +231,7 @@ class LlamaCppEngine(BaseInferenceEngine):
                 chunk = await asyncio.to_thread(next, streamer)
                 text = chunk["choices"][0]["text"]
                 finish_reason = chunk["choices"][0].get("finish_reason")
-                
+
                 tokens_so_far += 1
                 done = finish_reason is not None
 
@@ -241,7 +241,7 @@ class LlamaCppEngine(BaseInferenceEngine):
                     tokens_so_far=tokens_so_far,
                     finish_reason=finish_reason,
                 )
-                
+
                 if done:
                     break
             except StopIteration:

@@ -22,7 +22,6 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # Async offload: deployment target
 # ---------------------------------------------------------------------------
@@ -171,8 +170,9 @@ async def test_knowledge_list_collections_offloads(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_service_gateway_generate_degrades_on_unavailable():
-    from core.inference_gateway import ServiceInferenceGateway
     from inference_provider.client import InferenceServiceUnavailable
+
+    from core.inference_gateway import ServiceInferenceGateway
 
     gateway = ServiceInferenceGateway()
 
@@ -192,8 +192,9 @@ async def test_service_gateway_generate_degrades_on_unavailable():
 
 @pytest.mark.asyncio
 async def test_service_gateway_chat_degrades_on_timeout():
-    from core.inference_gateway import ServiceInferenceGateway
     from inference_provider.client import InferenceServiceTimeout
+
+    from core.inference_gateway import ServiceInferenceGateway
 
     gateway = ServiceInferenceGateway()
 
@@ -213,8 +214,9 @@ async def test_service_gateway_chat_degrades_on_timeout():
 
 @pytest.mark.asyncio
 async def test_service_gateway_stream_degrades_to_json_response():
-    from core.inference_gateway import ServiceInferenceGateway
     from inference_provider.client import InferenceServiceUnavailable
+
+    from core.inference_gateway import ServiceInferenceGateway
 
     gateway = ServiceInferenceGateway()
 

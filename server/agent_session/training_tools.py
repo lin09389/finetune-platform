@@ -10,7 +10,11 @@ from collections import OrderedDict
 from typing import Any, Literal
 
 from agent_training.errors import AgentTrainingError
-from agent_training.models import ApprovedTrainingAction, TrainingProposalRequest, training_activity_for
+from agent_training.models import (
+    ApprovedTrainingAction,
+    TrainingProposalRequest,
+    training_activity_for,
+)
 from agent_training.service import AgentTrainingService
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field

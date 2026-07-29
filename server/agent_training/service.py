@@ -7,6 +7,15 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.training.orchestrator import resolve_dataset_file, start_training_task
+from services.training.records import find_training_record
+from services.training.validator import (
+    TrainingValidator,
+    estimate_preflight_required_vram,
+    validate_release_supported_features,
+)
+from training_engine.schemas import TrainingConfigInput
+
 from agent_training.errors import AgentTrainingError
 from agent_training.models import (
     ApprovedTrainingAction,
@@ -21,14 +30,6 @@ from agent_training.store import TrainingProposalStore
 from core.config import Settings, get_settings
 from core.training_context import get_training_context
 from core.training_state import TrainingState
-from services.training.orchestrator import resolve_dataset_file, start_training_task
-from services.training.records import find_training_record
-from services.training.validator import (
-    TrainingValidator,
-    estimate_preflight_required_vram,
-    validate_release_supported_features,
-)
-from training_engine.schemas import TrainingConfigInput
 
 
 class AgentTrainingService:
@@ -303,7 +304,10 @@ class AgentTrainingService:
 
         config_dict = dict(record.config or {})
         try:
-            from services.training.resume_identity import ResumeIdentityError, validate_resume_identity
+            from services.training.resume_identity import (
+                ResumeIdentityError,
+                validate_resume_identity,
+            )
 
             identity_warnings = validate_resume_identity(
                 original_record=record,

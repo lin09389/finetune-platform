@@ -15,9 +15,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field
-
 from agent_eval import (
     AgentSessionServiceEvaluationAdapter,
     CatalogLoadError,
@@ -32,6 +29,9 @@ from agent_eval import (
 )
 from agent_eval.models import LiveExecutionBudget, LiveExecutionResult, StrictModel, UsageSummary
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import Field
+
 from api.agent_sessions import (
     get_agent_session_service,
     get_agent_session_user,

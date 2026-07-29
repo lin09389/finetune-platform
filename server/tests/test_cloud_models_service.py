@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from cloud_models.repository import CloudProviderRepository
 from cloud_models.service import CloudModelService
 

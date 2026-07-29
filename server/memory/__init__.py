@@ -10,7 +10,14 @@ from .memory_service import (
     get_memory_service,
     reset_memory_service,
 )
-from .models import MEMORY_IMPORTANCE, MEMORY_TYPE_LABELS, Memory, MemoryFile, MemoryScope, MemoryType
+from .models import (
+    MEMORY_IMPORTANCE,
+    MEMORY_TYPE_LABELS,
+    Memory,
+    MemoryFile,
+    MemoryScope,
+    MemoryType,
+)
 
 __all__ = [
     "MEMORY_IMPORTANCE",

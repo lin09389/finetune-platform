@@ -9,8 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi import BackgroundTasks
-
 from agent_session.models import AgentSessionCreate
 from agent_session.permission import (
     DEFAULT_DEEPAGENTS_INTERRUPT_ON,
@@ -23,6 +21,7 @@ from agent_session.permission import (
 )
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+from fastapi import BackgroundTasks
 
 
 def _confirm_all_meta(**extra) -> dict:

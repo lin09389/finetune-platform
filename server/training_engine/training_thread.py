@@ -15,7 +15,11 @@ from training_engine.callbacks import queue_training_progress
 from training_engine.errors import RecoverableError, UnrecoverableError
 from training_engine.events import TrainingEventBus
 from training_engine.pipeline import PipelineContext, TrainingPipeline
-from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata, write_training_artifact_manifest
+from training_engine.reporter import (
+    enrich_record_metrics,
+    sync_training_record_metadata,
+    write_training_artifact_manifest,
+)
 from training_engine.schemas import TrainingConfigInput
 from training_engine.strategies import (
     AutoDatasetFormatter,
@@ -200,8 +204,8 @@ def training_thread(
 
             # 尝试从最近的恢复检查点继续
             try:
-                from training_engine.checkpoint_manager import get_latest_checkpoint
                 from core.config import get_settings
+                from training_engine.checkpoint_manager import get_latest_checkpoint
                 latest_cp = get_latest_checkpoint(state, get_settings(), record.id)
                 if latest_cp and latest_cp.get("valid") and "recovery-exception" not in latest_cp.get("name", ""):
                     cp_path = latest_cp["path"]

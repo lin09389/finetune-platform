@@ -15,9 +15,10 @@ from agent_session.trajectory import (
     is_successful_tool_result,
     normalize_workspace_path,
 )
-from context.deepagents import build_deepagents_context_pack
 from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
+
+from context.deepagents import build_deepagents_context_pack
 
 
 class FakeRepository:

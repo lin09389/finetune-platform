@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 import os
 import tempfile
 import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,15 +18,15 @@ from pydantic import BaseModel, Field
 from core.config import settings
 from core.db_manager import run_sync
 from rag.vector_store import get_vector_store
-from workspace.local_paths import normalize_local_workspace_path, get_allowed_workspace_roots
+from security.auth_middleware import get_current_user_optional
+from security.jwt_auth import Role, TokenPayload
+from workspace.local_paths import get_allowed_workspace_roots, normalize_local_workspace_path
 from workspace.path_policy import (
     list_allowed_roots,
     require_valid_project_path,
     resolve_default_project_path,
     validate_agent_project_path,
 )
-from security.auth_middleware import get_current_user_optional
-from security.jwt_auth import Role, TokenPayload
 
 logger = logging.getLogger(__name__)
 
@@ -623,10 +623,10 @@ async def browse_folder(
     current_user: TokenPayload = Depends(get_workspace_user),
 ):
     """Open a native OS directory chooser dialog and return the selected path."""
-    import platform
-    import subprocess
     import os
+    import platform
     import queue
+    import subprocess
     import threading
 
     # Try Windows PowerShell first
@@ -663,7 +663,7 @@ async def browse_folder(
             }}
             """
             cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_code]
-            
+
             # Hide flashing console window on Windows
             startupinfo = None
             if hasattr(subprocess, "STARTUPINFO"):
@@ -699,7 +699,7 @@ async def browse_folder(
         try:
             import tkinter as tk
             from tkinter import filedialog
-            
+
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)

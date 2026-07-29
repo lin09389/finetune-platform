@@ -31,7 +31,7 @@ class OfflineCache:
 
     def build_key(self, namespace: str, payload: dict[str, Any]) -> str:
         canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-        digest = hashlib.sha256(f"{namespace}:{canonical}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(f"{namespace}:{canonical}".encode()).hexdigest()
         return digest
 
     def get(self, key: str) -> Any | None:

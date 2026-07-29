@@ -209,7 +209,10 @@ async def build_deepagents_context_pack(
     file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
     virtual_file_list = "\n".join(file_lines) if file_lines else "- 无"
 
-    from agent_session.task_scope import format_scope_prompt_section, format_verify_recipe_prompt_section
+    from agent_session.task_scope import (
+        format_scope_prompt_section,
+        format_verify_recipe_prompt_section,
+    )
 
     prompt_sections = [
         "【用户目标】\n" + _limit(goal.strip() or "继续执行当前任务。", MAX_INLINE_PROMPT_CHARS),

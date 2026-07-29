@@ -11,14 +11,20 @@ import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
-from .ollama_schemas import OllamaPullRequest, OllamaGenerateRequest, OllamaChatRequest, OllamaOptions, OllamaMessage
+from .ollama_schemas import (
+    OllamaChatRequest,
+    OllamaGenerateRequest,
+    OllamaMessage,
+    OllamaOptions,
+    OllamaPullRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class CircuitBreaker:
     """断路器模式 - 防止频繁重试失败的服务"""
-    
+
     def __init__(
         self,
         failure_threshold: int = 5,
@@ -31,7 +37,7 @@ class CircuitBreaker:
         self.failure_count = 0
         self.last_failure_time: float | None = None
         self.state = "closed"  # closed, open, half_open
-    
+
     def call(self, func):
         """装饰器模式调用"""
         async def wrapper(*args, **kwargs):
@@ -41,7 +47,7 @@ class CircuitBreaker:
                     logger.info("Circuit breaker entering half-open state")
                 else:
                     raise Exception("Circuit breaker is OPEN - service unavailable")
-            
+
             try:
                 result = await func(*args, **kwargs)
                 if self.state == "half_open":
@@ -52,13 +58,13 @@ class CircuitBreaker:
             except self.expected_exception as e:
                 self.failure_count += 1
                 self.last_failure_time = time.time()
-                
+
                 if self.failure_count >= self.failure_threshold:
                     self.state = "open"
                     logger.error(f"Circuit breaker opened after {self.failure_count} failures")
-                
+
                 raise e
-        
+
         return wrapper
 
 
@@ -76,30 +82,30 @@ class OllamaResilientBackend(InferenceBackend):
         self.stream_read_timeout = (config or {}).get("stream_read_timeout", 120)
         self.disable_thinking = bool((config or {}).get("disable_thinking", False))
         self.model_name = (config or {}).get("model_name", "llama2")
-        
+
         # 高级性能参数
         self.num_ctx = (config or {}).get("num_ctx")
         self.num_batch = (config or {}).get("num_batch")
         self.num_thread = (config or {}).get("num_thread")
         self.num_gpu = (config or {}).get("num_gpu")
-        
+
         # 连接池配置
         self.max_connections = (config or {}).get("max_connections", 10)
         self.keepalive_timeout = (config or {}).get("keepalive_timeout", 30)
-        
+
         # 重试配置
         self.max_retries = (config or {}).get("max_retries", 3)
         self.retry_delay = (config or {}).get("retry_delay", 1.0)
-        
+
         # 健康检查配置
         self.health_check_interval = (config or {}).get("health_check_interval", 30)
         self.last_health_check: float = 0
         self.is_healthy = True
-        
+
         # 创建持久化的 ClientSession
         self._session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
-        
+
         # 断路器
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=5,
@@ -119,14 +125,14 @@ class OllamaResilientBackend(InferenceBackend):
                     force_close=False,
                     enable_cleanup_closed=True
                 )
-                
+
                 timeout = ClientTimeout(
                     total=self.timeout,
                     connect=10,
                     sock_read=self.stream_read_timeout,
                     sock_connect=10
                 )
-                
+
                 self._session = aiohttp.ClientSession(
                     connector=connector,
                     timeout=timeout,
@@ -135,7 +141,7 @@ class OllamaResilientBackend(InferenceBackend):
                     trust_env=False,
                 )
                 logger.info("Created new persistent aiohttp session for Ollama")
-            
+
             return self._session
 
     async def _close_session(self):
@@ -151,7 +157,7 @@ class OllamaResilientBackend(InferenceBackend):
         now = time.time()
         if now - self.last_health_check < self.health_check_interval:
             return self.is_healthy
-        
+
         try:
             session = await self._get_session()
             async with session.get(
@@ -170,7 +176,7 @@ class OllamaResilientBackend(InferenceBackend):
     async def _retry_with_backoff(self, func, *args, **kwargs):
         """带指数退避的重试机制"""
         last_exception = None
-        
+
         for attempt in range(self.max_retries):
             try:
                 return await func(*args, **kwargs)
@@ -185,13 +191,13 @@ class OllamaResilientBackend(InferenceBackend):
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"Ollama request failed after {self.max_retries} attempts")
-        
+
         raise last_exception or Exception("Request failed")
 
     async def _retry_stream_with_backoff(self, stream_func):
         """带指数退避的流式重试机制（仅在未输出任何内容时重试）"""
         last_exception = None
-        
+
         for attempt in range(self.max_retries):
             chunks_yielded = 0
             try:
@@ -214,12 +220,12 @@ class OllamaResilientBackend(InferenceBackend):
                     logger.error(f"Ollama stream failed after {self.max_retries} attempts")
             except Exception as e:
                 raise e
-        
+
         raise last_exception or Exception("Stream request failed")
 
     async def _iter_ndjson_objects(self, response: aiohttp.ClientResponse):
         """Iterate NDJSON objects from a chunked response safely.
-        
+
         Uses orjson for ~3x faster parsing when available.
         """
         try:

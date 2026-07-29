@@ -6,9 +6,10 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from cloud_models import CloudModelService, CloudProviderRepository
+
 from core.config import get_settings
 from security.encryption import secure_storage
-from cloud_models import CloudModelService, CloudProviderRepository
 
 
 def _configuration():

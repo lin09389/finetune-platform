@@ -15,7 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from agent_session.models import AgentSessionResponse  # noqa: E402
 from agent_session.repository import AgentSessionRepository  # noqa: E402
 from agent_session.services.session_lifecycle import SessionLifecycleService  # noqa: E402
-from workspace.portability.archive import SafeWorkspaceArchiveCodec, UnsupportedWorkspaceManifestVersion  # noqa: E402
+
+from workspace.portability.archive import (  # noqa: E402
+    SafeWorkspaceArchiveCodec,
+    UnsupportedWorkspaceManifestVersion,
+)
 from workspace.portability.providers import LocalWorkspaceManifestProvider  # noqa: E402
 from workspace.portability.repository import WorkspacePortabilityRepository  # noqa: E402
 from workspace.portability.service import WorkspaceManifestService  # noqa: E402
@@ -174,7 +178,12 @@ def test_continuation_always_creates_a_fresh_policy_session() -> None:
 def test_explicitly_rejects_a_checksum_valid_future_manifest() -> None:
     from datetime import UTC, datetime
 
-    from workspace.portability.schemas import PortableProjectReference, ProducerInfo, WorkspaceIdentity, WorkspaceManifestV1
+    from workspace.portability.schemas import (
+        PortableProjectReference,
+        ProducerInfo,
+        WorkspaceIdentity,
+        WorkspaceManifestV1,
+    )
 
     codec = SafeWorkspaceArchiveCodec()
     manifest = WorkspaceManifestV1(

@@ -16,7 +16,6 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
-
 TrainingPhaseV2 = str
 SUPPORTED_PHASES_V2: tuple[str, ...] = (
     "queued",

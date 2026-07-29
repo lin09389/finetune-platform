@@ -18,7 +18,6 @@ from agent_session.session_progress import (
     required_summary_sections_for_agent,
 )
 
-
 FORBIDDEN_PHRASES = (
     "工具 JSON 协议",
     "命令不需要平台白名单审批",

@@ -15,8 +15,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from deepagents.middleware.filesystem import _check_fs_permission
-
 from agent_session.execution_context import AgentDefinition
 from agent_session.models import AgentSessionCreate
 from agent_session.permission import (
@@ -31,7 +29,7 @@ from agent_session.permission import (
 from agent_session.repository import AgentSessionRepository
 from agent_session.runtime_policy import build_agent_runtime_policy
 from agent_session.service import AgentSessionService
-
+from deepagents.middleware.filesystem import _check_fs_permission
 
 # --- pure mapping table (round 1) -------------------------------------------------
 

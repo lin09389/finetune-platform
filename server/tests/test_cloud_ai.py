@@ -248,8 +248,9 @@ def test_project_chat_rejects_unregistered_project_path(monkeypatch, tmp_path):
     import importlib
 
     from fastapi import HTTPException
-    from workspace import local_paths as workspace_local_paths
+
     from api.cloud_chat import CloudChatRequest
+    from workspace import local_paths as workspace_local_paths
 
     cloud_chat = importlib.import_module("api.cloud_chat")
     external_root = tmp_path / "outside-project"

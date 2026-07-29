@@ -445,9 +445,13 @@ async def _initialize_training_reconciler() -> None:
     if _TRAINING_RECONCILER is not None:
         return
     try:
-        from api.agent_sessions import get_agent_session_service
-        from agent_session.training_run_sync import LocalSQLiteTrainingEventSource, TrainingRunReconciler
+        from agent_session.training_run_sync import (
+            LocalSQLiteTrainingEventSource,
+            TrainingRunReconciler,
+        )
         from training_worker.repository import get_training_job_repository
+
+        from api.agent_sessions import get_agent_session_service
 
         service = get_agent_session_service()
 

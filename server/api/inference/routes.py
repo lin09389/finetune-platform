@@ -2,16 +2,16 @@
 推理模块路由 - 参考 Ollama server/routes.go 设计模式
 """
 import asyncio
+import json
 import logging
 import time
-import json
 from typing import Any
+
 
 def _fast_dumps(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False, separators=(", ", ": "))
 
 import psutil
-
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
@@ -22,6 +22,7 @@ from api.errors import (
 )
 from api.inference.backends.base import GenerationConfig, GenerationResult
 from api.inference.circuit_breaker import CircuitBreakerOpenError, get_circuit_breaker
+from api.inference.pipeline import get_local_inference_pipeline
 from api.inference.scheduler import BackendType, get_scheduler
 from api.types import (
     BackendInfo,
@@ -33,13 +34,12 @@ from api.types import (
     GenerateResponse,
     KnowledgeSource,
 )
-from api.inference.pipeline import get_local_inference_pipeline
 from core.config import get_settings
+from core.kv_cache import get_kv_cache
 from core.logging import log_inference_event
 from core.offline_cache import get_offline_cache
-from core.performance import get_performance_monitor, PerformanceMetrics, StreamingMetrics
+from core.performance import PerformanceMetrics, StreamingMetrics, get_performance_monitor
 from core.utils import get_device_info as get_runtime_device_info
-from core.kv_cache import get_kv_cache
 
 logger = logging.getLogger(__name__)
 
@@ -407,8 +407,8 @@ async def _build_unified_context_payload(
     Any | None,
 ]:
     from api.types import MemoryContextInfo, UnifiedContextInfo
-    from context.builder import get_context_builder
     from context.budget import ContextBuildOptions
+    from context.builder import get_context_builder
 
     max_context_tokens = max(
         512,
@@ -1082,7 +1082,7 @@ async def chat(request: ChatRequest):
 
         if isinstance(result, GenerationResult):
             from api.types import Message, MessageRole, TokenUsage
-            
+
             if result.latency_ms:
                 try:
                     _record_request_metrics(
@@ -1315,7 +1315,7 @@ async def chat_stream(request: ChatRequest):
             cloud_request.options.backend = "cloud"
             scheduler = get_scheduler()
             backend = await scheduler.get_backend("cloud")
-            
+
             messages = [
                 {
                     "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
@@ -1387,7 +1387,7 @@ async def chat_stream(request: ChatRequest):
                             logger.warning(f"[WARNING] High TTFT detected: {ttft_ms}ms, possible blocking operation or fake streaming.")
                         else:
                             logger.info(f"TTFT (Time To First Token): {ttft_ms}ms")
-                            
+
                         yield f"data: {_fast_dumps({'type': 'delta', 'content': chunk})}\n\n"
                         last_yield_time = time.time()
                         continue
@@ -1605,8 +1605,8 @@ async def get_performance_stats(model_id: str | None = Query(None)):
 @router.get("/performance/recommendations")
 async def get_performance_recommendations():
     """获取性能优化建议"""
-    from core.performance import get_performance_monitor
     from core.hardware_profile import build_hardware_profile
+    from core.performance import get_performance_monitor
     from core.utils import get_device_info
 
     monitor = get_performance_monitor()

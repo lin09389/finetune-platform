@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from typing import Iterable
 
-
 WORKSPACE_METADATA_FILE = Path("data/workspaces/metadata.json")
 WORKSPACE_ROOT_ENV_KEYS = ("WORKSPACE_ROOT", "PROJECT_ROOT")
 
