@@ -54,13 +54,27 @@ def _valid_goal_plan_payload(*, goal: str = "实现 Goal Plan") -> dict[str, Any
         "constraints": ["仅修改 server/agent_session/", "保持 Build-only"],
         "phases": [
             {"id": "inspect", "title": "Inspect", "summary": "理解现有结构", "order": 0},
-            {"id": "implement", "title": "Implement", "summary": "实现类型化计划", "order": 1},
+            {"id": "plan", "title": "Plan", "summary": "规划最小变更", "order": 1},
+            {"id": "implement", "title": "Implement", "summary": "实现类型化计划", "order": 2},
+            {"id": "verify", "title": "Verify", "summary": "验证实现", "order": 3},
+            {"id": "review", "title": "Review", "summary": "审查结果", "order": 4},
+            {"id": "deliver", "title": "Deliver", "summary": "交付证据", "order": 5},
         ],
         "work_unit_candidates": [
             {"id": "wu_inspect", "phase_id": "inspect", "title": "阅读 execution_plan", "summary": "确认持久化边界"},
+            {"id": "wu_plan", "phase_id": "plan", "title": "规划实现", "summary": "确认最小变更"},
             {"id": "wu_impl", "phase_id": "implement", "title": "编写 schema", "summary": "严格 Pydantic 模型"},
+            {"id": "wu_verify", "phase_id": "verify", "title": "运行验证", "summary": "执行聚焦测试"},
+            {"id": "wu_review", "phase_id": "review", "title": "审查结果", "summary": "检查权限与证据"},
+            {"id": "wu_deliver", "phase_id": "deliver", "title": "交付结果", "summary": "汇总可见证据"},
         ],
-        "dependencies": [{"from": "wu_inspect", "to": "wu_impl", "kind": "depends_on"}],
+        "dependencies": [
+            {"from": "wu_inspect", "to": "wu_plan", "kind": "depends_on"},
+            {"from": "wu_plan", "to": "wu_impl", "kind": "depends_on"},
+            {"from": "wu_impl", "to": "wu_verify", "kind": "depends_on"},
+            {"from": "wu_verify", "to": "wu_review", "kind": "depends_on"},
+            {"from": "wu_review", "to": "wu_deliver", "kind": "depends_on"},
+        ],
         "file_scopes": [{"path": "server/agent_session/", "mode": "read_write"}],
         "verification_requirements": [
             {"id": "tests", "description": "运行 goal plan 测试", "command": "pytest server/tests/test_agent_goal_plan.py -q", "required": True}
@@ -91,6 +105,33 @@ def test_goal_plan_schema_rejects_invalid_dependencies():
     payload["dependencies"] = [{"from": "missing", "to": "wu_impl", "kind": "depends_on"}]
 
     with pytest.raises(GoalPlanValidationError, match="dependency"):
+        parse_goal_plan(payload)
+
+
+def test_goal_plan_schema_rejects_dependency_cycles():
+    payload = _valid_goal_plan_payload()
+    payload["dependencies"] = [
+        {"from": "wu_inspect", "to": "wu_impl", "kind": "depends_on"},
+        {"from": "wu_impl", "to": "wu_inspect", "kind": "depends_on"},
+    ]
+
+    with pytest.raises(GoalPlanValidationError, match="cycle"):
+        parse_goal_plan(payload)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../outside",
+        "/etc/passwd",
+        "C:/Users/user/project.py",
+    ],
+)
+def test_goal_plan_schema_rejects_escaping_or_absolute_file_scopes(path: str):
+    payload = _valid_goal_plan_payload()
+    payload["file_scopes"] = [{"path": path, "mode": "read_write"}]
+
+    with pytest.raises(GoalPlanValidationError, match="workspace-relative"):
         parse_goal_plan(payload)
 
 
@@ -137,6 +178,7 @@ async def test_goal_planner_success_on_first_attempt():
     assert outcome.error is None
     assert len(calls) == 1
     service.deepagents_runner.run.assert_not_called()
+    assert "canonical phase IDs" in calls[0][0]["content"]
 
 
 @pytest.mark.asyncio

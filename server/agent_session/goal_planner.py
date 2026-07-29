@@ -45,7 +45,10 @@ def _planner_system_prompt() -> str:
         "You are a Build Goal Planner. Return one JSON object only. "
         "Do not call tools. Do not include hidden reasoning, chain-of-thought, or scratchpad fields. "
         f"Use schema_version {json.dumps('agent.goal.plan.v1')} and include: goal, constraints, phases, "
-        "work_unit_candidates, dependencies, file_scopes, verification_requirements, risk_summaries, retry_policy."
+        "work_unit_candidates, dependencies, file_scopes, verification_requirements, risk_summaries, retry_policy. "
+        "Use canonical phase IDs and titles where applicable: Inspect, Plan, Implement, Verify, Review, Deliver. "
+        "Include at least one WorkUnit candidate for Implement, Verify, Review, and Deliver. "
+        "Do not choose an executor or subagent type; platform ownership is fixed and phases are not permissions."
     )
 
 
