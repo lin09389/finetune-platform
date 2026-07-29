@@ -52,6 +52,7 @@ import {
   resumeTraining,
 } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { Checkpoint, TrainingRecord } from '../types';
 import { appModal } from '../utils/modal';
 import styles from './History.module.css';
@@ -102,10 +103,11 @@ interface HistoryProps {
   mode?: 'history' | 'compare';
 }
 
-const compareColors = ['#1677ff', '#22a06b', '#f59e0b', '#d4380d'];
+// 图表分类色走设计令牌（variables.css --chart-*），自动适配明暗主题
+const compareColors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)'];
 
 const getCompareColor = (index: number) =>
-  compareColors[index % compareColors.length] || '#1677ff';
+  compareColors[index % compareColors.length] || 'var(--chart-1)';
 
 const escapeMarkdownTableCell = (value: unknown) =>
   String(value ?? '-')
@@ -179,7 +181,12 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const navigate = useNavigate();
   const operation = useOperation();
   const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } =
-    useAppStore();
+    useAppStore(useShallow((state) => ({
+      trainingRecords: state.trainingRecords,
+      setTrainingRecords: state.setTrainingRecords,
+      removeTrainingRecord: state.removeTrainingRecord,
+      setIsTraining: state.setIsTraining,
+    })));
   const [mergeForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<TrainingRecord | null>(null);

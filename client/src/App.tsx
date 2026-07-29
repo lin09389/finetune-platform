@@ -1,5 +1,5 @@
 import { App as AntApp, ConfigProvider, Layout, Result, theme as antdTheme } from 'antd';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -16,6 +16,8 @@ import { API_BASE_URL, checkBackendHealth, startHealthCheck } from './services/a
 import { useAppStore } from './store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import { ThemeProvider, useTheme } from './theme';
+import { getSeedPalette } from './theme/palette';
+import { getContentMarginLeft } from './layout/constants';
 import ContextualToolbar from './components/shared/ContextualToolbar';
 import TechBackground from './components/shared/TechBackground';
 import ExperimentalRouteGuard from './capability/ExperimentalRouteGuard';
@@ -60,7 +62,10 @@ function PageWrapper({ children, locationKey }: { children: React.ReactNode; loc
   );
 }
 
-const LoadingScreen = () => (
+const LoadingScreen = () => {
+  // prefers-reduced-motion 时去掉无限脉动，只保留静态入场淡入
+  const shouldReduceMotion = useReducedMotion();
+  return (
   <motion.div
     role="status"
     aria-live="polite"
@@ -79,8 +84,8 @@ const LoadingScreen = () => (
     }}
   >
     <motion.div
-      animate={{ opacity: [0.8, 1, 0.8] }}
-      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      animate={shouldReduceMotion ? { opacity: 1 } : { opacity: [0.8, 1, 0.8] }}
+      transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       style={{
         width: 64,
         height: 64,
@@ -119,7 +124,8 @@ const LoadingScreen = () => (
       </div>
     </div>
   </motion.div>
-);
+  );
+};
 
 const PageLoader = () => (
   <div style={{ minHeight: '400px' }}>
@@ -266,7 +272,10 @@ function AppContent() {
   // Without this, AppContent re-renders (e.g. on backend status / location
   // changes) recreate the object and force antd to reprocess the whole theme.
   const antdThemeConfig = useMemo(
-    () => ({
+    () => {
+      // 种子色集中在 theme/palette.ts（variables.css 的 TS 镜像），避免散落三元
+      const seed = getSeedPalette(theme);
+      return {
       // Emit antd design tokens as CSS variables (e.g. --ant-color-primary) so
       // they can be overridden from variables.css, and theme switches no longer
       // require regenerating antd's CSS. hashed:false drops the class-name hash
@@ -275,21 +284,21 @@ function AppContent() {
       hashed: false,
       algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
-        colorPrimary: theme === 'dark' ? '#D97757' : '#b35433',
-        colorSuccess: theme === 'dark' ? '#8ca06f' : '#65754e',
-        colorWarning: theme === 'dark' ? '#D4A033' : '#916909',
-        colorError: theme === 'dark' ? '#ef4444' : '#d64545',
-        colorInfo: theme === 'dark' ? '#7B9BB8' : '#5B7B9A',
-        colorBgBase: theme === 'dark' ? '#262624' : '#faf9f5',
-        colorBgContainer: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
-        colorBgElevated: theme === 'dark' ? '#30302e' : '#ede9de',
-        colorBorder: theme === 'dark' ? '#3e3e38' : '#dad9d4',
-        colorText: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-        colorTextSecondary: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
-        colorTextTertiary: theme === 'dark' ? '#908e84' : '#9b988c',
-        colorTextQuaternary: theme === 'dark' ? '#6e6d68' : '#c2c0b6',
+        colorPrimary: seed.accentPrimary,
+        colorSuccess: seed.success,
+        colorWarning: seed.warning,
+        colorError: seed.error,
+        colorInfo: seed.info,
+        colorBgBase: seed.bgBase,
+        colorBgContainer: seed.bgContainer,
+        colorBgElevated: seed.bgElevated,
+        colorBorder: seed.border,
+        colorText: seed.textPrimary,
+        colorTextSecondary: seed.textSecondary,
+        colorTextTertiary: seed.textTertiary,
+        colorTextQuaternary: seed.textQuaternary,
         colorBgLayout: 'transparent',
-        colorBorderSecondary: theme === 'dark' ? '#30302e' : '#ede9de',
+        colorBorderSecondary: seed.borderSecondary,
         // Claude radius: base 12, LG 16, SM 8 — editorial soft geometry
         borderRadius: 12,
         borderRadiusLG: 16,
@@ -362,7 +371,7 @@ function AppContent() {
           controlHeightLG: 46,
           controlHeightSM: 32,
           paddingInline: 16,
-          colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
+          colorBgContainer: seed.inputBg,
         },
         InputNumber: {
           borderRadius: 12,
@@ -376,16 +385,16 @@ function AppContent() {
           controlHeight: 40,
           controlHeightLG: 46,
           controlHeightSM: 32,
-          colorBgContainer: theme === 'dark' ? '#30302e' : '#ffffff',
+          colorBgContainer: seed.inputBg,
         },
         Modal: {
           borderRadius: 20,
           borderRadiusLG: 24,
           boxShadow: '0 20px 25px -5px rgba(61, 57, 41, 0.10), 0 8px 10px -6px rgba(61, 57, 41, 0.08)',
-          contentBg: theme === 'dark' ? '#2c2c2b' : '#f5f4ef',
+          contentBg: seed.bgContainer,
           headerBg: 'transparent',
           titleFontSize: 22,
-          titleColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
+          titleColor: seed.textPrimary,
         },
         Drawer: {
           borderRadiusLG: 20,
@@ -407,53 +416,53 @@ function AppContent() {
         },
         Table: {
           borderRadius: 16,
-          headerBg: theme === 'dark' ? '#30302e' : '#ede9de',
-          headerColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-          rowHoverBg: theme === 'dark' ? '#3e3e38' : '#f5f4ef',
-          borderColor: theme === 'dark' ? '#3e3e38' : '#dad9d4',
+          headerBg: seed.bgElevated,
+          headerColor: seed.textPrimary,
+          rowHoverBg: seed.hoverBg,
+          borderColor: seed.border,
           cellPaddingBlock: 14,
           cellPaddingInline: 16,
         },
         Tabs: {
-          itemColor: theme === 'dark' ? '#b7b5a9' : '#6e6d68',
-          itemSelectedColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-          itemHoverColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
-          inkBarColor: theme === 'dark' ? '#d97757' : '#b35433',
+          itemColor: seed.textSecondary,
+          itemSelectedColor: seed.textPrimary,
+          itemHoverColor: seed.textPrimary,
+          inkBarColor: seed.accentPrimary,
           horizontalItemPadding: '12px 16px',
           horizontalMargin: '0 0 16px 0',
         },
         Segmented: {
           borderRadius: 10,
-          itemSelectedBg: theme === 'dark' ? '#30302e' : '#ffffff',
-          itemSelectedColor: theme === 'dark' ? '#f1f1ef' : '#3d3929',
+          itemSelectedBg: seed.inputBg,
+          itemSelectedColor: seed.textPrimary,
         },
         Progress: {
-          defaultColor: theme === 'dark' ? '#d97757' : '#b35433',
+          defaultColor: seed.accentPrimary,
           borderRadius: 999,
         },
         Switch: {
-          colorPrimary: theme === 'dark' ? '#d97757' : '#b35433',
-          colorPrimaryHover: theme === 'dark' ? '#e08d6f' : '#b0562f',
+          colorPrimary: seed.accentPrimary,
+          colorPrimaryHover: seed.accentHover,
         },
         Slider: {
-          colorPrimary: theme === 'dark' ? '#d97757' : '#b35433',
-          colorPrimaryBorder: theme === 'dark' ? '#8a5740' : '#e0a892',
+          colorPrimary: seed.accentPrimary,
+          colorPrimaryBorder: seed.sliderBorder,
           handleSize: 10,
           handleSizeHover: 12,
         },
         Checkbox: {
-          colorPrimary: theme === 'dark' ? '#d97757' : '#b35433',
-          colorPrimaryHover: theme === 'dark' ? '#e08d6f' : '#b0562f',
+          colorPrimary: seed.accentPrimary,
+          colorPrimaryHover: seed.accentHover,
           borderRadius: 4,
         },
         Radio: {
-          colorPrimary: theme === 'dark' ? '#d97757' : '#b35433',
-          colorPrimaryHover: theme === 'dark' ? '#e08d6f' : '#b0562f',
-          buttonSolidCheckedBg: theme === 'dark' ? '#d97757' : '#b35433',
-          buttonSolidCheckedColor: theme === 'dark' ? '#141413' : '#ffffff',
+          colorPrimary: seed.accentPrimary,
+          colorPrimaryHover: seed.accentHover,
+          buttonSolidCheckedBg: seed.accentPrimary,
+          buttonSolidCheckedColor: seed.textInverse,
         },
         Pagination: {
-          colorPrimary: theme === 'dark' ? '#d97757' : '#b35433',
+          colorPrimary: seed.accentPrimary,
           itemBg: 'transparent',
           itemSize: 36,
         },
@@ -462,7 +471,7 @@ function AppContent() {
           controlHeight: 40,
         },
         Empty: {
-          colorTextDescription: theme === 'dark' ? '#908e84' : '#9b988c',
+          colorTextDescription: seed.textTertiary,
         },
         Statistic: {
           contentFontSize: 28,
@@ -473,7 +482,8 @@ function AppContent() {
           siderBg: 'transparent',
         },
       },
-    }),
+      };
+    },
     [theme],
   );
 
@@ -504,7 +514,7 @@ function AppContent() {
           <Layout
             className="app-main"
             style={{
-              marginLeft: isAgentWorkbenchRoute ? 0 : useCompactNav ? 0 : sidebarCollapsed ? 104 : 272,
+              marginLeft: isAgentWorkbenchRoute ? 0 : useCompactNav ? 0 : getContentMarginLeft(sidebarCollapsed),
               transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
               background: 'transparent',

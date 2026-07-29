@@ -140,7 +140,7 @@ const StepProgress: React.FC<StepProgressProps> = memo(({ steps, currentStep }) 
               top: 0,
               width: '25%',
               height: '100%',
-              background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+              background: 'linear-gradient(90deg, transparent, var(--shimmer-overlay), transparent)',
             }}
           />
         )}

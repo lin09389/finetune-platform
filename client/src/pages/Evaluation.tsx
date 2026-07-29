@@ -28,6 +28,7 @@ import {
   getApiErrorMessage,
 } from '../services/api';
 import { useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import type {
   AppTaskGoal,
   CreateEvaluationRunPayload,
@@ -164,7 +165,15 @@ export default function Evaluation() {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { models, datasets, trainingRecords, setModels, setDatasets, backendStatus } = useAppStore();
+  const { models, datasets, trainingRecords, setModels, setDatasets, backendStatus } =
+    useAppStore(useShallow((state) => ({
+      models: state.models,
+      datasets: state.datasets,
+      trainingRecords: state.trainingRecords,
+      setModels: state.setModels,
+      setDatasets: state.setDatasets,
+      backendStatus: state.backendStatus,
+    })));
   const [historyRuns, setHistoryRuns] = useState<EvaluationRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [run, setRun] = useState<EvaluationRun | null>(null);

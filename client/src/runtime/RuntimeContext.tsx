@@ -195,7 +195,8 @@ const toTrainingSignal = (phase: RuntimeTrainingPhase): RuntimeTrainingSignal =>
 };
 
 export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { backendStatus } = useAppStore();
+  // 仅订阅 backendStatus：全局 Provider 若整 store 订阅，任意字段变化都会重渲染整棵子树
+  const backendStatus = useAppStore((state) => state.backendStatus);
   const chatSettings = useChatStore((state) => state.settings);
   const updateChatSettings = useChatStore((state) => state.updateSettings);
 

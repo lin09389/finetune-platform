@@ -91,7 +91,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           font-size: 12px;
           color: var(--text-secondary);
           background: transparent;
-          border: 1px solid #ddd;
+          border: 1px solid var(--border-color);
           border-radius: 6px;
           cursor: pointer;
           transition: all 0.2s ease;
@@ -99,9 +99,9 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
         }
 
         .toggle-thinking-btn:hover {
-          background: #f5f5f5;
+          background: var(--bg-hover);
           color: var(--text-secondary);
-          border-color: #ccc;
+          border-color: var(--border-hover);
         }
 
         .toggle-icon {
@@ -134,9 +134,9 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           font-size: 12px;
           line-height: 1.6;
           color: var(--text-secondary);
-          background: #fafafa;
+          background: var(--bg-elevated);
           border-radius: 8px;
-          border: 1px solid #f0f0f0;
+          border: 1px solid var(--border-subtle);
           font-style: italic;
         }
 
@@ -157,25 +157,8 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           51%, 100% { opacity: 0; }
         }
 
-        /* 暗色主题 */
-        @media (prefers-color-scheme: dark) {
-          .toggle-thinking-btn {
-            color: var(--text-secondary);
-            border-color: #444;
-          }
-
-          .toggle-thinking-btn:hover {
-            background: #333;
-            color: #bbb;
-            border-color: #555;
-          }
-
-          .thinking-content {
-            background: #1a1a1a;
-            color: var(--text-secondary);
-            border-color: #333;
-          }
-        }
+        /* 颜色全部走设计令牌，随 .dark-theme 自动切换，
+           不再依赖 prefers-color-scheme（与应用内主题开关不同步） */
       `}</style>
     </div>
   );

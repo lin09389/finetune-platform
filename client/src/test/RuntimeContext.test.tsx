@@ -182,9 +182,10 @@ describe('RuntimeContextProvider', () => {
     vi.clearAllMocks();
 
     appBackendStatus = 'connected';
-    mockUseAppStore.mockImplementation(() => ({
-      backendStatus: appBackendStatus,
-    }));
+    mockUseAppStore.mockImplementation((selector?: (state: { backendStatus: string }) => unknown) => {
+      const state = { backendStatus: appBackendStatus };
+      return selector ? selector(state) : state;
+    });
 
     chatState = {
       settings: {
@@ -549,8 +550,9 @@ describe('RuntimeContextProvider', () => {
   });
 
   it('stays offline and skips remote refresh when backend is disconnected', async () => {
-    mockUseAppStore.mockReturnValue({
-      backendStatus: 'disconnected',
+    mockUseAppStore.mockImplementation((selector?: (state: { backendStatus: string }) => unknown) => {
+      const state = { backendStatus: 'disconnected' };
+      return selector ? selector(state) : state;
     });
 
     render(

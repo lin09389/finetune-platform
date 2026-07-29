@@ -113,7 +113,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
               </>
             )}
             {state.error && (
-              <Text style={{ color: '#ff7875', fontSize: 12 }}>错误: {state.error}</Text>
+              <Text style={{ color: 'var(--error)', fontSize: 12 }}>错误: {state.error}</Text>
             )}
           </Space>
         }
@@ -241,8 +241,8 @@ export const StreamingProgress: React.FC<StreamingProgressProps> = ({ state, est
           status="active"
           showInfo={false}
           strokeColor={{
-            '0%': '#108ee9',
-            '100%': '#87d068',
+            '0%': 'var(--info)',
+            '100%': 'var(--success)',
           }}
         />
       )}
@@ -274,7 +274,7 @@ export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
           bottom: 100,
           right: 24,
           padding: '8px 16px',
-          background: 'rgba(82, 196, 26, 0.9)',
+          background: 'color-mix(in srgb, var(--success) 90%, transparent)',
           borderRadius: 8,
           color: 'var(--text-inverse)',
           fontSize: 12,
@@ -282,12 +282,12 @@ export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
           alignItems: 'center',
           gap: 8,
           zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+          boxShadow: 'var(--shadow-md)',
         }}
       >
         <CheckCircleOutlined />
         <span>已保存 {content.length} 字符</span>
-        <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 11 }}>
+        <Text style={{ color: 'color-mix(in srgb, var(--text-inverse) 80%, transparent)', fontSize: 11 }}>
           {new Date(timestamp).toLocaleTimeString()}
         </Text>
       </motion.div>

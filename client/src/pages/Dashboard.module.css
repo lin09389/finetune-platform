@@ -359,6 +359,14 @@
   100% { background-position: -200% 0; }
 }
 
+/* JSX 层已按 reduce-motion 条件渲染，此处为 CSS 层保险 */
+@media (prefers-reduced-motion: reduce) {
+  .pipelineLaserFlow {
+    animation: none;
+    background-position: 50% 0;
+  }
+}
+
 .pipelineNodes {
   position: relative;
   z-index: 3;

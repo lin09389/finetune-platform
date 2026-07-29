@@ -336,7 +336,7 @@ export default function PermissionReviewCard({
                     initial={reduceMotion ? false : { opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    transition={transitions.base}
+                    transition={reduceMotion ? { duration: 0 } : transitions.base}
                   >
                     <label htmlFor={`perm-edit-${partId}-${idx}`}>编辑参数 (JSON)</label>
                     <Input.TextArea
@@ -400,7 +400,7 @@ export default function PermissionReviewCard({
             initial={reduceMotion ? false : { opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            transition={transitions.base}
+            transition={reduceMotion ? { duration: 0 } : transitions.base}
           >
             <label htmlFor={`perm-reject-${partId}`}>拒绝原因（可选）</label>
             <Input.TextArea

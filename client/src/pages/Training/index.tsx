@@ -28,6 +28,7 @@ import {
   subscribeTrainingProgress,
 } from '../../services/trainingApi';
 import { useAppStore } from '../../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import type {
   TrainingProgress as TrainingProgressType,
   TrainingRecord as TrainingRecordType,
@@ -181,7 +182,16 @@ const TrainingPage: React.FC = () => {
     addTrainingRecord,
     setModels,
     setDatasets,
-  } = useAppStore();
+  } = useAppStore(useShallow((state) => ({
+    models: state.models,
+    datasets: state.datasets,
+    backendStatus: state.backendStatus,
+    isTraining: state.isTraining,
+    setIsTraining: state.setIsTraining,
+    addTrainingRecord: state.addTrainingRecord,
+    setModels: state.setModels,
+    setDatasets: state.setDatasets,
+  })));
   const { actions } = useRuntimeContext();
   const { setTrainingSelection } = actions;
   const [form] = Form.useForm();

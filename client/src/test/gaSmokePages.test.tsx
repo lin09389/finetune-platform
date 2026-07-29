@@ -698,12 +698,18 @@ describe('GA smoke pages', () => {
     });
   });
 
-  it('renders dashboard product chain health and primary routes', async () => {
+  it('renders dashboard bento sections, chain health and primary routes', async () => {
     renderWithRouter(<Dashboard />);
 
     expect(screen.getByText('运行中控台')).toBeInTheDocument();
+    // 重构后的 Bento 卡片区块（pages/dashboard/ 拆分组件）
+    expect(screen.getByText('硬件设备控制台')).toBeInTheDocument();
+    expect(screen.getByText('运行服务矩阵')).toBeInTheDocument();
+    expect(screen.getByText('平台资产仓')).toBeInTheDocument();
     expect(screen.getByText('工程闭环健康')).toBeInTheDocument();
+    expect(screen.getByText('下一步建议')).toBeInTheDocument();
     expect(screen.getByText('主要操作入口')).toBeInTheDocument();
+    expect(screen.getByText('最近训练')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('存储健康')).toBeInTheDocument();
       expect(screen.getByText('正常')).toBeInTheDocument();

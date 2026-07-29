@@ -1,63 +1,36 @@
 import {
-  ArrowRightOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  CloudOutlined,
+  ApiOutlined,
   DatabaseOutlined,
-  ExclamationCircleOutlined,
+  DesktopOutlined,
   FolderOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
   RocketOutlined,
   SettingOutlined,
-  ThunderboltOutlined,
-  DesktopOutlined,
-  ApiOutlined,
-  InfoCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
-import { InteractiveButton, GlassHoverCard } from '../components/motion';
+import { useMotionConfig } from '../components/motion';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
-import EmptyState from '../components/shared/EmptyState';
 import StatusState from '../components/shared/StatusState';
 import ThemeToggle from '../components/ThemeToggle';
-import { CountUp } from '../components/shared/MotionWrapper';
 import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
 import { getTrainingCheckpoints, getTrainingHistory } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
+import { staggerContainer } from '../theme/motion-tokens';
 import type { Checkpoint, TrainingRecord } from '../types';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import styles from './Dashboard.module.css';
-
-// 动画配置
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.04,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 6 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.3,
-      ease: [0.23, 1, 0.32, 1] as const,
-    },
-  },
-};
+import AssetSummaryCard from './dashboard/AssetSummaryCard';
+import DeviceConsoleCard from './dashboard/DeviceConsoleCard';
+import MainActionsGrid from './dashboard/MainActionsGrid';
+import PipelineHealthCard from './dashboard/PipelineHealthCard';
+import ServiceMatrixCard from './dashboard/ServiceMatrixCard';
+import SuggestionsGrid from './dashboard/SuggestionsGrid';
+import TrainingHistoryTable from './dashboard/TrainingHistoryTable';
+import type { ChainStep, MainAction, Suggestion } from './dashboard/types';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -83,6 +56,7 @@ export default function Dashboard() {
     setTrainingRecords: state.setTrainingRecords
   })));
   const { inference, summary } = useRuntimeContext();
+  const { getSafeVariants } = useMotionConfig();
   const [deploymentPackageCount, setDeploymentPackageCount] = useState(0);
   const [latestCheckpoints, setLatestCheckpoints] = useState<Record<string, Checkpoint>>({});
 
@@ -102,6 +76,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (backendStatus !== 'connected') return;
+    // 卸载/重连后丢弃在途结果，避免向已卸载组件 setState
+    let cancelled = false;
 
     const loadChainHealth = async () => {
       try {
@@ -112,6 +88,7 @@ export default function Dashboard() {
             getTrainingHistory(),
             listDeploymentPackages(20),
           ]);
+        if (cancelled) return;
 
         if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value)) {
           setModels(modelResult.value);
@@ -138,35 +115,43 @@ export default function Dashboard() {
               }
             })
           );
-          setLatestCheckpoints(checkpointMap);
+          if (!cancelled) setLatestCheckpoints(checkpointMap);
         }
         if (deploymentResult.status === 'fulfilled' && Array.isArray(deploymentResult.value)) {
           setDeploymentPackageCount(deploymentResult.value.length);
         }
       } catch {
-        setDeploymentPackageCount(0);
+        if (!cancelled) setDeploymentPackageCount(0);
       }
     };
 
     void loadChainHealth();
+    return () => {
+      cancelled = true;
+    };
   }, [backendStatus, setDatasets, setModels, setTrainingRecords]);
 
-  const recentTrainings = trainingRecords.slice(-5).reverse();
-  const completedTrainings = trainingRecords.filter((record) => record.status === 'completed');
-  const evaluationReadyTrainings = completedTrainings.filter(
-    (record) => record.adapterPath || record.checkpointPath || record.outputPath,
-  );
-  const storageReady = summary.storageStatus === 'ready' || summary.storageStatus === 'healthy';
-  const storageStatusLabel =
-    summary.storageStatus === 'ready' || summary.storageStatus === 'healthy'
-      ? '正常'
-      : summary.storageStatus === 'degraded'
-        ? '降级'
-        : summary.storageStatus === 'error'
-          ? '异常'
-          : '未知';
+  const { recentTrainings, completedTrainings, evaluationReadyTrainings } = useMemo(() => {
+    const completed = trainingRecords.filter((record) => record.status === 'completed');
+    return {
+      recentTrainings: trainingRecords.slice(-5).reverse(),
+      completedTrainings: completed,
+      evaluationReadyTrainings: completed.filter(
+        (record) => record.adapterPath || record.checkpointPath || record.outputPath,
+      ),
+    };
+  }, [trainingRecords]);
 
-  const chainSteps = [
+  const storageReady = summary.storageStatus === 'ready' || summary.storageStatus === 'healthy';
+  const storageStatusLabel = storageReady
+    ? '正常'
+    : summary.storageStatus === 'degraded'
+      ? '降级'
+      : summary.storageStatus === 'error'
+        ? '异常'
+        : '未知';
+
+  const chainSteps = useMemo<ChainStep[]>(() => [
     {
       title: '后端连接',
       value: backendStatus === 'connected' ? '已就绪' : '未就绪',
@@ -203,254 +188,97 @@ export default function Dashboard() {
       ready: deploymentPackageCount > 0,
       action: () => navigate('/deployment'),
     },
-  ];
+  ], [
+    backendStatus,
+    models.length,
+    inference.availableModelCount,
+    datasets.length,
+    completedTrainings.length,
+    evaluationReadyTrainings.length,
+    deploymentPackageCount,
+    navigate,
+  ]);
   const readyStepCount = chainSteps.filter((step) => step.ready).length;
   const chainHealthPercent = Math.round((readyStepCount / chainSteps.length) * 100);
 
   // 构建下一步建议
-  const suggestions = [];
-  if (models.length === 0) {
-    suggestions.push({
-      title: '没有模型',
-      desc: '去模型管理下载/导入模型',
-      action: () => navigate('/models'),
-      buttonText: '前往模型管理',
-      type: 'warning',
-    });
-  }
-  if (datasets.length === 0) {
-    suggestions.push({
-      title: '没有数据集',
-      desc: '去数据集上传，准备微调数据',
-      action: () => navigate('/datasets'),
-      buttonText: '前往数据集管理',
-      type: 'warning',
-    });
-  }
-  if (deviceInfo && !deviceInfo.cuda_available && !deviceInfo.mps_available) {
-    suggestions.push({
-      title: '无 GPU',
-      desc: '训练不可用，但聊天/知识库可继续体验',
-      type: 'info',
-    });
-  }
-  if (!inference.ollamaAvailable) {
-    suggestions.push({
-      title: 'Ollama 未启动',
-      desc: '本地推理不可用，可切换 HuggingFace 或查看 Docker Ollama 说明',
-      type: 'warning',
-    });
-  }
-  if (suggestions.length === 0) {
-    suggestions.push({
-      title: '环境就绪',
-      desc: '所有基础环境均已就绪，您可以开始训练新模型或进行 AI 对话',
-      type: 'success',
-    });
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return (
-          <Tag
-            icon={<CheckCircleOutlined />}
-            style={{
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              background: 'var(--success-light)',
-              borderColor: 'var(--success-border)',
-              color: 'var(--success)',
-              padding: '2px 8px',
-            }}
-          >
-            完成
-          </Tag>
-        );
-      case 'failed':
-        return (
-          <Tag
-            icon={<CloseCircleOutlined />}
-            style={{
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              background: 'var(--error-light)',
-              borderColor: 'var(--error-border)',
-              color: 'var(--error)',
-              padding: '2px 8px',
-            }}
-          >
-            失败
-          </Tag>
-        );
-      case 'stopped':
-        return (
-          <Tag
-            icon={<ExclamationCircleOutlined />}
-            style={{
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              background: 'var(--warning-light)',
-              borderColor: 'var(--warning-border)',
-              color: 'var(--warning)',
-              padding: '2px 8px',
-            }}
-          >
-            停止
-          </Tag>
-        );
-      default:
-        return (
-          <Tag
-            icon={<ClockCircleOutlined spin />}
-            style={{
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              background: 'var(--info-light)',
-              borderColor: 'var(--info-border)',
-              color: 'var(--info)',
-              padding: '2px 8px',
-            }}
-          >
-            训练中
-          </Tag>
-        );
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const items: Suggestion[] = [];
+    if (models.length === 0) {
+      items.push({
+        title: '没有模型',
+        desc: '去模型管理下载/导入模型',
+        action: () => navigate('/models'),
+        buttonText: '前往模型管理',
+        type: 'warning',
+      });
     }
-  };
+    if (datasets.length === 0) {
+      items.push({
+        title: '没有数据集',
+        desc: '去数据集上传，准备微调数据',
+        action: () => navigate('/datasets'),
+        buttonText: '前往数据集管理',
+        type: 'warning',
+      });
+    }
+    if (deviceInfo && !deviceInfo.cuda_available && !deviceInfo.mps_available) {
+      items.push({
+        title: '无 GPU',
+        desc: '训练不可用，但聊天/知识库可继续体验',
+        type: 'info',
+      });
+    }
+    if (!inference.ollamaAvailable) {
+      items.push({
+        title: 'Ollama 未启动',
+        desc: '本地推理不可用，可切换 HuggingFace 或查看 Docker Ollama 说明',
+        type: 'warning',
+      });
+    }
+    if (items.length === 0) {
+      items.push({
+        title: '环境就绪',
+        desc: '所有基础环境均已就绪，您可以开始训练新模型或进行 AI 对话',
+        type: 'success',
+      });
+    }
+    return items;
+  }, [models.length, datasets.length, deviceInfo, inference.ollamaAvailable, navigate]);
 
-  const trainingColumns = [
-    {
-      title: '模型',
-      key: 'model',
-      render: (_: unknown, record: TrainingRecord) => {
-        const id = record.baseModelId || record.config?.modelId || record.modelName;
-        const model = models.find((m) => m.id === id);
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <FolderOutlined style={{ color: 'var(--accent-primary)', fontSize: 'var(--text-base)' }} />
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-              {model?.name || id}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      title: '数据集',
-      key: 'dataset',
-      render: (_: unknown, record: TrainingRecord) => {
-        const id = record.datasetId || record.config?.datasetId || record.datasetName;
-        const dataset = datasets.find((d) => d.id === id);
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <DatabaseOutlined style={{ color: 'var(--accent-secondary)', fontSize: 'var(--text-base)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>{dataset?.name || id}</span>
-          </div>
-        );
-      },
-    },
-    {
-      title: '方法',
-      key: 'method',
-      render: (_: unknown, record: TrainingRecord) => {
-        const method = record.method || record.config?.method || 'qlora';
-        return (
-          <Tag
-            style={{
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              background: method === 'qlora' ? 'var(--success-light)' : 'var(--info-light)',
-              borderColor: method === 'qlora' ? 'var(--success)' : 'var(--info)',
-              color: method === 'qlora' ? 'var(--success)' : 'var(--info)',
-              padding: '2px 8px',
-            }}
-          >
-            {method.toUpperCase()}
-          </Tag>
-        );
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => getStatusBadge(status),
-    },
-    {
-      title: '时间',
-      dataIndex: 'startTime',
-      key: 'startTime',
-      render: (date: string) => (
-        <span
-          style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', fontWeight: 500 }}
-        >
-          {new Date(date).toLocaleString('zh-CN')}
-        </span>
-      ),
-    },
-    {
-      title: '最新检查点',
-      key: 'checkpoint',
-      render: (_: unknown, record: TrainingRecord) => {
-        const cp = latestCheckpoints[record.id];
-        if (!cp) return <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>-</span>;
-        return (
-          <div>
-            <Tag
-              style={{
-                borderRadius: 'var(--radius-sm)',
-                fontWeight: 600,
-                background: 'var(--accent-primary-light)',
-                borderColor: 'var(--accent-primary)',
-                color: 'var(--accent-primary)',
-              }}
-            >
-              step {cp.step}
-            </Tag>
-            {cp.metadata?.loss !== undefined && (
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 'var(--space-0-5)' }}>
-                loss {cp.metadata.loss.toFixed(4)}
-              </div>
-            )}
-          </div>
-        );
-      },
-    },
-  ];
-
-  const mainActions = [
+  const mainActions = useMemo<MainAction[]>(() => [
     {
       title: '准备模型',
       icon: <FolderOutlined />,
-      color: 'var(--success)', // emerald
+      color: 'var(--success)',
       onClick: () => navigate('/models'),
       description: '下载或导入大语言模型，支持 GGUF、Safetensors、PyTorch 等格式。',
     },
     {
       title: '上传数据集',
       icon: <DatabaseOutlined />,
-      color: 'var(--warning)', // amber
+      color: 'var(--warning)',
       onClick: () => navigate('/datasets'),
       description: '上传并分析训练数据集，支持 JSON / JSONL 格式文件。',
     },
     {
       title: '开始训练',
       icon: <RocketOutlined />,
-      color: 'var(--accent-primary)', // indigo
+      color: 'var(--accent-primary)',
       onClick: () => navigate('/training'),
       description: '按问答或结构化输出目标创建微调任务。',
     },
     {
       title: '评估与部署',
       icon: <ApiOutlined />,
-      color: 'var(--accent-primary)', // blue
+      color: 'var(--accent-primary)',
       onClick: () => navigate('/evaluation'),
       description: '对比 base 与微调模型输出，再生成应用接入示例。',
     },
-  ];
+  ], [navigate]);
 
   const formatValue = (val: number) => Number(val.toFixed(1));
-  
+
   const vramTotal = formatValue(deviceInfo?.vram_total || 0);
   const vramFree = deviceInfo?.vram_free !== undefined ? deviceInfo.vram_free : vramTotal;
   const vramUsed = formatValue(Math.max(0, vramTotal - vramFree));
@@ -460,6 +288,11 @@ export default function Dashboard() {
   const memFree = deviceInfo?.memory_free !== undefined ? deviceInfo.memory_free : memTotal;
   const memUsed = formatValue(Math.max(0, memTotal - memFree));
   const memPercent = memTotal > 0 ? Math.min(100, Math.round((memUsed / memTotal) * 100)) : 0;
+
+  const goModels = useCallback(() => navigate('/models'), [navigate]);
+  const goDatasets = useCallback(() => navigate('/datasets'), [navigate]);
+  const goHistory = useCallback(() => navigate('/history'), [navigate]);
+  const goTraining = useCallback(() => navigate('/training'), [navigate]);
 
   return (
     <AnimatedLayout animationKey="dashboard">
@@ -489,393 +322,58 @@ export default function Dashboard() {
             />
           </GlassCard>
         ) : (
-          <motion.div variants={containerVariants} initial="hidden" animate="show">
+          <motion.div variants={getSafeVariants(staggerContainer)} initial="initial" animate="animate">
             {/* Bento Grid 硬件与系统监控 */}
             <div className={styles.bentoGrid}>
-              
-              {/* Card 1: 硬件设备控制台 */}
               <div className={styles['span-6']}>
-                <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} >
-                    <div className={styles.deviceConsole}>
-                      <div className={styles.deviceTitleArea}>
-                        <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
-                          <DesktopOutlined style={{ color: 'var(--info)' }} />
-                          硬件设备控制台
-                        </span>
-                      </div>
-                      
-                      <div className={styles.deviceMetricsGrid}>
-                        {/* VRAM Meter */}
-                        <div className={styles.metricProgressArea}>
-                          <div className={styles.metricHeader}>
-                            <span className={styles.metricTitle}>GPU 显存占用</span>
-                            <span className={styles.metricValue}>
-                              <CountUp value={vramUsed} decimals={1} />
-                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 'var(--font-medium)' }}>
-                                 / {vramTotal} GB
-                              </span>
-                            </span>
-                          </div>
-                          <div className={styles.metricBarContainer}>
-                            <div 
-                              className={styles.metricBarFill}
-                              style={{ 
-                                width: `${vramPercent}%`,
-                                background: vramPercent > 90
-                                  ? 'var(--gradient-error)'
-                                  : vramPercent > 75
-                                    ? 'var(--gradient-warning)'
-                                    : 'var(--gradient-brand)',
-                                transition: `width 0.8s var(--ease-smooth), background 0.6s var(--ease-smooth)`,
-                              }}
-                            />
-                          </div>
-                          <span style={{ fontSize: 'var(--text-xs)', textAlign: 'right', display: 'flex', alignItems: 'center', gap: 'var(--space-1-5)' }}>
-                            <span style={{ color: 'var(--text-tertiary)' }}>已占用 {vramPercent}%</span>
-                            {vramPercent > 90 && (
-                              <span style={{ color: 'var(--error)', fontWeight: 'var(--font-semibold)', fontSize: 10, padding: '1px 6px', background: 'var(--error-light)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--error-border)' }}>危险</span>
-                            )}
-                            {vramPercent > 75 && vramPercent <= 90 && (
-                              <span style={{ color: 'var(--warning)', fontWeight: 'var(--font-semibold)', fontSize: 10, padding: '1px 6px', background: 'var(--warning-light)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--warning-border)' }}>警告</span>
-                            )}
-                          </span>
-                        </div>
-
-                        {/* System Memory Meter */}
-                        <div className={styles.metricProgressArea}>
-                          <div className={styles.metricHeader}>
-                            <span className={styles.metricTitle}>系统内存占用</span>
-                            <span className={styles.metricValue}>
-                              <CountUp value={memUsed} decimals={1} />
-                              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 'var(--font-medium)' }}>
-                                 / {memTotal} GB
-                              </span>
-                            </span>
-                          </div>
-                          <div className={styles.metricBarContainer}>
-                            <div 
-                              className={styles.metricBarFill}
-                              style={{ 
-                                width: `${memPercent}%`,
-                                background: 'var(--accent-secondary)'
-                              }}
-                            />
-                          </div>
-                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textAlign: 'right' }}>
-                            已占用 {memPercent}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </GlassHoverCard>
-                </motion.div>
+                <DeviceConsoleCard
+                  vramUsed={vramUsed}
+                  vramTotal={vramTotal}
+                  vramPercent={vramPercent}
+                  memUsed={memUsed}
+                  memTotal={memTotal}
+                  memPercent={memPercent}
+                />
               </div>
-
-              {/* Card 2: 运行服务矩阵 */}
               <div className={styles['span-3']}>
-                <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} >
-                    <div className={styles.servicesMatrix}>
-                      <span className={styles.sectionTitle} style={{ marginBottom: 'var(--space-2)' }}>
-                        <ApiOutlined style={{ color: 'var(--accent-secondary)' }} />
-                        运行服务矩阵
-                      </span>
-                      <div className={styles.servicesGrid}>
-                        {/* Service Item 1: Backend */}
-                        <div className={styles.serviceItem}>
-                          <span className={styles.serviceName}>
-                            <ThunderboltOutlined style={{ fontSize: 'var(--text-xs)' }} />
-                            API 核心服务
-                          </span>
-                          <div className={styles.serviceStatusArea}>
-                            <span className={styles.serviceStatusLabel}>
-                              {backendStatus === 'connected' ? '已就绪' : '未连接'}
-                            </span>
-                            <span className={`${styles.ledIndicator} ${backendStatus === 'connected' ? styles.healthy : styles.error}`} />
-                          </div>
-                        </div>
-
-                        {/* Service Item 2: Ollama */}
-                        <div className={styles.serviceItem}>
-                          <span className={styles.serviceName}>
-                            <CloudOutlined style={{ fontSize: 'var(--text-xs)' }} />
-                            Ollama 实例
-                          </span>
-                          <div className={styles.serviceStatusArea}>
-                            <span className={styles.serviceStatusLabel}>
-                              {inference.ollamaAvailable ? '活跃' : '离线'}
-                            </span>
-                            <span className={`${styles.ledIndicator} ${inference.ollamaAvailable ? styles.healthy : styles.warning}`} />
-                          </div>
-                        </div>
-
-                        {/* Service Item 3: Storage */}
-                        <div className={styles.serviceItem}>
-                          <span className={styles.serviceName}>
-                            <DatabaseOutlined style={{ fontSize: 'var(--text-xs)' }} />
-                            存储健康
-                          </span>
-                          <div className={styles.serviceStatusArea}>
-                            <span className={styles.serviceStatusLabel}>
-                              {storageStatusLabel}
-                            </span>
-                            <span className={`${styles.ledIndicator} ${storageReady ? styles.healthy : styles.error}`} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </GlassHoverCard>
-                </motion.div>
+                <ServiceMatrixCard
+                  backendConnected={backendStatus === 'connected'}
+                  ollamaAvailable={inference.ollamaAvailable}
+                  storageReady={storageReady}
+                  storageStatusLabel={storageStatusLabel}
+                />
               </div>
-
-              {/* Card 3: 平台资产仓 */}
               <div className={styles['span-3']}>
-                <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassHoverCard className={styles.statCard} >
-                    <div className={styles.assetStatusCard}>
-                      <span className={styles.sectionTitle}>
-                        <FolderOutlined style={{ color: 'var(--warning)' }} />
-                        平台资产仓
-                      </span>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                        <div className={styles.assetStats}>
-                          <div>
-                            <span className={styles.assetTitle}>可用模型</span>
-                            <div className={styles.assetMainNumber} style={{ color: 'var(--accent-primary)' }}>
-                              <CountUp value={inference.availableModelCount} />
-                            </div>
-                          </div>
-                          <button onClick={() => navigate('/models')} className={styles.assetActionBtn}>
-                            管理 <ArrowRightOutlined style={{ fontSize: 10 }} />
-                          </button>
-                        </div>
-                        <div style={{ height: 1, background: 'var(--border-color)' }} />
-                        <div className={styles.assetStats}>
-                          <div>
-                            <span className={styles.assetTitle}>导入数据集</span>
-                            <div className={styles.assetMainNumber} style={{ background: 'var(--gradient-warm)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                              <CountUp value={datasets.length} />
-                            </div>
-                          </div>
-                          <button onClick={() => navigate('/datasets')} className={styles.assetActionBtn}>
-                            导入 <ArrowRightOutlined style={{ fontSize: 10 }} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </GlassHoverCard>
-                </motion.div>
-              </div>
-
-            </div>
-
-            {/* 工程闭环健康 - 虚线与流光折线可视化图 */}
-            <motion.div variants={itemVariants} style={{ marginBottom: 'var(--space-8)' }}>
-              <GlassCard intensity="medium" noHover className={styles.pipelineCard}>
-                <div className={styles.historyHeader}>
-                  <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
-                    <CheckCircleOutlined style={{ color: 'var(--success)' }} />
-                    工程闭环健康
-                  </span>
-                  <Tag
-                    color={chainHealthPercent >= 80 ? 'success' : chainHealthPercent >= 50 ? 'warning' : 'default'}
-                    style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700 }}
-                  >
-                    {readyStepCount}/{chainSteps.length} 节点就绪 ({chainHealthPercent}%)
-                  </Tag>
-                </div>
-                
-                <div className={styles.pipelineFlowTrack}>
-                  <div className={styles.pipelineLineBackground} />
-                  {chainHealthPercent > 0 && <div className={styles.pipelineLaserFlow} />}
-                  
-                  <div className={styles.pipelineNodes}>
-                    {chainSteps.map((step, idx) => {
-                      const isReady = step.ready;
-                      return (
-                        <button
-                          key={step.title}
-                          type="button"
-                          onClick={step.action}
-                          className={`${styles.pipelineNode} ${isReady ? styles.nodeReady : styles.nodePending}`}
-                        >
-                          <div className={styles.nodeIndicator}>
-                            {idx + 1}
-                            {isReady && <span className={styles.nodeBadge}>✓</span>}
-                          </div>
-                          <div className={styles.nodeTitle}>{step.title}</div>
-                          <div className={styles.nodeValue}>{step.value}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </GlassCard>
-            </motion.div>
-
-            {/* 下一步建议 */}
-            <div style={{ marginBottom: 'var(--space-8)' }}>
-              <h3 className={styles.sectionTitle}>
-                <InfoCircleOutlined style={{ color: 'var(--info)' }} />
-                下一步建议
-              </h3>
-              <div className={styles.suggestionsGrid}>
-                {suggestions.map((suggestion, index) => {
-                  const getIcon = () => {
-                    if (suggestion.type === 'warning') return <ExclamationCircleOutlined />;
-                    if (suggestion.type === 'success') return <CheckCircleOutlined />;
-                    return <InfoCircleOutlined />;
-                  };
-
-                  const getColor = () => {
-                    if (suggestion.type === 'warning') return 'var(--warning)';
-                    if (suggestion.type === 'success') return 'var(--success)';
-                    return 'var(--info)';
-                  };
-
-                  return (
-                    <motion.div variants={itemVariants} key={index} style={{ height: '100%' }}>
-                      <GlassCard
-                        intensity="low"
-                        style={{
-                          height: '100%',
-                          borderTop: `3px solid ${getColor()}`,
-                          padding: '20px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'flex-start' }}>
-                          <div style={{ fontSize: 'var(--text-xl)', color: getColor(), marginTop: 'var(--space-0-5)' }}>
-                            {getIcon()}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div
-                              style={{
-                                fontWeight: 'var(--font-bold)',
-                                color: 'var(--text-primary)',
-                                marginBottom: 'var(--space-1-5)',
-                                fontSize: 'var(--text-base)',
-                              }}
-                            >
-                              {suggestion.title}
-                            </div>
-                            <div
-                              style={{
-                                color: 'var(--text-secondary)',
-                                fontSize: 'var(--text-sm)',
-                                lineHeight: 'var(--leading-normal)',
-                                marginBottom: suggestion.action ? 'var(--space-4)' : 0,
-                              }}
-                            >
-                              {suggestion.desc}
-                            </div>
-                            {suggestion.action && (
-                              <InteractiveButton
-                                variant="primary"
-                                onClick={suggestion.action}
-                                style={{ borderRadius: 'var(--radius-sm)', fontWeight: 'var(--font-semibold)', padding: 'var(--space-1) var(--space-3)', fontSize: 'var(--text-sm)', height: '32px' }}
-                              >
-                                {suggestion.buttonText}
-                              </InteractiveButton>
-                            )}
-                          </div>
-                        </div>
-                      </GlassCard>
-                    </motion.div>
-                  );
-                })}
+                <AssetSummaryCard
+                  availableModelCount={inference.availableModelCount}
+                  datasetCount={datasets.length}
+                  onGoModels={goModels}
+                  onGoDatasets={goDatasets}
+                />
               </div>
             </div>
 
-            {/* 主要操作入口 */}
-            <div style={{ marginBottom: 'var(--space-8)' }}>
-              <h3 className={styles.sectionTitle}>
-                <PlayCircleOutlined style={{ color: 'var(--accent-primary)' }} />
-                主要操作入口
-              </h3>
-              <div className={styles.bentoGrid}>
-                {mainActions.map((action, index) => (
-                  <div key={index} className={styles['span-3']}>
-                    <motion.div
-                      variants={itemVariants}
-                      style={{ height: '100%' }}
-                    >
-                      <GlassHoverCard
-                        className={styles.quickActionCard}
-                        onClick={action.onClick}
-                        style={{
-                          '--spotlight-color': `${action.color}15`,
-                          '--spotlight-border': `${action.color}35`,
-                        } as React.CSSProperties}
-                      >
-                        <div
-                          className={styles.quickActionIcon}
-                          style={{
-                            background: `${action.color}12`,
-                            color: action.color,
-                            border: `1px solid ${action.color}25`,
-                          }}
-                        >
-                          {action.icon}
-                        </div>
-                        <div>
-                          <div className={styles.quickActionTitle}>{action.title}</div>
-                          <div className={styles.quickActionDesc}>{action.description}</div>
-                        </div>
-                      </GlassHoverCard>
-                    </motion.div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <PipelineHealthCard
+              chainSteps={chainSteps}
+              readyStepCount={readyStepCount}
+              chainHealthPercent={chainHealthPercent}
+            />
 
-            {/* 最近训练记录 */}
-            <motion.div variants={itemVariants}>
-              <GlassCard className={styles.historyCard} intensity="medium" noHover>
-                <div className={styles.historyHeader}>
-                  <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
-                    <ClockCircleOutlined style={{ color: 'var(--accent-primary)' }} />
-                    最近训练
-                  </span>
-                  <Button
-                    type="text"
-                    icon={<ArrowRightOutlined />}
-                    onClick={() => navigate('/history')}
-                    style={{ fontWeight: 600, color: 'var(--accent-primary)' }}
-                  >
-                    查看全部
-                  </Button>
-                </div>
+            <SuggestionsGrid suggestions={suggestions} />
 
-                <div className={styles.tableWrapper} style={{ marginTop: 'var(--space-6)' }}>
-                  {recentTrainings.length === 0 ? (
-                    <EmptyState
-                      compact
-                      title="暂无训练记录"
-                      description="创建一次训练后，结果会显示在这里。"
-                      action={{
-                        text: '开始训练',
-                        onClick: () => navigate('/training'),
-                        icon: <PlusOutlined />,
-                      }}
-                      style={{ padding: 'var(--space-8) 0' }}
-                    />
-                  ) : (
-                    <Table
-                      columns={trainingColumns}
-                      dataSource={recentTrainings}
-                      rowKey="id"
-                      pagination={false}
-                      size="middle"
-                    />
-                  )}
-                </div>
-              </GlassCard>
-            </motion.div>
+            <MainActionsGrid actions={mainActions} />
+
+            <TrainingHistoryTable
+              recentTrainings={recentTrainings}
+              models={models}
+              datasets={datasets}
+              latestCheckpoints={latestCheckpoints}
+              onGoHistory={goHistory}
+              onGoTraining={goTraining}
+            />
           </motion.div>
         )}
       </div>
     </AnimatedLayout>
   );
 }
-

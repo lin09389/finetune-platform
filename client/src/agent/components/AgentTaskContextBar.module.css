@@ -35,8 +35,8 @@
 }
 
 .workspaceButtonWarning {
-  border-color: color-mix(in srgb, #d97706 45%, var(--border-color));
-  color: #b45309;
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border-color));
+  color: var(--warning-dark);
 }
 
 .workspaceButton > span:nth-child(2),
@@ -51,11 +51,11 @@
   height: 7px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #22c55e;
+  background: var(--success);
 }
 
 .workspaceButtonWarning .workspaceDot {
-  background: #f59e0b;
+  background: var(--warning);
 }
 
 .workspaceAction {

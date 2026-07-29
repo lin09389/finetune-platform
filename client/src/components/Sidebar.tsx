@@ -1,6 +1,6 @@
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import { Layout, Tooltip } from 'antd';
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
@@ -12,22 +12,16 @@ import {
 } from '../navigation/routeMetadata';
 import { apiClient } from '../services/api';
 import { useAppStore } from '../store/appStore';
+import { SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_FLOAT_OFFSET, SIDEBAR_WIDTH } from '../layout/constants';
+import { duration, easings } from '../theme/motion-tokens';
+import { useMotionConfig } from './motion';
 import styles from './Sidebar.module.css';
 
 const { Sider } = Layout;
 
-const menuItemVariants = {
-  hidden: { opacity: 0, x: -10 },
-  show: (index: number) => ({
-    opacity: 1,
-    x: 0,
-    transition: { delay: index * 0.03, duration: 0.3, ease: [0.23, 1, 0.32, 1] as const },
-  }),
-};
-
-const logoVariants = {
+const logoVariants: Variants = {
   hidden: { opacity: 0, y: -10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.23, 1, 0.32, 1] as const } },
+  show: { opacity: 1, y: 0, transition: { duration: duration.slow, ease: easings.smoothOut } },
 };
 
 export default function Sidebar() {
@@ -39,6 +33,19 @@ export default function Sidebar() {
     backendStatus: state.backendStatus,
   })));
   const [apiInfo, setApiInfo] = useState<ApiInfoCapabilityPayload | null>(null);
+  const { shouldReduceMotion, getSafeVariants } = useMotionConfig();
+
+  // 函数型 custom 变体不能过 getSafeVariants（spread 函数得到空对象），手工降级
+  const menuItemVariants = useMemo<Variants>(() => ({
+    hidden: { opacity: 0, x: shouldReduceMotion ? 0 : -10 },
+    show: (index: number) => ({
+      opacity: 1,
+      x: 0,
+      transition: shouldReduceMotion
+        ? { duration: 0.01 }
+        : { delay: index * 0.03, duration: duration.smooth, ease: easings.smoothOut },
+    }),
+  }), [shouldReduceMotion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,25 +76,25 @@ export default function Sidebar() {
 
   return (
     <Sider
-      width={sidebarCollapsed ? 72 : 240}
+      width={sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH}
       collapsible={false}
       collapsed={sidebarCollapsed}
       className={styles.sidebar}
       role="navigation"
       aria-label="主导航"
-      style={{ position: 'fixed', left: 16, top: 16, bottom: 16, zIndex: 100, height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)' }}
+      style={{ position: 'fixed', left: SIDEBAR_FLOAT_OFFSET, top: SIDEBAR_FLOAT_OFFSET, bottom: SIDEBAR_FLOAT_OFFSET, zIndex: 100, height: `calc(100vh - ${SIDEBAR_FLOAT_OFFSET * 2}px)`, display: 'flex', flexDirection: 'column', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-lg)' }}
     >
-      <motion.div variants={logoVariants} initial="hidden" animate="show" className={styles.logoArea} style={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+      <motion.div variants={getSafeVariants(logoVariants)} initial="hidden" animate="show" className={styles.logoArea} style={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
         <motion.div className={styles.logoIcon} role="button" tabIndex={0} aria-label="返回仪表盘" onClick={() => navigate('/dashboard')} onKeyDown={(event) => onActivateKey(event, () => navigate('/dashboard'))} whileTap={{ opacity: 0.85 }}>
           <img src="/favicon.svg" alt="Logo" style={{ width: 24, height: 24 }} />
         </motion.div>
-        {!sidebarCollapsed && <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }} style={{ overflow: 'hidden' }}>
+        {!sidebarCollapsed && <motion.div initial={{ opacity: 0, x: shouldReduceMotion ? 0 : -10 }} animate={{ opacity: 1, x: 0 }} transition={shouldReduceMotion ? { duration: 0.01 } : { delay: 0.2, duration: duration.smooth, ease: easings.smoothOut }} style={{ overflow: 'hidden' }}>
           <h2 className={styles.logoTitle}>Finetune</h2>
           <p className={styles.logoSubtitle}>AI 微调平台</p>
         </motion.div>}
       </motion.div>
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }} className={styles.statusIndicator}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={shouldReduceMotion ? { duration: 0.01 } : { delay: 0.1, duration: duration.base, ease: easings.smoothOut }} className={styles.statusIndicator}>
         <Tooltip title={backendStatus === 'connected' ? '后端服务运行正常' : '后端服务未连接'} placement="right">
           <div className={styles.statusBadge} role="status" aria-label={backendStatus === 'connected' ? '后端服务：已连接' : '后端服务：未连接'} style={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start', background: backendStatus === 'connected' ? 'var(--success-light)' : 'var(--error-light)', color: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)', display: 'inline-block' }} />
@@ -124,7 +131,7 @@ export default function Sidebar() {
       </div>
 
       <motion.div className={styles.collapseBtn} role="button" tabIndex={0} aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'} aria-expanded={!sidebarCollapsed} onClick={toggleSidebar} onKeyDown={(event) => onActivateKey(event, toggleSidebar)} whileTap={{ opacity: 0.85 }} style={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
-        <motion.span animate={{ rotate: sidebarCollapsed ? 180 : 0 }} transition={{ duration: 0.3 }} style={{ fontSize: 16 }}>{sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</motion.span>
+        <motion.span animate={{ rotate: sidebarCollapsed ? 180 : 0 }} transition={shouldReduceMotion ? { duration: 0.01 } : { duration: duration.smooth, ease: easings.smoothOut }} style={{ fontSize: 16 }}>{sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}</motion.span>
         {!sidebarCollapsed && <span style={{ whiteSpace: 'nowrap' }}>收起侧边栏</span>}
       </motion.div>
     </Sider>

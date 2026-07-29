@@ -127,7 +127,7 @@ const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = memo(
               top: 0,
               width: '30%',
               height: '100%',
-              background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+              background: 'linear-gradient(90deg, transparent, var(--shimmer-overlay), transparent)',
             }}
           />
         </div>

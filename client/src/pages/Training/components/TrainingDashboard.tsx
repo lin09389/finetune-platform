@@ -137,11 +137,12 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
   }, [logs]);
 
   const filterLabels: Array<'ALL' | 'ERROR' | 'WARN' | 'INFO'> = ['ALL', 'ERROR', 'WARN', 'INFO'];
+  // 终端工具栏底色永远深色，颜色走 --terminal-* 专用令牌
   const filterColors: Record<string, string> = {
-    ALL: '#94a3b8',
-    ERROR: '#ef4444',
-    WARN: '#f59e0b',
-    INFO: '#22c55e',
+    ALL: 'var(--terminal-muted)',
+    ERROR: 'var(--terminal-error)',
+    WARN: 'var(--terminal-warning)',
+    INFO: 'var(--terminal-success)',
   };
 
   return (
@@ -156,16 +157,16 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
         <span style={{ flex: 1 }}>系统输出</span>
         {/* Log level filter */}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <FilterOutlined style={{ fontSize: 10, color: '#64748b', marginRight: 2 }} />
+          <FilterOutlined style={{ fontSize: 10, color: 'var(--terminal-muted)', marginRight: 2 }} />
           {filterLabels.map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               style={{
                 fontSize: 9, padding: '1px 6px', borderRadius: 3,
-                border: `1px solid ${filter === f ? filterColors[f] : 'var(--border-subtle)'}`,
-                background: filter === f ? `${filterColors[f]}22` : 'transparent',
-                color: filter === f ? filterColors[f] : '#64748b',
+                border: `1px solid ${filter === f ? filterColors[f] : 'var(--terminal-border)'}`,
+                background: filter === f ? `color-mix(in srgb, ${filterColors[f]} 14%, transparent)` : 'transparent',
+                color: filter === f ? filterColors[f] : 'var(--terminal-muted)',
                 cursor: 'pointer', fontWeight: 600, letterSpacing: '0.03em',
                 transition: 'all 0.2s',
               }}
@@ -178,7 +179,7 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
             onClick={() => setPaused(p => !p)}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px',
-              color: paused ? '#f59e0b' : '#475569', fontSize: 13, lineHeight: 1,
+              color: paused ? 'var(--terminal-warning)' : 'var(--terminal-muted)', fontSize: 13, lineHeight: 1,
               transition: 'color 0.2s',
             }}
             aria-label={paused ? '恢复滚动' : '暂停滚动'}
@@ -192,7 +193,7 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
             onClick={handleCopy}
             style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px',
-              color: '#475569', fontSize: 12, lineHeight: 1,
+              color: 'var(--terminal-muted)', fontSize: 12, lineHeight: 1,
               transition: 'color 0.2s',
             }}
             aria-label="复制日志"
@@ -644,8 +645,8 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
           </div>
           {Array.isArray(progress?.actionableSuggestions) && progress.actionableSuggestions.length > 0 && (
             <div style={{
-              background: 'rgba(255,107,107,0.06)',
-              border: '1px solid rgba(255,107,107,0.15)',
+              background: 'color-mix(in srgb, var(--error) 6%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--error) 15%, transparent)',
               borderRadius: 8,
               padding: '12px 16px',
               maxWidth: 420,
@@ -785,8 +786,8 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                 <defs>
                   <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#FF6B6B" stopOpacity={0.15} />
-                    <stop offset="100%" stopColor="#FF6B6B" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--error)" stopOpacity={0.15} />
+                    <stop offset="100%" stopColor="var(--error)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
@@ -799,22 +800,22 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <YAxis
                   yAxisId="left"
                   stroke="transparent"
-                  tick={{ fill: 'rgba(255, 107, 107, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  tick={{ fill: 'color-mix(in srgb, var(--error) 50%, transparent)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   stroke="transparent"
-                  tick={{ fill: 'rgba(201, 100, 66, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  tick={{ fill: 'color-mix(in srgb, var(--chart-1) 50%, transparent)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <RechartsTooltip
                   contentStyle={{
-                    backgroundColor: 'rgba(0,0,0,0.9)',
+                    backgroundColor: 'var(--bg-popover)',
                     border: '1px solid var(--border-subtle)',
                     borderRadius: '8px',
                     fontFamily: 'var(--font-mono, monospace)',
                     fontSize: 11,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                    boxShadow: 'var(--shadow-lg)',
                     padding: '10px 14px',
                     fontVariantNumeric: 'tabular-nums',
                   }}
@@ -822,14 +823,14 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 />
                 <Line
                   yAxisId="left" type="monotone" dataKey="loss"
-                  stroke="#FF6B6B" strokeWidth={2} dot={false}
-                  activeDot={{ r: 4, fill: '#FF6B6B', stroke: 'rgba(255,107,107,0.3)', strokeWidth: 6 }}
+                  stroke="var(--error)" strokeWidth={2} dot={false}
+                  activeDot={{ r: 4, fill: 'var(--error)', stroke: 'color-mix(in srgb, var(--error) 30%, transparent)', strokeWidth: 6 }}
                 />
                 <Line
                   yAxisId="right" type="monotone" dataKey="lr"
-                  stroke="#c96442" strokeWidth={1.5} dot={false}
+                  stroke="var(--chart-1)" strokeWidth={1.5} dot={false}
                   strokeDasharray="4 4"
-                  activeDot={{ r: 4, fill: '#c96442', stroke: 'rgba(201,100,66,0.3)', strokeWidth: 6 }}
+                  activeDot={{ r: 4, fill: 'var(--chart-1)', stroke: 'color-mix(in srgb, var(--chart-1) 30%, transparent)', strokeWidth: 6 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -855,7 +856,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               <span className={styles.chartTitle}>显存使用趋势</span>
               <div className={styles.chartLegend}>
                 <div className={styles.legendItem}>
-                  <span className={styles.legendDot} style={{ background: '#7B61FF' }} />
+                  <span className={styles.legendDot} style={{ background: 'var(--chart-4)' }} />
                   VRAM (GB)
                 </div>
               </div>
@@ -864,8 +865,8 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                 <defs>
                   <linearGradient id="vramGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7B61FF" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#7B61FF" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--chart-4)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--chart-4)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
@@ -877,16 +878,16 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 />
                 <YAxis
                   stroke="transparent"
-                  tick={{ fill: 'rgba(123, 97, 255, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
+                  tick={{ fill: 'color-mix(in srgb, var(--chart-4) 50%, transparent)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <RechartsTooltip
                   contentStyle={{
-                    backgroundColor: 'rgba(0,0,0,0.9)',
+                    backgroundColor: 'var(--bg-popover)',
                     border: '1px solid var(--border-subtle)',
                     borderRadius: '8px',
                     fontFamily: 'var(--font-mono, monospace)',
                     fontSize: 11,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                    boxShadow: 'var(--shadow-lg)',
                     padding: '10px 14px',
                     fontVariantNumeric: 'tabular-nums',
                   }}
@@ -895,11 +896,11 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <Area
                   type="monotone"
                   dataKey="vram"
-                  stroke="#7B61FF"
+                  stroke="var(--chart-4)"
                   strokeWidth={2}
                   fill="url(#vramGradient)"
                   dot={false}
-                  activeDot={{ r: 4, fill: '#7B61FF', stroke: 'rgba(123,97,255,0.3)', strokeWidth: 6 }}
+                  activeDot={{ r: 4, fill: 'var(--chart-4)', stroke: 'color-mix(in srgb, var(--chart-4) 30%, transparent)', strokeWidth: 6 }}
                 />
               </AreaChart>
             </ResponsiveContainer>

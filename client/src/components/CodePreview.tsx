@@ -538,12 +538,12 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 padding: '0 8px 16px 16px',
                 textAlign: 'right',
                 background: 'var(--bg-elevated)',
-                color: '#5c6370',
+                color: 'var(--text-tertiary)',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 13,
                 lineHeight: 1.6,
                 userSelect: 'none',
-                borderRight: '1px solid rgba(255, 255, 255, 0.05)',
+                borderRight: '1px solid var(--border-subtle)',
                 minWidth: 50,
               }}
             >
@@ -575,14 +575,14 @@ const CodePreview: React.FC<CodePreviewProps> = ({
 
       <style>{`
         .code-preview {
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+          border: 1px solid var(--border-subtle);
+          box-shadow: var(--shadow-sm);
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .code-preview:hover {
-          border-color: rgba(255, 255, 255, 0.15);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+          border-color: var(--border-muted);
+          box-shadow: var(--shadow-md);
         }
 
         .code-preview-container::-webkit-scrollbar {
@@ -600,7 +600,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         }
 
         .code-preview-container::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.2);
+          background: var(--surface-emphasis);
         }
 
         .code-line-numbers pre {

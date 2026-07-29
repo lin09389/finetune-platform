@@ -29,12 +29,20 @@ import {
   uploadDataset,
 } from '../services/api';
 import { useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import type { DatasetAnalysisResult, DatasetInfo } from '../types';
 import styles from './DatasetManager.module.css';
 
 export default function DatasetManager() {
   const navigate = useNavigate();
-  const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
+  const { datasets, setDatasets, removeDataset, addDataset, backendStatus } =
+    useAppStore(useShallow((state) => ({
+      datasets: state.datasets,
+      setDatasets: state.setDatasets,
+      removeDataset: state.removeDataset,
+      addDataset: state.addDataset,
+      backendStatus: state.backendStatus,
+    })));
   const operation = useOperation();
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -395,7 +403,7 @@ export default function DatasetManager() {
       <Drawer
         title="数据预览"
         placement="right"
-        width={800}
+        width="min(800px, 100vw)"
         open={previewVisible}
         onClose={() => setPreviewVisible(false)}
         className="deep-tech-drawer"
@@ -407,9 +415,9 @@ export default function DatasetManager() {
               style={{
                 marginBottom: 16,
                 padding: '12px 16px',
-                background: 'rgba(201, 100, 66, 0.05)',
-                borderRadius: 8,
-                border: '1px solid rgba(201, 100, 66, 0.2)',
+                background: 'color-mix(in srgb, var(--accent-primary) 5%, transparent)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
@@ -430,7 +438,7 @@ export default function DatasetManager() {
       <Drawer
         title={`数据健康分析 - ${analysisDatasetName}`}
         placement="right"
-        width={720}
+        width="min(720px, 100vw)"
         open={analysisVisible}
         onClose={() => setAnalysisVisible(false)}
       >

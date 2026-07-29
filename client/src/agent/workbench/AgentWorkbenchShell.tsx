@@ -40,6 +40,15 @@ export default function AgentWorkbenchShell({
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
 
+  // 事件委托：命中会话导航项时关闭抽屉。原生按钮的 Enter/Space 会冒泡 click，
+  // onKeyDown 分支覆盖非原生可交互项的键盘激活路径。
+  const handleSessionNavigate = (target: EventTarget | null) => {
+    if (target instanceof Element && target.closest('[data-agent-session-navigate="true"]')) {
+      setSessionsOpen(false);
+      onMobileSessionNavigate?.();
+    }
+  };
+
   useEffect(() => {
     if (attentionOpenRequest > 0) setAttentionOpen(true);
   }, [attentionOpenRequest]);
@@ -95,12 +104,9 @@ export default function AgentWorkbenchShell({
         styles={{ body: { padding: 0 } }}
       >
         <div
-          onClick={(event) => {
-            const target = event.target;
-            if (target instanceof Element && target.closest('[data-agent-session-navigate="true"]')) {
-              setSessionsOpen(false);
-              onMobileSessionNavigate?.();
-            }
+          onClick={(event) => handleSessionNavigate(event.target)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') handleSessionNavigate(event.target);
           }}
         >
           {mobileSessionRail}

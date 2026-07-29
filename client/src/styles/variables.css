@@ -331,6 +331,14 @@
   --chart-grid: rgba(61, 57, 41, 0.08);
   --chart-axis: rgba(61, 57, 41, 0.2);
   --chart-tick: var(--text-tertiary);
+  /* 图表分类色板 - 与 terra-cotta 暖色主题协调 */
+  --chart-1: #b35433;   /* terra-cotta 主色 */
+  --chart-2: #65754e;   /* 橄榄绿 */
+  --chart-3: #916909;   /* 暖金 */
+  --chart-4: #52718e;   /* 灰蓝 */
+  --chart-5: #8a5740;   /* 赭褐 */
+  /* 进度流光叠加层 - 叠在强调色进度条上的高光 */
+  --shimmer-overlay: rgba(255, 255, 255, 0.45);
   --spotlight-color: rgba(179, 84, 51, 0.10);
   --spotlight-border: rgba(179, 84, 51, 0.28);
 
@@ -349,6 +357,11 @@
   --terminal-selection: rgba(232, 230, 223, 0.22);
   --terminal-toolbar-bg: #252523;
   --terminal-border: #3e3e38;
+  /* 终端工具栏辅助色 - 底色永远深色，两套主题共用 */
+  --terminal-muted: #908e84;
+  --terminal-error: #f56060;
+  --terminal-warning: #d4a033;
+  --terminal-success: #8ca06f;
 }
 
 /* ============================================
@@ -463,6 +476,14 @@
   --chart-grid: rgba(241, 241, 239, 0.06);
   --chart-axis: rgba(241, 241, 239, 0.16);
   --chart-tick: var(--text-tertiary);
+  /* 图表分类色板 - 深色主题提亮 */
+  --chart-1: #d97757;   /* terra-cotta 亮色 */
+  --chart-2: #8ca06f;   /* 橄榄绿亮色 */
+  --chart-3: #d4a033;   /* 暖金亮色 */
+  --chart-4: #7b9bb8;   /* 灰蓝亮色 */
+  --chart-5: #e0a892;   /* 赭褐亮色 */
+  /* 进度流光叠加层 - 深色主题降低强度 */
+  --shimmer-overlay: rgba(255, 255, 255, 0.30);
   --spotlight-color: rgba(217, 119, 87, 0.14);
   --spotlight-border: rgba(224, 141, 111, 0.32);
 

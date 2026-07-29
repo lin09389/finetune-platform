@@ -107,8 +107,9 @@ describe('Runtime cross-page workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockUseAppStore.mockReturnValue({
-      backendStatus: 'connected',
+    mockUseAppStore.mockImplementation((selector?: (state: { backendStatus: string }) => unknown) => {
+      const state = { backendStatus: 'connected' };
+      return selector ? selector(state) : state;
     });
 
     chatState = {

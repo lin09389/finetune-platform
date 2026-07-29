@@ -17,13 +17,15 @@ import {
 } from '@ant-design/icons';
 import { Alert, Button, Empty, Input, Segmented, Switch } from 'antd';
 import { motion } from 'framer-motion';
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { useMotionConfig } from '../../components/motion/useMotionConfig';
 import type {
   AgentHitlDecision,
   AgentSessionUiPendingPermission,
   AgentSessionUiTimelineItem,
 } from '../../services/api';
+import { transitions } from '../../theme/motion-tokens';
 import { isTrainingToolName, selectTrainingActivity } from '../protocol/agentProtocol';
 import {
   selectCodingDiffReviewGroups,
@@ -276,7 +278,12 @@ function TimelineMeta({ item }: { item: AgentSessionUiTimelineItem }) {
   return null;
 }
 
-export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
+export const CommandCard = memo(function CommandCard({
+  item,
+}: {
+  item: AgentSessionUiTimelineItem;
+}) {
+  const { shouldReduceMotion } = useMotionConfig();
   const [expanded, setExpanded] = useState(
     item.status !== 'completed' || Boolean(commandOutput(item)),
   );
@@ -317,10 +324,9 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
         <motion.div
           className={styles.executionDetails}
           id={detailsId}
-          initial={{ height: 0, opacity: 0 }}
+          initial={shouldReduceMotion ? false : { height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+          transition={shouldReduceMotion ? { duration: 0 } : transitions.base}
         >
           {output ? (
             <pre>{output}</pre>
@@ -341,15 +347,16 @@ export function CommandCard({ item }: { item: AgentSessionUiTimelineItem }) {
       ) : null}
     </div>
   );
-}
+});
 
-export function DiffCard({
+export const DiffCard = memo(function DiffCard({
   item,
   onOpenFile,
 }: {
   item: AgentSessionUiTimelineItem;
   onOpenFile?: (filePath: string) => void;
 }) {
+  const { shouldReduceMotion } = useMotionConfig();
   const files = changedFiles(item);
   const diff = payloadText(item.payload, 'diff') || item.content || '';
   const [expanded, setExpanded] = useState(Boolean(files.length || diff));
@@ -382,10 +389,9 @@ export function DiffCard({
         <motion.div
           className={styles.executionDetails}
           id={detailsId}
-          initial={{ height: 0, opacity: 0 }}
+          initial={shouldReduceMotion ? false : { height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+          transition={shouldReduceMotion ? { duration: 0 } : transitions.base}
         >
           {files.length > 0 ? (
             <ul>
@@ -416,7 +422,7 @@ export function DiffCard({
       ) : null}
     </div>
   );
-}
+});
 
 function PayloadPreview({ item }: { item: AgentSessionUiTimelineItem }) {
   if (!item.payload || !isRecord(item.payload)) return null;
@@ -550,7 +556,12 @@ function executionFailed(item: AgentSessionUiTimelineItem): boolean {
   );
 }
 
-export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] }) {
+export const ExecutionGroup = memo(function ExecutionGroup({
+  items,
+}: {
+  items: AgentSessionUiTimelineItem[];
+}) {
+  const { shouldReduceMotion } = useMotionConfig();
   const failureCount = items.filter(executionFailed).length;
   const running = items.some((item) => item.status === 'running' || item.status === 'pending');
   const [expanded, setExpanded] = useState(failureCount > 0);
@@ -585,10 +596,9 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
         <motion.div
           className={styles.executionGroupDetails}
           id={detailsId}
-          initial={{ height: 0, opacity: 0 }}
+          initial={shouldReduceMotion ? false : { height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+          transition={shouldReduceMotion ? { duration: 0 } : transitions.base}
         >
           {items.map((item) => {
             const failed = executionFailed(item);
@@ -655,7 +665,7 @@ export function ExecutionGroup({ items }: { items: AgentSessionUiTimelineItem[] 
       ) : null}
     </section>
   );
-}
+});
 
 function PermissionInlineCard({
   item,
@@ -737,7 +747,7 @@ function PermissionInlineCard({
   );
 }
 
-export function TimelineItem({
+export const TimelineItem = memo(function TimelineItem({
   item,
   pendingPermission,
   onDecidePermission,
@@ -814,6 +824,22 @@ export function TimelineItem({
       </div>
     </article>
   );
+});
+
+/**
+ * 搜索文本按 item 对象缓存：reducer 更新会替换 item 对象，
+ * WeakMap 自动失效重算，避免每次输入都对全量 payload JSON.stringify。
+ */
+const searchHaystackCache = new WeakMap<AgentSessionUiTimelineItem, string>();
+
+function searchHaystack(item: AgentSessionUiTimelineItem): string {
+  const cached = searchHaystackCache.get(item);
+  if (cached !== undefined) return cached;
+  const haystack = [itemTitle(item), item.content, item.tool, JSON.stringify(item.payload || {})]
+    .join(' ')
+    .toLowerCase();
+  searchHaystackCache.set(item, haystack);
+  return haystack;
 }
 
 export default function AgentRunTimeline({
@@ -831,6 +857,7 @@ export default function AgentRunTimeline({
   const [filter, setFilter] = useState<'all' | 'output' | 'tools' | 'issues'>('all');
   const [autoFollow, setAutoFollow] = useState(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const { shouldReduceMotion } = useMotionConfig();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const visibleTimeline = useMemo(
@@ -851,15 +878,7 @@ export default function AgentRunTimeline({
           return false;
         }
         if (!deferredQuery) return true;
-        const haystack = [
-          itemTitle(item),
-          item.content,
-          item.tool,
-          JSON.stringify(item.payload || {}),
-        ]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(deferredQuery);
+        return searchHaystack(item).includes(deferredQuery);
       }),
     [deferredQuery, filter, timeline],
   );
@@ -960,7 +979,7 @@ export default function AgentRunTimeline({
           <Virtuoso
             ref={virtuosoRef}
             data={displayTimeline}
-            followOutput={autoFollow ? 'smooth' : false}
+            followOutput={autoFollow ? (shouldReduceMotion ? true : 'smooth') : false}
             initialTopMostItemIndex={initialTimelineIndex}
             atBottomStateChange={(atBottom) => {
               setShowJumpToLatest(!atBottom);
@@ -970,25 +989,25 @@ export default function AgentRunTimeline({
               isExecutionGroup(entry) ? (
                 <motion.div
                   className={styles.timelineExecutionGroup}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.12 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : transitions.fast}
                 >
                   <ExecutionGroup items={entry.items} />
                 </motion.div>
               ) : isDiffReviewGroup(entry) ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.12 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : transitions.fast}
                 >
                   <AgentDiffReviewCard group={entry.group} />
                 </motion.div>
               ) : (
                 <motion.div
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.12 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : transitions.fast}
                 >
                   <TimelineItem
                     item={entry}
@@ -1009,7 +1028,7 @@ export default function AgentRunTimeline({
               onClick={() => {
                 virtuosoRef.current?.scrollToIndex({
                   index: displayTimeline.length - 1,
-                  behavior: 'smooth',
+                  behavior: shouldReduceMotion ? 'auto' : 'smooth',
                 });
                 setAutoFollow(true);
                 setShowJumpToLatest(false);

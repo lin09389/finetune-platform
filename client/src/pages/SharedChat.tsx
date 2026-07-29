@@ -174,7 +174,7 @@ const SharedChatPage: React.FC = () => {
         maxWidth: 900,
         margin: '0 auto',
         padding: 24,
-        background: '#f5f5f5',
+        background: 'var(--bg-secondary)',
         minHeight: '100vh',
       }}
     >

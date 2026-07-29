@@ -6,9 +6,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { type ApiInfoCapabilityPayload, isExperimentalEnabled, tierLabel } from '../../capability/tiers';
 import { useResponsive } from '../../hooks/useResponsive';
+import { MOBILE_BOTTOM_NAV_HEIGHT, MOBILE_DRAWER_WIDTH } from '../../layout/constants';
 import { getBottomNavigationItems, getNavigationGroups, getRouteCapabilityTier, getRouteLabel, isRouteVisible, type RouteMetadata } from '../../navigation/routeMetadata';
 import { apiClient } from '../../services/api';
 import { useAppStore } from '../../store/appStore';
+import { useMotionConfig } from '../motion';
 
 const MobileNav: React.FC = () => {
   const navigate = useNavigate();
@@ -41,7 +43,7 @@ const MobileNav: React.FC = () => {
 
   return <>
     <Button type="text" icon={<MenuOutlined style={{ fontSize: 20 }} />} onClick={() => setDrawerOpen(true)} style={{ position: 'fixed', top: 8, left: 8, zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', boxShadow: 'var(--shadow-sm)' }} aria-label="打开菜单" />
-    <Drawer placement="left" open={drawerOpen} onClose={() => setDrawerOpen(false)} width={280} closable={false} styles={{ body: { padding: 0 }, header: { display: 'none' } }} style={{ background: 'var(--bg-secondary)' }}>
+    <Drawer placement="left" open={drawerOpen} onClose={() => setDrawerOpen(false)} width={`min(${MOBILE_DRAWER_WIDTH}px, 85vw)`} closable={false} styles={{ body: { padding: 0 }, header: { display: 'none' } }} style={{ background: 'var(--bg-secondary)' }}>
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -72,7 +74,8 @@ const MobileNav: React.FC = () => {
 
 const NavItem: React.FC<{ item: RouteMetadata; isActive: boolean; onClick: () => void }> = memo(({ item, isActive, onClick }) => {
   const tier = getRouteCapabilityTier(item.path);
-  return <motion.div whileTap={{ opacity: 0.85 }} onClick={onClick} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); } }} role="button" tabIndex={0} aria-current={isActive ? 'page' : undefined} aria-label={item.label} data-capability-tier={tier ?? 'none'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '2px 0', borderRadius: 'var(--radius-md)', cursor: 'pointer', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', background: isActive ? 'var(--bg-hover)' : 'transparent', transition: 'all 0.15s ease', position: 'relative' }}>
+  const { shouldReduceMotion } = useMotionConfig();
+  return <motion.div whileTap={shouldReduceMotion ? undefined : { opacity: 0.85, scale: 0.98 }} onClick={onClick} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); } }} role="button" tabIndex={0} aria-current={isActive ? 'page' : undefined} aria-label={item.label} data-capability-tier={tier ?? 'none'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '2px 0', borderRadius: 'var(--radius-md)', cursor: 'pointer', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', background: isActive ? 'var(--bg-hover)' : 'transparent', transition: 'all 0.15s ease', position: 'relative' }}>
     {isActive && <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 3, height: 16, background: 'var(--accent-primary)', borderRadius: '0 2px 2px 0' }} />}
     <span style={{ fontSize: 16, color: isActive ? 'var(--accent-primary)' : 'inherit' }}>{item.icon}</span>
     <span style={{ fontSize: 'var(--text-sm)', fontWeight: isActive ? 600 : 500 }}>{item.label}</span>
@@ -86,11 +89,20 @@ export const MobileBottomNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isMobile } = useResponsive();
+  const { shouldReduceMotion } = useMotionConfig();
+  // 点击当前激活 tab 时回顶，否则正常导航
+  const handleTabPress = useCallback((path: string, isActive: boolean) => {
+    if (isActive) {
+      window.scrollTo({ top: 0, behavior: shouldReduceMotion ? 'auto' : 'smooth' });
+      return;
+    }
+    navigate(path);
+  }, [navigate, shouldReduceMotion]);
   if (!isMobile) return null;
-  return <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 56, background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }} role="navigation" aria-label="底部导航">
+  return <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: MOBILE_BOTTOM_NAV_HEIGHT, background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }} role="navigation" aria-label="底部导航">
     {getBottomNavigationItems().map((item) => {
       const isActive = location.pathname === item.path;
-      return <motion.div key={item.path} whileTap={{ opacity: 0.85 }} onClick={() => navigate(item.path)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigate(item.path); } }} role="button" tabIndex={0} aria-current={isActive ? 'page' : undefined} aria-label={getRouteLabel(item, 'bottom')} data-capability-tier={getRouteCapabilityTier(item.path) ?? 'none'} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', cursor: 'pointer', minWidth: 64, minHeight: 44 }}>
+      return <motion.div key={item.path} whileTap={shouldReduceMotion ? undefined : { opacity: 0.85, scale: 0.95 }} onClick={() => handleTabPress(item.path, isActive)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleTabPress(item.path, isActive); } }} role="button" tabIndex={0} aria-current={isActive ? 'page' : undefined} aria-label={getRouteLabel(item, 'bottom')} data-capability-tier={getRouteCapabilityTier(item.path) ?? 'none'} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4px 12px', cursor: 'pointer', minWidth: 64, minHeight: 44 }}>
         <span style={{ fontSize: 20, color: isActive ? 'var(--accent-primary)' : 'var(--text-tertiary)', marginBottom: 2 }}>{item.icon}</span>
         <span style={{ fontSize: 'var(--text-xs)', color: isActive ? 'var(--text-primary)' : 'var(--text-tertiary)', fontWeight: isActive ? 500 : 400 }}>{getRouteLabel(item, 'bottom')}</span>
       </motion.div>;
