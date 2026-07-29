@@ -119,5 +119,8 @@ def test_agent_session_tool_platform_consumers_are_white_listed() -> None:
         "permission.py",
         "deepagents_events.py",
         "deepagents_runtime.py",
+        "goal_planner.py",
+        "phase_tool_router.py",
         "tool_projection.py",
+        "work_unit.py",
     }
