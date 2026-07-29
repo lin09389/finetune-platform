@@ -183,95 +183,21 @@ npm run build:electron     # electron-builder 打包
 
 - `client/src/` 前端约定、禁止事项与本地验证命令：`client/src/AGENTS.md`
 - `server/api/` 路由层约定、禁止事项与本地验证命令：`server/api/AGENTS.md`
+- `server/agent_session/` Agent 会话领域包约定、禁止事项与本地验证命令：`server/agent_session/AGENTS.md`
 
 ## 配置说明
 
-环境变量位于 `server/.env`（从 `server/.env.example` 复制）：
+环境变量位于 `server/.env`（从 `server/.env.example` 复制）。**变量清单与示例值的单一事实源是 `server/.env.example`**（含每个变量的注释与本地测试矩阵说明），本文档不再复制完整变量块；运行时解析与校验以 `server/core/config.py` 的 `settings` 与 `server/security/runtime_policy.py` 为准。
 
-```bash
-# 服务配置
-HOST=127.0.0.1
-PORT=8010                      # 实际启动用 8010；.env.example 默认 8000，按需改
-
-# 运行环境：development | staging | production
-# staging/production 与 production 同等安全基线（JWT 必填、禁默认推理密钥、禁本地 agent 免登）
-ENVIRONMENT=development
-
-# CORS 配置（逗号分隔）
-ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
-
-# 速率限制
-RATE_LIMIT=100
-RATE_WINDOW=60
-
-# 目录配置（可选，不设则用项目根对应文件夹）
-# MODELS_DIR=./models
-# DATASETS_DIR=./datasets
-# OUTPUTS_DIR=./outputs
-
-# Ollama 配置
-OLLAMA_BASE_URL=http://localhost:11434
-INFERENCE_BACKEND=huggingface   # 或 "ollama"
-
-# HuggingFace 镜像源（official/hf-mirror/aliyun/modelscope，由 core/mirror_manager.py 管理）
-HF_MIRROR=hf-mirror
-
-# 代理配置（可选）
-HTTP_PROXY=http://127.0.0.1:7890
-HTTPS_PROXY=http://127.0.0.1:7890
-
-# 训练配置
-MAX_CONCURRENT_TRAINING=1
-ENABLE_CHECKPOINT=true
-CHECKPOINT_INTERVAL=500
-
-# 安全 / 上传
-MAX_UPLOAD_SIZE=104857600
-ALLOWED_FILE_TYPES=.json,.jsonl
-
-# 认证（生产/staging 必须 ENABLE_AUTH=true）
-ENABLE_AUTH=true
-# JWT 密钥：必填，禁止依赖自动生成（缺失则 JWT 初始化 / 启用 auth 时启动失败）
-JWT_SECRET_KEY=dev-only-local-secret-change-me
-
-# 本地 Agent 免 token 联调（仅非 production/staging；生产即使设 true 也无效）
-# 默认 false；本机要测 /agent-sessions 免 token 时再 true
-ALLOW_LOCAL_AGENT_AUTH=true
-
-# 控制面 <-> 独立推理服务共享密钥
-# 开发可用默认 finetune-local-inference-dev-key（会打 warning）
-# production/staging 禁止使用该默认值，必须换成强随机
-INFERENCE_INTERNAL_API_KEY=finetune-local-inference-dev-key
-
-# 训练/推理跨进程 GPU 互斥（默认 on；仅非生产可设 off）
-GPU_COORDINATION=on
-
-# 实验能力（CUA/MCP/Gateway/Heartbeat/OCR）
-# development 默认 true；production/staging 未显式设 true 时强制 false
-# 启用后：/experimental/* + legacy 别名；关闭后不注册这些路由
-ENABLE_EXPERIMENTAL_CAPABILITIES=true
-
-# 推理 gRPC（可选）
-ENABLE_INFERENCE_GRPC=false
-INFERENCE_GRPC_HOST=127.0.0.1
-INFERENCE_GRPC_PORT=50051
-
-# 日志配置
-LOG_LEVEL=INFO
-LOG_FORMAT=text                 # 或 "json"
-
-# 调试
-DEBUG=false                     # 生产环境必须 false；DEBUG 不会放行 CUA 鉴权
-
-# 备份（lifespan 后台任务）
-BACKUP_INTERVAL_HOURS=6
-BACKUP_RETENTION_DAYS=7
-
-# Agent / LangGraph SQLite checkpoint
-LANGGRAPH_SQLITE_BUSY_TIMEOUT=30000   # 毫秒；可覆盖 SQLITE_BUSY_TIMEOUT
-```
-
-> 完整变量以 `server/core/config.py` 的 `settings` 与 `server/security/runtime_policy.py` 为准；`.env.example` 含本地测试矩阵说明。
+跨环境语义口径（详细注释见 `server/.env.example`）：
+- `PORT`：实际启动用 8010；`.env.example` 默认 8000，按需改
+- `ENVIRONMENT`：staging 与 production 同等安全基线（JWT 必填、禁默认推理密钥、禁本地 agent 免登）
+- `JWT_SECRET_KEY`：必填，禁止依赖自动生成（缺失则 JWT 初始化 / 启用 auth 时启动失败）
+- `ALLOW_LOCAL_AGENT_AUTH`：默认 false；仅非 production/staging 生效，生产即使设 true 也无效
+- `INFERENCE_INTERNAL_API_KEY`：production/staging 禁止默认值 `finetune-local-inference-dev-key`
+- `GPU_COORDINATION`：默认 on；仅非生产可设 off
+- `ENABLE_EXPERIMENTAL_CAPABILITIES`：development 默认 true；production/staging 未显式设 true 时强制 false
+- `DEBUG`：生产环境必须 false；DEBUG 不会放行 CUA 鉴权
 
 ### 本地 / 生产用法矩阵（阶段 0）
 
@@ -326,14 +252,16 @@ uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 801
 
 ### 后端测试
 
-位于 `server/tests/`（约 92 个 `test_*.py`）。仓库根目录运行：`python -m pytest server/tests -q`
+位于 `server/tests/`。仓库根目录运行：`python -m pytest server/tests -q`
 
-**CI 测试口径（最小依赖覆盖边界）**：CI（`.github/workflows/ci.yml`）以 `uv sync --frozen --extra dev --extra agent` 安装依赖，不装 training/inference/cua 等重型 extras（torch、aiohttp、pynput）。该口径下单元测试步骤共收集 1610 个用例：17 个被 `-m "not integration and not e2e"` deselect，3 个 torch 运行时用例被显式 `--deselect`，另有 3 个测试文件被 `--ignore`（数字于 2026-07 实测，随套件演进会漂移）。以下依赖边界用例在 CI 中被排除、只能在本地 `--extra all` 环境运行：
+**CI 测试口径（最小依赖覆盖边界）**：CI（`.github/workflows/ci.yml`）以 `uv sync --frozen --extra dev --extra agent` 安装依赖，不装 training/inference/cua 等重型 extras（torch、aiohttp、pynput）。本文档不维护用例计数快照；排除清单以 `ci.yml` 单元测试步骤的 `--ignore` / `--deselect` 参数为单一事实源，当前收集数量在该依赖口径下用 `uv run pytest server/tests/ -m "not integration and not e2e" --collect-only -q`（并附加 `ci.yml` 中相同的 `--ignore` / `--deselect` 参数）实测获取。以下依赖边界用例在 CI 中被排除、只能在本地 `--extra all` 环境运行：
 - `test_cua.py`、`test_architecture_cleanup.py`（模块级 `from pynput import ...`，headless CI 亦不可用）
 - `test_openai_compatible_api.py`（导入 `aiohttp`，属 inference extra）
-- `test_inference_service_boundary.py` 的 2 个 native 服务用例与 `test_phase0_capability_fact_source.py::test_inference_capabilities_backend_aware_tool_facts`（运行时需 torch）
+- `test_inference_service_boundary.py` 的 native 服务用例与 `test_phase0_capability_fact_source.py` 的 backend-aware 工具事实用例（运行时需 torch；确切 nodeid 见 `ci.yml` 的 `--deselect` 参数）
 
-排除清单以 `ci.yml` 中 `--ignore` / `--deselect` 参数为准，修改时须与本节同步。
+**CI lint 门控口径（阻断 vs advisory）**：lint job 的**阻断**门控为：encoding 检查、focused ruff 5 规则门控（`--select W291,W293,I001,UP015,UP012`，作用于整个 `server/`）、以及 `server/security/` 的独立 ruff + mypy 全量门控（含 mypy follow-imports 连带的 `server/core/*`、`server/memory/*` 模块，必须保持零错误）。全量 ruff、black、全量 mypy（`server/` 整体）仍是 **advisory**（`continue-on-error: true`，历史 backlog 未清零前不阻断）。门控清单以 `ci.yml` lint job 为单一事实源，修改时须与本节同步。
+
+**Advisory 清偿节奏（下一个待收口子树）**：advisory 门控按子树逐个清零后升级为阻断，**下一个待收口子树是 `server/core/`**——security 门控的 mypy follow-imports 已连带覆盖其被 security 引用的模块（config、db_manager、logging、storage、training_state、utils 等，当前零错误），但 standalone 检查仍有余量（ruff 约 17 处、多为可自动修复的 UP038/SIM105；mypy 除 core 自身错误外还会 follow-imports 连带 `server/agent_session/*`）。**升级为阻断的条件**：`uv run --extra dev --extra agent python -m ruff check server/core/` 与 `uv run --extra dev --extra agent python -m mypy server/core/`（含 follow-imports 连带模块）两条命令本地实跑零错误后，在 `ci.yml` lint job 增加对应阻断步骤并同步本节。
 
 主要测试覆盖（按主题，非穷举）：设备/模型/数据集、安全阶段 0（`test_phase0_security.py`、`test_global_auth_middleware.py`）、韧性阶段 1（`test_phase1_resilience.py`）、能力分层阶段 2（`test_phase2_capability_tiers.py`）、依赖 profile/边界、训练控制面与 worker、推理、Agent Session（`test_agent_session_*`、`test_agent_execution_plan*`、`test_agent_trajectory.py` 等）、云端模型、评估/发布、Gateway/Heartbeat/MCP/CUA、上下文/记忆/工作区、存储/架构守卫、Phase 9 桌面与能力评测（`electron/test/*.test.js`、`test_agent_eval_*.py`）。
 
@@ -348,7 +276,7 @@ python -m pytest server/tests/test_agent_session_deepagents_runtime.py server/te
 
 位于 `client/src/test/`，Vitest + React Testing Library。运行：`cd client && npm test`（watch）或 `npx vitest run`（单次）。
 
-主要覆盖：动效（`motion.test.tsx`）、能力分层（`capabilityTiers.test.ts`、`ExperimentalRouteGuard.test.tsx`、`Sidebar.test.tsx`）、Agent Session SSE（`agentSessionStream.test.ts`）、Agent Workbench（`AgentWorkbenchRuntime.test.tsx` 等；专用命令 `npm run test:agent-foundation`）、页面 smoke（ga/beta/experimental）、运行时（`RuntimeContext.test.tsx`）、Chat（`useChatStream.test.ts`、`ChatNewVirtualization.test.tsx`）、安全/XSS（`highlightLog.test.ts`）、Agent 业务门控（12 条共享事件夹具对比最终 Store 投影）等。约定与验证命令详见 `client/src/AGENTS.md`。
+主要覆盖：动效（`motion.test.tsx`）、能力分层（`capabilityTiers.test.ts`、`ExperimentalRouteGuard.test.tsx`、`Sidebar.test.tsx`）、Agent Session SSE（`agentSessionStream.test.ts`）、Agent Workbench（`AgentWorkbenchRuntime.test.tsx` 等；专用命令 `npm run test:agent-foundation`）、页面 smoke（ga/beta/experimental）、运行时（`RuntimeContext.test.tsx`）、Chat（`useChatStream.test.ts`、`ChatNewVirtualization.test.tsx`）、安全/XSS（`highlightLog.test.ts`）、Agent 业务门控（共享事件夹具对比最终 Store 投影）等。约定与验证命令详见 `client/src/AGENTS.md`。
 
 ## 常见问题
 
