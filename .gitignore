@@ -96,7 +96,6 @@ scan_*issues*.py
 *encoding*issues*.py
 server/fix_encoding_batch.py
 scripts/maintenance/
-AGENTS.md
 CHANGELOG_2026-04-08.md
 start.py
 verify.ps1
@@ -143,3 +142,4 @@ terminals/
 .workbuddy/
 .zcode/
 client/*.timestamp-*.mjs
+.vibe-materials/
