@@ -8,14 +8,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from tool_platform.models import jsonable, redact_json
-
 from agent_session.work_unit import (
     WORK_UNIT_TERMINAL_STATUSES,
     WorkUnit,
     WorkUnitResult,
     parse_work_unit,
     require_work_unit_status_transition,
+    sanitize_work_unit_event_data,
     serialize_work_unit,
     serialize_work_unit_result,
 )
@@ -131,7 +130,7 @@ def _safe_work_unit_event_payload(
     attempt: int,
     payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    safe_payload = jsonable(redact_json(payload or {}))
+    safe_payload = sanitize_work_unit_event_data(payload or {})
     return {
         "schema_version": 1,
         "work_unit_id": work_unit_id,

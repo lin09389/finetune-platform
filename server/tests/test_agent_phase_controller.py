@@ -40,7 +40,7 @@ def _valid_goal_plan_payload() -> dict[str, Any]:
         "phases": [{"id": "inspect", "title": "Inspect", "summary": "Read", "order": 0}],
         "work_unit_candidates": [{"id": "wu1", "phase_id": "inspect", "title": "Read", "summary": "Read files"}],
         "dependencies": [],
-        "file_scopes": [{"path": "/etc/passwd", "mode": "read_write"}],
+        "file_scopes": [{"path": "outside-manifest.txt", "mode": "read_write"}],
         "verification_requirements": [{"id": "t", "description": "tests", "required": True}],
         "risk_summaries": [{"id": "r", "summary": "risk", "severity": "low"}],
         "retry_policy": {"max_replan_attempts": 1, "max_phase_retries": 1},
@@ -223,7 +223,7 @@ def test_goal_plan_does_not_expand_manifest_permissions():
     )
     assert "write_file" not in projection.allowed_tools
     assert "execute" not in projection.allowed_tools
-    assert "/etc/passwd" in projection.goal_plan_scope_hints
+    assert "outside-manifest.txt" in projection.goal_plan_scope_hints
     assert projection.tightening_proof["goal_plan_authority"] == "diagnostic_only"
 
 

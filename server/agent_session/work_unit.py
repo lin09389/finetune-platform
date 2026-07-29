@@ -1057,6 +1057,12 @@ def serialize_work_unit_result(result: WorkUnitResult) -> dict[str, JsonValue]:
     return cast(dict[str, JsonValue], result.model_dump(mode="json"))
 
 
+def sanitize_work_unit_event_data(value: object) -> JsonValue:
+    """Return JSON-only, recursively redacted data for durable WorkUnit events."""
+
+    return redact_json(jsonable(value))
+
+
 __all__ = [
     "MAX_WORK_UNIT_ATTEMPTS",
     "MAX_WORK_UNITS_PER_PLAN",
@@ -1094,6 +1100,7 @@ __all__ = [
     "parse_work_unit",
     "parse_work_unit_result",
     "require_work_unit_status_transition",
+    "sanitize_work_unit_event_data",
     "serialize_work_unit",
     "serialize_work_unit_result",
     "validate_work_unit_graph",
