@@ -57,6 +57,11 @@ jobs:
       # Advisory (non-blocking): the full ruff surface still reports
       # pre-existing violations (I001/W293/UP*, 200+) beyond the focused
       # blocking gate above. Kept advisory until the backlog is remediated.
+      # Remediation cadence (single source of truth mirrored in AGENTS.md
+      # 「CI lint 门控口径」): next subtree to promote to blocking is
+      # server/core/ (already partially covered via the security gate's
+      # mypy follow-imports); promote once its standalone ruff + mypy runs
+      # are zero-error locally.
       - name: Ruff (full lint) [advisory / non-blocking]
         run: uv run ruff check server --output-format=github
         continue-on-error: true
