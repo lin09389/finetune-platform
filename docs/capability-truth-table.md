@@ -37,7 +37,7 @@ Last updated: `2026-06-25`
 | 推理 | `/inference`、`/inference` 页面 | `GA` | HuggingFace/Ollama/llama.cpp/vLLM | 后端不可用、模型加载失败、熔断状态显式返回 | 后端契约测试、前端 smoke |
 | 聊天会话 | `/chat/sessions`、`/chat` 页面 | `GA` | SQLite、本地或云端模型配置 | 会话读写失败、流式中断清晰提示 | 后端集成测试 |
 | 知识库 | `/knowledge`、`/knowledge` 页面 | `GA` | ChromaDB、sentence-transformers、文档解析器 | 嵌入模型缺失、索引失败、解析失败显式返回 | 后端集成测试 |
-| 项目上下文 | `/context`、`/project-context` 页面 | `Beta` | 本地项目扫描、符号提取、索引 | 质量受项目结构影响，错误需可追踪 | 服务层测试、前端 smoke |
+| 项目上下文 | `/context`、`/project-context` 页面 | `Beta` | 本地项目扫描、符号提取、索引 | 质量受项目结构影响，错误需可追踪；`project_path` 必须位于允许的工作区根内：越界路径返回 `403`，非法路径返回 `400`（防 LFI/路径遍历，见 `workspace/path_policy.py`） | 服务层测试（`test_phase3_context_safety.py::test_context_scan_rejects_out_of_scope_path`）、前端 smoke |
 | 记忆系统 | `/memory`、`/memory` 页面 | `Beta` | SQLite/向量检索/抽取逻辑 | 读写失败和检索失败显式返回 | 服务层测试 |
 | 模型中心 | `/model-center`、`/modelhub` 页面 | `Beta` | 外部模型源和网络 | 网络失败、镜像源不可用、鉴权失败清晰提示 | 后端局部测试 |
 | 工作区 | `/workspace`、`/workspace` 页面 | `Beta` | 本地文件系统、工作区状态 | 路径、权限、文件读写错误显式返回 | 后端集成测试 |

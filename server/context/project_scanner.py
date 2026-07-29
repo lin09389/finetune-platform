@@ -318,7 +318,6 @@ class ProjectScanner:
 
     def _should_ignore(self, path: Path) -> bool:
         """检查是否应该忽略该路径"""
-        path_str = str(path)
         name = path.name
         normalized_name = name.split(".", 1)[0].lower()
         if normalized_name in WINDOWS_RESERVED_NAMES:
@@ -332,12 +331,19 @@ class ProjectScanner:
         if is_dir and name in self.GLOBAL_IGNORED_DIRS:
             return True
 
+        # 仅比对相对于项目根的路径分段，避免用整条路径子串匹配
+        # 造成误伤（如 "env" 误匹配 "environment/"，"build" 误匹配 "rebuild/"）。
+        try:
+            segments = set(path.relative_to(self.project_path).parts)
+        except ValueError:
+            segments = {name}
+
         for config in self.LANGUAGE_CONFIGS.values():
             for pattern in config["ignore_patterns"]:
                 if pattern.startswith("*"):
                     if name.endswith(pattern[1:]):
                         return True
-                elif pattern in path_str:
+                elif pattern == name or pattern in segments:
                     return True
 
         return False

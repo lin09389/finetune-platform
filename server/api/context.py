@@ -196,7 +196,14 @@ def _resolve_project_path(request: Any) -> str:
     project_path = getattr(request, "project_path", None) or getattr(request, "path", None)
     if not project_path:
         raise HTTPException(status_code=400, detail="project_path or path is required")
-    return project_path
+    # 校验路径必须位于允许的工作区根内，防止任意本地文件读取（LFI/路径遍历）。
+    from workspace.path_policy import validate_agent_project_path
+
+    result = validate_agent_project_path(project_path)
+    if not result.ok or not result.resolved_path:
+        status = 403 if result.error_code == "path_not_allowed" else 400
+        raise HTTPException(status_code=status, detail=result.message or "invalid project_path")
+    return result.resolved_path
 
 
 @router.post("/scan", response_model=ScanResponse)
@@ -205,12 +212,14 @@ async def scan_project(request: ScanRequest, service: ContextService = Depends(g
         project_info = service.scan_project(_resolve_project_path(request))
         return ScanResponse(success=True, project=project_info.model_dump(), message=f"scanned: {project_info.name}")
     except FileNotFoundError as e:
-        return ScanResponse(success=False, message=str(e))
+        # 原始异常仅留服务端日志，避免向客户端回传内部路径等细节。
+        logger.warning("scan project failed: path not found: %s", e)
+        return ScanResponse(success=False, message="project path not found")
     except HTTPException:
         raise
     except Exception as e:
         logger.error("scan project failed: %s", e, exc_info=True)
-        return ScanResponse(success=False, message=str(e))
+        return ScanResponse(success=False, message="internal error while scanning project")
 
 
 @router.post("/index", response_model=IndexResponse)
@@ -222,7 +231,7 @@ async def index_project(request: IndexRequest, service: ContextService = Depends
         raise
     except Exception as e:
         logger.error("index project failed: %s", e, exc_info=True)
-        return IndexResponse(success=False, message=str(e))
+        return IndexResponse(success=False, message="internal error while indexing project")
 
 
 @router.get("/index")
@@ -339,7 +348,7 @@ async def enhance_context(request: EnhanceContextRequest, engine: ContextUnderst
         )
     except Exception as e:
         logger.error("enhance context failed: %s", e, exc_info=True)
-        return EnhanceContextResponse(success=False, enhanced_query=request.query, context_messages=[], summary=None, entities=[], pronoun_resolutions=[], window_stats={"error": str(e)})
+        return EnhanceContextResponse(success=False, enhanced_query=request.query, context_messages=[], summary=None, entities=[], pronoun_resolutions=[], window_stats={"error": "internal error"})
 
 
 @router.post("/understanding/summarize", response_model=SummarizeResponse)

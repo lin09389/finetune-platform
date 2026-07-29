@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
@@ -128,3 +129,76 @@ def test_scope_write_block_message(tmp_path: Path):
 def test_workspace_rel_for_refresh():
     assert _workspace_rel_for_refresh("/workspace/server/a.py") == "server/a.py"
     assert _workspace_rel_for_refresh("server/a.py") == "server/a.py"
+
+
+def test_context_scan_rejects_out_of_scope_path(tmp_path: Path):
+    """C-2 回归：/context 扫描端点必须拒绝允许根之外的任意路径（防 LFI/路径遍历）。"""
+    from fastapi import HTTPException
+
+    from api.context import _resolve_project_path
+
+    class _Req:
+        def __init__(self, path: str):
+            self.path = path
+            self.project_path = None
+
+    # 允许根内的路径（仓库根/cwd）应通过并返回解析后绝对路径
+    resolved = _resolve_project_path(_Req(str(Path.cwd())))
+    assert resolved
+
+    # 允许根之外的临时目录应被拒绝（403）
+    with pytest.raises(HTTPException) as exc:
+        _resolve_project_path(_Req(str(tmp_path)))
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_context_scan_error_does_not_leak_exception(caplog):
+    """扫描异常时响应体不得回传原始异常字符串，原始异常仅留服务端 error 日志。"""
+    from api.context import ScanRequest, scan_project
+
+    class _FailingService:
+        def scan_project(self, _path):
+            raise RuntimeError("secret-internal-detail-XYZ")
+
+    with caplog.at_level(logging.ERROR, logger="api.context"):
+        resp = await scan_project(ScanRequest(path=str(Path.cwd())), service=_FailingService())
+
+    assert resp.success is False
+    assert resp.message
+    assert "secret-internal-detail-XYZ" not in resp.message
+    # 原始异常保留在服务端日志中，便于排查
+    assert any("secret-internal-detail-XYZ" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_context_scan_path_not_found_returns_generic_message():
+    """FileNotFoundError 分支也不得回传内部路径细节。"""
+    from api.context import ScanRequest, scan_project
+
+    class _MissingService:
+        def scan_project(self, _path):
+            raise FileNotFoundError("C:/secret/internal/location")
+
+    resp = await scan_project(ScanRequest(path=str(Path.cwd())), service=_MissingService())
+    assert resp.success is False
+    assert "C:/secret/internal/location" not in resp.message
+    assert resp.message == "project path not found"
+
+
+@pytest.mark.asyncio
+async def test_context_index_error_does_not_leak_exception(caplog):
+    """索引异常时响应体不得回传原始异常字符串。"""
+    from api.context import IndexRequest, index_project
+
+    class _FailingService:
+        def index_project(self, project_path, force_reindex=False):
+            raise RuntimeError("secret-internal-detail-XYZ")
+
+    with caplog.at_level(logging.ERROR, logger="api.context"):
+        resp = await index_project(IndexRequest(path=str(Path.cwd())), service=_FailingService())
+
+    assert resp.success is False
+    assert resp.message
+    assert "secret-internal-detail-XYZ" not in resp.message
+    assert any("secret-internal-detail-XYZ" in r.getMessage() for r in caplog.records)

@@ -293,8 +293,7 @@ async def security_middleware(request: Request, call_next):
                 },
                 headers={
                     "Retry-After": str(retry_after),
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Credentials": "true",
+                    **_cors_response_headers_for_request(request),
                 },
             )
     try:
@@ -409,7 +408,12 @@ async def _health_payload(include_accelerator: bool) -> dict:
     }
     if not include_accelerator:
         return health
-    import torch
+    try:
+        import torch
+    except ImportError:
+        # Torch-free installs (control-plane-only profiles) still serve a healthy
+        # payload; accelerator info is simply unavailable.
+        return health
 
     health["cuda_available"] = torch.cuda.is_available() if hasattr(torch, "cuda") else False
     if torch.cuda.is_available():

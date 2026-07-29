@@ -9,6 +9,7 @@ Prompt 安全模块
 """
 import logging
 import re
+import base64
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -225,6 +226,9 @@ class PromptInjectionDetector:
     检测和防御各种 Prompt 注入攻击
     """
 
+    # 扫描长度上限，防止超长输入放大多条正则的 CPU 开销（ReDoS/DoS 缓解）。
+    MAX_SCAN_LENGTH = 100_000
+
     def __init__(self, custom_patterns: list[InjectionPattern] | None = None):
         self.patterns = list(INJECTION_PATTERNS)
         if custom_patterns:
@@ -247,16 +251,36 @@ class PromptInjectionDetector:
         max_threat_level = ThreatLevel.SAFE
         warnings = []
 
+        if len(content) > self.MAX_SCAN_LENGTH:
+            warnings.append(
+                f"输入超出扫描长度上限（{self.MAX_SCAN_LENGTH}），已截断后扫描"
+            )
+            content = content[: self.MAX_SCAN_LENGTH]
+
         cleaned_content = self._preprocess(content)
+        # 同时对原始内容与归一化内容做匹配：
+        # - 原始内容保留不可见字符，可命中 unicode 混淆等模式
+        # - 归一化内容可命中被不可见字符混淆绕过的指令类模式
+        scan_targets = [content]
+        if cleaned_content != content:
+            scan_targets.append(cleaned_content)
+        # 尝试对整体 base64 编码的载荷解码后再扫描，识别编码混淆的注入。
+        scan_targets.extend(self._decode_candidates(content))
 
         for pattern in self.patterns:
             compiled = self._compiled_patterns.get(pattern.id)
             if not compiled:
                 continue
 
-            matches = compiled.findall(cleaned_content)
-            if matches:
-                detected.append((pattern, matches[0] if isinstance(matches[0], str) else str(matches[0])))
+            match_text: str | None = None
+            for target in scan_targets:
+                matches = compiled.findall(target)
+                if matches:
+                    match_text = matches[0] if isinstance(matches[0], str) else str(matches[0])
+                    break
+
+            if match_text is not None:
+                detected.append((pattern, match_text))
 
                 if self._threat_rank(pattern.threat_level) > self._threat_rank(max_threat_level):
                     max_threat_level = pattern.threat_level
@@ -299,12 +323,33 @@ class PromptInjectionDetector:
         return order[level]
 
     def _preprocess(self, content: str) -> str:
-        """预处理内容"""
+        """预处理内容：移除不可见字符做归一化，便于命中被混淆绕过的指令。
+
+        注意：仅用于生成归一化副本参与匹配，不会用它替换原始内容的检测，
+        以免破坏包含合法 ``\\uXXXX`` 字面量的正常文本。
+        """
         content = re.sub(r'[\u200b-\u200f\u2028-\u202f\u205f-\u206f\ufeff]', '', content)
 
-        content = re.sub(r'\\[uU]([0-9a-fA-F]{4})', '', content)
-
         return content
+
+    def _decode_candidates(self, content: str) -> list[str]:
+        """尝试对整体 base64 编码的载荷解码，用于识别编码混淆的注入。
+
+        仅当去除首尾空白后整个内容看起来是 base64（长度为 4 的倍数且只包含
+        base64 字符）时才尝试解码，以最小化误报；解码结果必须是可打印文本。
+        """
+        stripped = content.strip()
+        if not (20 <= len(stripped) <= self.MAX_SCAN_LENGTH):
+            return []
+        if len(stripped) % 4 != 0 or not re.fullmatch(r'[A-Za-z0-9+/]+={0,2}', stripped):
+            return []
+        try:
+            decoded = base64.b64decode(stripped, validate=True).decode('utf-8')
+        except (ValueError, UnicodeDecodeError):
+            return []
+        if decoded and decoded.strip() and decoded.isprintable():
+            return [decoded]
+        return []
 
     def add_pattern(self, pattern: InjectionPattern):
         """添加模式"""
@@ -359,9 +404,34 @@ class ContentSanitizer:
             else:
                 sanitized = self._escape_pattern(sanitized, match)
 
+        sanitized = self._mask_secrets(sanitized)
         sanitized = self._general_cleanup(sanitized)
 
         return sanitized, result
+
+    def _mask_secrets(self, content: str) -> str:
+        """对常见敏感信息（API Key/密码/邮箱）进行脱敏，避免回显或入日志时泄露。"""
+        # OpenAI 风格密钥与类似的独立 token
+        content = re.sub(r'\bsk-[A-Za-z0-9]{8,}\b', '[REDACTED]', content)
+        # key/token/secret = value 形式的赋值
+        content = re.sub(
+            r'(?i)\b(api[_-]?key|apikey|access[_-]?token|secret[_-]?key|token|secret)\b(\s*[:=]\s*)["\']?[A-Za-z0-9._\-]{6,}["\']?',
+            r'\1\2[REDACTED]',
+            content,
+        )
+        # 密码赋值
+        content = re.sub(
+            r'(?i)\b(password|passwd|pwd)\b(\s*[:=]\s*)["\']?\S+',
+            r'\1\2[REDACTED]',
+            content,
+        )
+        # 邮箱地址
+        content = re.sub(
+            r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}',
+            '[REDACTED_EMAIL]',
+            content,
+        )
+        return content
 
     def _remove_pattern(self, content: str, match: str) -> str:
         """移除匹配内容"""
@@ -417,12 +487,22 @@ class PromptSecurityMiddleware:
         if len(self._scan_history) > self._max_history:
             self._scan_history = self._scan_history[-self._max_history:]
 
-        if not result.is_safe and result.threat_level.value >= self.block_threshold.value:
+        block_rank = self.detector._threat_rank(self.block_threshold)
+        if not result.is_safe and self.detector._threat_rank(result.threat_level) >= block_rank:
             logger.warning(
                 f"阻止高风险输入: threat_level={result.threat_level.value}, "
                 f"patterns={[p.id for p, _ in result.detected_patterns]}"
             )
             return False, "", result
+
+        # 消毒（非阻断）分支：留下带威胁等级与模式 id 的审计日志，
+        # 便于事后追踪被消毒放行的可疑输入。
+        if result.detected_patterns or result.threat_level != ThreatLevel.SAFE:
+            logger.warning(
+                "输入消毒放行 audit: threat_level=%s, patterns=%s",
+                result.threat_level.value,
+                [p.id for p, _ in result.detected_patterns],
+            )
 
         sanitized, _ = self.sanitizer.sanitize(content)
 
