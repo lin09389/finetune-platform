@@ -412,6 +412,14 @@ git commit -m "feat(agent): route tools by execution phase"
 
 ### Task 12: Replace model-decided subagent creation in controlled mode
 
+> **Refined design (2026-07-29):** The approved Task 12 design and detailed
+> TDD execution plan supersede the short outline below:
+> `docs/plans/2026-07-29-task12-typed-work-unit-orchestration-design.md` and
+> `docs/plans/2026-07-29-task12-typed-work-unit-orchestration.md`.
+> ADR-0013 records the decision to use deterministic typed WorkUnits, keep the
+> parent Build Agent as the only writer before worktrees, and invoke DeepAgents
+> in scoped parent WorkUnits.
+
 **Files:**
 - Create: `server/agent_session/work_unit.py`
 - Create: `server/agent_session/subagent_orchestrator.py`
