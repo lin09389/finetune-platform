@@ -107,7 +107,10 @@ jobs:
           uv sync --frozen --extra dev --extra agent
 
       # Coverage boundary under minimal deps (single source of truth: the
-      # --ignore/--deselect args below; AGENTS.md 「测试」 links here):
+      # --ignore/--deselect args below; AGENTS.md 「测试」 links here).
+      # The excluded set runs on the complementary full-extras track in
+      # .github/workflows/heavy-tests.yml (workflow_dispatch + weekly cron);
+      # keep both lists in sync when changing either:
       # - test_cua.py, test_architecture_cleanup.py: import pynput (cua extra;
       #   also unusable on headless runners)
       # - test_openai_compatible_api.py: imports aiohttp (inference extra)

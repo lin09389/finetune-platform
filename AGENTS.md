@@ -254,8 +254,8 @@ uv run --extra all python -m uvicorn server.main:app --host 127.0.0.1 --port 801
 
 位于 `server/tests/`。仓库根目录运行：`python -m pytest server/tests -q`
 
-**CI 测试口径（最小依赖覆盖边界）**：CI（`.github/workflows/ci.yml`）以 `uv sync --frozen --extra dev --extra agent` 安装依赖，不装 training/inference/cua 等重型 extras（torch、aiohttp、pynput）。本文档不维护用例计数快照；排除清单以 `ci.yml` 单元测试步骤的 `--ignore` / `--deselect` 参数为单一事实源，当前收集数量在该依赖口径下用 `uv run pytest server/tests/ -m "not integration and not e2e" --collect-only -q`（并附加 `ci.yml` 中相同的 `--ignore` / `--deselect` 参数）实测获取。以下依赖边界用例在 CI 中被排除、只能在本地 `--extra all` 环境运行：
-- `test_cua.py`、`test_architecture_cleanup.py`（模块级 `from pynput import ...`，headless CI 亦不可用）
+**CI 测试口径（最小依赖覆盖边界）**：CI（`.github/workflows/ci.yml`）以 `uv sync --frozen --extra dev --extra agent` 安装依赖，不装 training/inference/cua 等重型 extras（torch、aiohttp、pynput）。本文档不维护用例计数快照；排除清单以 `ci.yml` 单元测试步骤的 `--ignore` / `--deselect` 参数为单一事实源，当前收集数量在该依赖口径下用 `uv run pytest server/tests/ -m "not integration and not e2e" --collect-only -q`（并附加 `ci.yml` 中相同的 `--ignore` / `--deselect` 参数）实测获取。以下依赖边界用例在 CI 主流水线中被排除，由补充轨道 `.github/workflows/heavy-tests.yml`（workflow_dispatch + 每周定时，`--extra all --extra dev` 全量依赖）执行，本地可用 `--extra all` 环境运行：
+- `test_cua.py`、`test_architecture_cleanup.py`（模块级 `from pynput import ...`；heavy-tests 轨道通过 xvfb 虚拟显示运行）
 - `test_openai_compatible_api.py`（导入 `aiohttp`，属 inference extra）
 - `test_inference_service_boundary.py` 的 native 服务用例与 `test_phase0_capability_fact_source.py` 的 backend-aware 工具事实用例（运行时需 torch；确切 nodeid 见 `ci.yml` 的 `--deselect` 参数）
 
