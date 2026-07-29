@@ -121,6 +121,9 @@ class EncryptionManager:
         if not plaintext:
             return ""
 
+        if self._fernet is None:
+            raise RuntimeError("加密器未初始化")
+
         try:
             ciphertext = self._fernet.encrypt(plaintext.encode())
             return base64.urlsafe_b64encode(ciphertext).decode()
@@ -140,6 +143,9 @@ class EncryptionManager:
         """
         if not ciphertext:
             return ""
+
+        if self._fernet is None:
+            raise RuntimeError("加密器未初始化")
 
         try:
             decoded = base64.urlsafe_b64decode(ciphertext.encode())
